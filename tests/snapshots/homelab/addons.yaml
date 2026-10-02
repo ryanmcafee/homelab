@@ -227,6 +227,56 @@ metadata:
     argocd.argoproj.io/sync-wave: "6"
 
 ---
+# Source: addons/templates/nats.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-server-ingress
+  namespace: nats
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/instance: nats
+      app.kubernetes.io/component: nats
+  policyTypes:
+    - Ingress
+  ingress:
+    # Client port. Authentication and subject permissions are the account block's job.
+    - ports:
+        - protocol: TCP
+          port: 4222
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+              app.kubernetes.io/instance: nats
+              app.kubernetes.io/component: nats
+      ports:
+        - protocol: TCP
+          port: 6222
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8222
+        - protocol: TCP
+          port: 7777
+
+---
 # Source: addons/templates/envoy-gateway.yaml
 apiVersion: v1
 kind: Secret
@@ -849,18 +899,18 @@ spec:
           resources:
             limits:
               cpu: 200m
-              memory: 48Mi
+              memory: 128Mi
             requests:
               cpu: 50m
-              memory: 32Mi
+              memory: 64Mi
         controller:
           resources:
             limits:
               cpu: 500m
-              memory: 48Mi
+              memory: 256Mi
             requests:
               cpu: 100m
-              memory: 32Mi
+              memory: 128Mi
           workflowDefaults:
             spec:
               podGC:
@@ -4465,7 +4515,7 @@ spec:
                   # PF_AUDIT keeps refusing. Without the lag term an idle full
                   # stream pages.
                   - alert: PFAuditRefusingWrites
-                    expr: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} / (nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} > 0) >= 0.99 and changes(nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) == 0 and on (namespace, server_name, stream_name) min_over_time(nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) > 0'
+                    expr: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} / (nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} > 0) >= 0.99 and changes(nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) == 0 and on (namespace, server_name, account, stream_name) min_over_time(nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) > 0'
                     for: 10m
                     labels:
                       severity: critical
@@ -5570,7 +5620,7 @@ spec:
               cpu: 500m
               memory: 1Gi
             requests:
-              cpu: 100m
+              cpu: 25m
               memory: 256Mi
 
   destination:
@@ -5585,6 +5635,19 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+# Pod-ingress scope for the NATS server pods (event-contract.md Sec. 5.3, ADR-043 D9).
+#
+# Accounts partition the client port only. The monitoring port (8222) answers /jsz and /connz
+# across every account with no tenant authorization, and the exporter (7777) republishes the
+# same stream, consumer and config metadata, so both are reachable from Prometheus alone.
+# Only server-mode Prometheus pods match; a PrometheusAgent or other scraper needs a new peer.
+# The exporter reads 8222 over the pod's loopback, which no NetworkPolicy polices.
+#
+# Selecting a pod for Ingress denies every port not listed, so the client and cluster ports
+# are listed explicitly. `kubectl port-forward` enters the pod's own network namespace and is
+# unaffected; the API server's pod proxy is not, and is denied on 8222 and 7777.
+#
+# Sync Wave: 10, with the server it scopes.
 
 ---
 # Source: addons/templates/node-feature-discovery.yaml
@@ -5895,7 +5958,7 @@ spec:
       # Derived from configuration/ (ADR-010); the child's values stay environment-free.
       valuesObject:
         namespace: "triage-agent"
-        image: "ghcr.io/REPLACEME-user/homelab-triage-agent:0.1.1"
+        image: "ghcr.io/replaceme-user/homelab-triage-agent:0.1.1"
         repoUrl: "https://github.com/REPLACEME-user/homelab.git"
         repoSlug: "REPLACEME-user/homelab"
         alertmanagerUrl: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"

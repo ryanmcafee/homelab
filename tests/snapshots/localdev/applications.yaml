@@ -778,7 +778,7 @@ spec:
                       cpu: 500m
                       memory: 512Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 256Mi
               nodeSelector:
                 kubernetes.io/arch: null
@@ -1727,7 +1727,7 @@ spec:
                       cpu: 1000m
                       memory: 1Gi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 512Mi
               nodeSelector:
                 kubernetes.io/arch: null
@@ -1869,7 +1869,7 @@ spec:
                       cpu: 1000m
                       memory: 1Gi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 512Mi
               nodeSelector:
                 kubernetes.io/arch: null
@@ -2003,7 +2003,7 @@ spec:
                       cpu: 500m
                       memory: 512Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 256Mi
               nodeSelector:
                 kubernetes.io/arch: null

@@ -22,7 +22,18 @@ configuration value, and it cannot half-land.
 {{- if not $parts._1 -}}
 {{- fail (printf "nats.principalNkeys entry %q is not a <principal>=<public nkey> pair" $pair) -}}
 {{- end -}}
-{{- $_ := set $keys (trim $parts._0) (trim $parts._1) -}}
+{{- $name := trim $parts._0 -}}
+{{/*
+One key per principal. The map cannot hold two, so a second pair for the same name would
+silently replace the first -- which is exactly what an operator staging a rotation would try,
+and it would leave every client still holding the old seed refused with no error anywhere but
+at connect time. Rotation is therefore a bounded maintenance interruption, not an overlap:
+docs/runbooks/nats-credentials.md.
+*/}}
+{{- if hasKey $keys $name -}}
+{{- fail (printf "nats.principalNkeys names %s twice; this renderer accepts one key per principal, so a second pair replaces the first instead of adding an accepted key -- rotate through the documented maintenance interruption rather than a staged overlap" $name) -}}
+{{- end -}}
+{{- $_ := set $keys $name (trim $parts._1) -}}
 {{- end -}}
 {{- end -}}
 {{- $keys | toYaml -}}
@@ -53,6 +64,55 @@ against a server would widen a trust boundary on inference. The bound is checked
 {{- end -}}
 {{- end -}}
 
+{{/*
+A public key the server accepts is only usable while the matching seed reaches its client, so the
+two land in one change or neither does. Exactly one seed source is declared per surface: a
+1Password vault path (homelab, through the operator) or `bootstrapSeeded` (Kind, where
+scripts/localdev-kind.ts mints the seeds into Secrets because there is no vault). With neither,
+rendering the accounts block would leave every client refused with no credential to present --
+an outage, and never a fallback to anonymous access.
+
+`system` is refused in `principalNkeys`: `$SYS` has its own field, and a system key in the tenant
+map would render the break-glass credential as a tenant user holding tenant grants (ADR-043 D4).
+*/}}
+{{- define "addons.natsAssertSeedSource" -}}
+{{- $nkeys := fromYaml (include "addons.natsPrincipalNkeys" .) -}}
+{{- if hasKey $nkeys "system" -}}
+{{- fail "nats.principalNkeys names `system`; the break-glass $SYS user belongs in nats.systemAccountNkey, and naming it here renders it as a tenant user holding tenant grants (ADR-043 D4)" -}}
+{{- end -}}
+{{- if $nkeys -}}
+{{/*
+Two principals sharing a public key are one identity holding the union of two permission sets,
+which is the account boundary failing in the place a values diff reads as correct.
+*/}}
+{{- $seen := dict -}}
+{{- range $principal, $key := $nkeys -}}
+{{- if hasKey $seen $key -}}
+{{- fail (printf "nats.principalNkeys gives %s and %s the same public key, so they authenticate as one identity holding the union of both permission sets" $principal (get $seen $key)) -}}
+{{- end -}}
+{{- $_ := set $seen $key $principal -}}
+{{- if hasPrefix "S" $key -}}
+{{- fail (printf "the public key for %s starts \"S\", which is a SEED; nats.principalNkeys is public configuration and reaches Git, rendered manifests and CI logs" $principal) -}}
+{{- end -}}
+{{- end -}}
+{{- if hasPrefix "S" (default "" .Values.nats.systemAccountNkey) -}}
+{{- fail "nats.systemAccountNkey starts \"S\", which is a SEED; the server holds only the PUBLIC half of the break-glass key" -}}
+{{- end -}}
+{{- $credentials := .Values.nats.credentials -}}
+{{- if and (not $credentials.onePasswordVaultPath) (not $credentials.bootstrapSeeded) -}}
+{{- fail "nats.principalNkeys is set but no seed source is declared; set nats.credentials.onePasswordVaultPath so the 1Password operator delivers each `nats-principal-<principal>` Secret, or nats.credentials.bootstrapSeeded=true on a surface whose bootstrap mints them -- a public key with no matching seed refuses its client rather than falling back to anonymous access" -}}
+{{- end -}}
+{{- if and $credentials.onePasswordVaultPath $credentials.bootstrapSeeded -}}
+{{- fail "nats.credentials sets both onePasswordVaultPath and bootstrapSeeded; two seed sources for one principal means the Secret in the cluster and the item in the vault can disagree, and which key a client presents then depends on apply order" -}}
+{{- end -}}
+{{- range $principal, $namespaces := $credentials.extraNamespaces -}}
+{{- if not (hasKey $nkeys $principal) -}}
+{{- fail (printf "nats.credentials.extraNamespaces names %s, which nats.principalNkeys does not; replicating a seed for a principal the server does not accept spreads a credential that authenticates nothing" $principal) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Substitutes the tenant token into a grant list. The renderer is the only thing that does it. */}}
 {{- define "addons.natsTenantSubjects" -}}
 {{- $tenant := .tenant -}}
@@ -75,6 +135,7 @@ account block and the credentials that make it usable in the same change.
 */}}
 {{- define "addons.natsAccountsMerge" -}}
 {{- include "addons.natsAssertCalloutBounded" . -}}
+{{- include "addons.natsAssertSeedSource" . -}}
 {{- $nkeys := fromYaml (include "addons.natsPrincipalNkeys" .) -}}
 {{- if $nkeys -}}
 {{- if not .Values.nats.testOnlyAuthWithoutNackInbox -}}
@@ -83,6 +144,39 @@ account block and the credentials that make it usable in the same change.
 {{- $contract := .Files.Get "files/nats-accounts.gen.yaml" | fromYaml -}}
 {{- if not $contract.principals -}}
 {{- fail "files/nats-accounts.gen.yaml has no principals; regenerate it with `bun scripts/render-nats-accounts.ts`" -}}
+{{- end -}}
+{{/*
+EXACT coverage of the declaration, both directions. The account block renders from whatever keys
+it is given and the server then refuses every principal that was left out -- so a partial map is
+an outage with no error anywhere but at a client's connect, and never a fallback to anonymous.
+
+This is also the guard that makes the one fail-silent path loud: `helm --set` splits on unescaped
+commas, so `--set nats.principalNkeys=a=U1,b=U2` supplies only the first pair. Set the value
+through a values file or `--set-string` with escaped commas; the ConfigSet path writes YAML and is
+unaffected.
+
+A `pending` principal is excluded here and refused below: nothing pre-creates its durable, so a
+credential for it is a key with no owner.
+*/}}
+{{- $expected := list -}}
+{{- range $principal := $contract.principals -}}
+{{- if not $principal.pending -}}
+{{- $expected = append $expected $principal.name -}}
+{{- end -}}
+{{- end -}}
+{{- $missing := list -}}
+{{- range $name := $expected -}}
+{{- if not (hasKey $nkeys $name) -}}
+{{- $missing = append $missing $name -}}
+{{- end -}}
+{{- end -}}
+{{- if $missing -}}
+{{- fail (printf "nats.principalNkeys is missing %s; the server refuses every principal absent from the accounts block, so an incomplete map is an outage rather than a partial rollout. If you passed it with `helm --set`, note that --set splits on unescaped commas and kept only the first pair" (join ", " $missing)) -}}
+{{- end -}}
+{{- range $name, $key := $nkeys -}}
+{{- if not (has $name $expected) -}}
+{{- fail (printf "nats.principalNkeys names %s, which is not a declared non-pending principal in files/nats-accounts.gen.yaml; the accounts block would drop it silently, so a misspelled name reads as a missing credential at a client's connect instead" $name) -}}
+{{- end -}}
 {{- end -}}
 {{- $tenant := required "nats.tenant is required once nats.principalNkeys is set" .Values.nats.tenant -}}
 {{- $limits := .Values.nats.accountLimits -}}

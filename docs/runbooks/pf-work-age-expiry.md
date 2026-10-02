@@ -125,7 +125,7 @@ You have 12h (warning) or 6h (critical) before the queue is deleted. The command
    ```bash
    kubectl -n nats exec -it deploy/nats-box -- nats stream info PF_WORK
    # or, without nats-box:
-   kubectl -n nats port-forward svc/nats 8222 &
+   kubectl -n nats port-forward pod/nats-0 8222 &
    curl -s 'localhost:8222/jsz?streams=1&consumers=1&accounts=1' \
      | jq '.account_details[].stream_detail[] | select(.name=="PF_WORK") | .state'
    ```

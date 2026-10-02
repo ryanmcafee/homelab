@@ -884,7 +884,7 @@ spec:
                       cpu: 500m
                       memory: 288Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 192Mi
         persistence:
           books:
@@ -1986,7 +1986,7 @@ spec:
                       cpu: 1000m
                       memory: 960Mi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 640Mi
         persistence:
           config:
@@ -2235,7 +2235,7 @@ spec:
                       cpu: 1000m
                       memory: 1536Mi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 896Mi
         persistence:
           config:
@@ -2374,7 +2374,7 @@ spec:
                       cpu: 500m
                       memory: 448Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 288Mi
         persistence:
           config:
