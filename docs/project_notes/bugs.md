@@ -558,12 +558,6 @@ These are documented errors with known solutions:
 - **Solution**: Both flags are `false` in `terragrunt/modules/unifi-gateway/main.tf`; apply with `task tf:apply:component COMPONENT=unifi-gateway`
 - **Prevention**: Test an export end to end with one synthetic message before trusting the controller's setting page
 
-### 2026-09-28 - Diagnose omitted healthy Applications with sync drift
-- **Issue**: `localdev:diagnose` printed all-clear after level 2 rejected Healthy/Succeeded/OutOfSync.
-- **Cause**: `cmdDiagnose` called `isReady(app, false)` and returned before namespace collection.
-- **Fix**: Require sync readiness in diagnosis; print `status.sync.status` and full sync detail, then collect destination namespace evidence. Preserve the existing new-empty-chart exception.
-- **Verification**: Command regression fails for OutOfSync before the fix and passes after; Synced control stays quiet. Real Kind failure-path verification is tracked separately under MCAA-468.
-
 ### 2026-09-30 - PR dependency triage label write returned 403
 - **Issue**: `pull_request_target` run 36656956730 failed on `PUT /repos/ryanmcafee/homelab/issues/511/labels` although the job log granted `Issues: write`.
 - **Diagnosis**: The workflow labels pull requests through the shared Issues endpoint. The response advertises `issues=write; pull_requests=write`, but the granted Issues scope did not authorize the operation in this run. Repository Actions permission settings could not be read by the current integration (403), so the exact server-side policy remains unconfirmed.
