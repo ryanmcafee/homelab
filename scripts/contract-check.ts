@@ -596,6 +596,17 @@ export function validateTaxonomy(taxonomy: Taxonomy): Violation[] {
         "a stream with neither subjects nor sources receives nothing",
       );
 
+    const originCounts = new Map<string, number>();
+    for (const src of st.sources ?? [])
+      originCounts.set(src.name, (originCounts.get(src.name) ?? 0) + 1);
+    for (const [origin, count] of originCounts)
+      if (count > 1)
+        v(
+          "stream-source-same-origin",
+          st.name,
+          `declares ${count} sources entries from ${origin}. prometheus-nats-exporter labels nats_stream_source_* by source_name and not by filter subject, so the entries collide on one label set and /metrics returns HTTP 500 -- every nats_* series disappears, alerts included. Declare ONE ${origin} entry and carry each filter in its subjectTransforms (ADR-044)`,
+        );
+
     // A sourced stream may only source subjects its upstream actually captures.
     for (const src of st.sources ?? []) {
       const upstream = taxonomy.streams.find((s) => s.name === src.name);

@@ -1,6 +1,856 @@
 {
   "version": 1,
   "documents": {
+    "bus-principals.v1.yaml": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "version": {
+          "kind": "number",
+          "value": "1"
+        },
+        "accounts": {
+          "kind": "object"
+        },
+        "accounts.per_tenant": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "accounts.name_template": {
+          "kind": "string",
+          "value": "\"TENANT_<TENANT>\""
+        },
+        "accounts.name_pattern": {
+          "kind": "string",
+          "value": "\"^TENANT_[A-Z0-9][A-Z0-9_]{0,62}$\""
+        },
+        "accounts.system_account": {
+          "kind": "string",
+          "value": "\"$SYS\""
+        },
+        "accounts.system_account_principals": {
+          "kind": "list",
+          "members": []
+        },
+        "accounts.exports": {
+          "kind": "string",
+          "value": "\"forbidden\""
+        },
+        "accounts.imports": {
+          "kind": "string",
+          "value": "\"forbidden\""
+        },
+        "accounts.disabled_unless_reviewed": {
+          "kind": "list",
+          "members": [
+            "\"gateways\"",
+            "\"leafnodes\"",
+            "\"mappings\"",
+            "\"mqtt\"",
+            "\"websocket\""
+          ]
+        },
+        "accounts.jetstream_limits_required": {
+          "kind": "list",
+          "members": [
+            "\"max_consumers\"",
+            "\"max_memory\"",
+            "\"max_store\"",
+            "\"max_streams\""
+          ]
+        },
+        "accounts.jetstream_budget_rule": {
+          "kind": "string",
+          "value": "\"PER-STREAM `maxBytes` SUMS BELOW ITS ACCOUNT'S `max_store`, AND THE ACCOUNTS' `max_store` VALUES SUM BELOW THE FILE STORE WITH HEADROOM. ADR-042's `maxBytesBudgetFraction` caps a surface's summed `max_bytes` at 75% of the WHOLE file store. That denominator is correct for exactly one account and wrong at the second: applied unchanged it measures every tenant's streams against the whole store, so it passes a configuration in which one account is overcommitted against its own `max_store` and admits the 10047 refusal the gate exists to prevent. Homelab's single account makes the two arithmetics identical, which is why the discrepancy is invisible until a second account exists. RECONCILING THE GATE TO THE ACCOUNT LEVEL GATES ONBOARDING THE SECOND TENANT, not the first. Storage limits bound storage only: CPU, connection count and shared-node contention stay shared-server residual risk.\""
+        },
+        "subject_grants": {
+          "kind": "object"
+        },
+        "subject_grants.tenant_ceiling": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.>\""
+        },
+        "subject_grants.never_granted": {
+          "kind": "list",
+          "members": [
+            "\"$JS.>\"",
+            "\"$JS.ACK.>\"",
+            "\"$JS.API.>\"",
+            "\"_INBOX.>\"",
+            "\"pf.*.>\"",
+            "\"pf.>\""
+          ]
+        },
+        "subject_grants.inbox_prefix_template": {
+          "kind": "string",
+          "value": "\"_INBOX.<principal>\""
+        },
+        "subject_grants.inbox_subscribe_template": {
+          "kind": "string",
+          "value": "\"_INBOX.<principal>.>\""
+        },
+        "subject_grants.reply_mechanism": {
+          "kind": "string",
+          "value": "\"server_response_permission\""
+        },
+        "subject_grants.reply_inbox_publish_grant": {
+          "kind": "string",
+          "value": "\"forbidden\""
+        },
+        "subject_grants.ack_templates": {
+          "kind": "list",
+          "members": [
+            "\"$JS.ACK.*.*.<stream>.<consumer>.>\"",
+            "\"$JS.ACK.<stream>.<consumer>.>\""
+          ]
+        },
+        "roles": {
+          "kind": "object"
+        },
+        "roles.publisher": {
+          "kind": "object"
+        },
+        "roles.publisher.description": {
+          "kind": "string",
+          "value": "\"Publishes its registry-owned types and nothing else. It never reads a stream, so it gets no stream or consumer API at all.\""
+        },
+        "roles.publisher.js_api_allow": {
+          "kind": "list",
+          "members": [
+            "\"$JS.API.INFO\""
+          ]
+        },
+        "roles.publisher.js_api_deny": {
+          "kind": "list",
+          "members": []
+        },
+        "roles.publisher.binds_stream_explicitly": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "roles.bound_puller": {
+          "kind": "object"
+        },
+        "roles.bound_puller.description": {
+          "kind": "string",
+          "value": "\"Binds a durable that NACK pre-created, with NO consumer-create grant of any kind. Every workload consumer takes this path: a create carries a body `deliver_subject` the server never checks against the creator's publish grant, so self-create would let a workload redirect its stream into any subscribed subject in the account. (ADR-043 D6a, D6b)\""
+        },
+        "roles.bound_puller.js_api_allow": {
+          "kind": "list",
+          "members": [
+            "\"$JS.API.CONSUMER.INFO.<stream>.<consumer>\"",
+            "\"$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>\"",
+            "\"$JS.API.INFO\"",
+            "\"$JS.API.STREAM.INFO.<stream>\""
+          ]
+        },
+        "roles.bound_puller.js_api_deny": {
+          "kind": "list",
+          "members": [
+            "\"$JS.API.CONSUMER.CREATE.*\"",
+            "\"$JS.API.CONSUMER.DURABLE.CREATE.*.*\""
+          ]
+        },
+        "roles.bound_puller.binds_stream_explicitly": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "roles.bound_puller.durable_is_exclusive": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "roles.stream_controller": {
+          "kind": "object"
+        },
+        "roles.stream_controller.description": {
+          "kind": "string",
+          "value": "\"NACK, and only NACK. The stream set is GitOps state (ADR-038), so this is the one role with stream lifecycle rights -- scoped to its tenant's account through the `Account` resource, never to `$SYS`. The static backend uses `spec.nkey`, with the matching PUBLIC user key assigned to the tenant account; `spec.creds` is an nsc credentials file and the two are not interchangeable. (ADR-043 D4)\""
+        },
+        "roles.stream_controller.js_api_allow": {
+          "kind": "list",
+          "members": [
+            "\"$JS.API.CONSUMER.CREATE.*\"",
+            "\"$JS.API.CONSUMER.CREATE.*.>\"",
+            "\"$JS.API.CONSUMER.DURABLE.CREATE.*.*\"",
+            "\"$JS.API.CONSUMER.INFO.*.*\"",
+            "\"$JS.API.CONSUMER.LIST.*\"",
+            "\"$JS.API.CONSUMER.NAMES.*\"",
+            "\"$JS.API.INFO\"",
+            "\"$JS.API.STREAM.CREATE.*\"",
+            "\"$JS.API.STREAM.INFO.*\"",
+            "\"$JS.API.STREAM.LIST\"",
+            "\"$JS.API.STREAM.NAMES\"",
+            "\"$JS.API.STREAM.UPDATE.*\""
+          ]
+        },
+        "roles.stream_controller.js_api_deny": {
+          "kind": "list",
+          "members": [
+            "\"$JS.API.ACCOUNT.PURGE\"",
+            "\"$JS.API.CONSUMER.DELETE.*.*\"",
+            "\"$JS.API.STREAM.DELETE.*\"",
+            "\"$JS.API.STREAM.MSG.DELETE.*\"",
+            "\"$JS.API.STREAM.MSG.GET.*\"",
+            "\"$JS.API.STREAM.PURGE.*\"",
+            "\"$JS.API.STREAM.RESTORE.*\"",
+            "\"$JS.API.STREAM.SNAPSHOT.*\""
+          ]
+        },
+        "roles.stream_controller.binds_stream_explicitly": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "principals": {
+          "kind": "list"
+        },
+        "principals.nack": {
+          "kind": "object"
+        },
+        "principals.nack.name": {
+          "kind": "string",
+          "value": "\"nack\""
+        },
+        "principals.nack.role": {
+          "kind": "string",
+          "value": "\"stream_controller\""
+        },
+        "principals.nack.component": {
+          "kind": "string",
+          "value": "\"nack\""
+        },
+        "principals.nack.publish": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.nack.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.workload-operator": {
+          "kind": "object"
+        },
+        "principals.workload-operator.name": {
+          "kind": "string",
+          "value": "\"workload-operator\""
+        },
+        "principals.workload-operator.role": {
+          "kind": "string",
+          "value": "\"bound_puller\""
+        },
+        "principals.workload-operator.component": {
+          "kind": "string",
+          "value": "\"workload-operator\""
+        },
+        "principals.workload-operator.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.workload.deployment.degraded.v1.ev\"",
+            "\"pf.<tenant>.workload.deployment.deployed.v1.ev\"",
+            "\"pf.<tenant>.workload.deployment.promote.v1.dl\"",
+            "\"pf.<tenant>.workload.deployment.promoted.v1.ev\""
+          ]
+        },
+        "principals.workload-operator.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.workload-operator.consumes": {
+          "kind": "list"
+        },
+        "principals.workload-operator.consumes.#0": {
+          "kind": "object"
+        },
+        "principals.workload-operator.consumes.#0.stream": {
+          "kind": "string",
+          "value": "\"PF_WORK\""
+        },
+        "principals.workload-operator.consumes.#0.consumer": {
+          "kind": "string",
+          "value": "\"workload-operator-deployment-promote-v1\""
+        },
+        "principals.workload-operator.consumes.#0.filter": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.workload.deployment.promote.v1.wq\""
+        },
+        "principals.gitops-bridge": {
+          "kind": "object"
+        },
+        "principals.gitops-bridge.name": {
+          "kind": "string",
+          "value": "\"gitops-bridge\""
+        },
+        "principals.gitops-bridge.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.gitops-bridge.component": {
+          "kind": "string",
+          "value": "\"gitops-bridge\""
+        },
+        "principals.gitops-bridge.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.gitops.application.drifted.v1.ev\"",
+            "\"pf.<tenant>.gitops.application.synced.v1.ev\""
+          ]
+        },
+        "principals.gitops-bridge.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.infra-operator": {
+          "kind": "object"
+        },
+        "principals.infra-operator.name": {
+          "kind": "string",
+          "value": "\"infra-operator\""
+        },
+        "principals.infra-operator.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.infra-operator.component": {
+          "kind": "string",
+          "value": "\"infra-operator\""
+        },
+        "principals.infra-operator.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.infra.node.replaced.v1.ev\""
+          ]
+        },
+        "principals.infra-operator.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.homelab-cli": {
+          "kind": "object"
+        },
+        "principals.homelab-cli.name": {
+          "kind": "string",
+          "value": "\"homelab-cli\""
+        },
+        "principals.homelab-cli.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.homelab-cli.component": {
+          "kind": "string",
+          "value": "\"homelab-cli\""
+        },
+        "principals.homelab-cli.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.control.bootstrap.progressed.v1.ev\""
+          ]
+        },
+        "principals.homelab-cli.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.identity-broker": {
+          "kind": "object"
+        },
+        "principals.identity-broker.name": {
+          "kind": "string",
+          "value": "\"identity-broker\""
+        },
+        "principals.identity-broker.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.identity-broker.component": {
+          "kind": "string",
+          "value": "\"identity-broker\""
+        },
+        "principals.identity-broker.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.identity.principal.issued.v1.ev\"",
+            "\"pf.<tenant>.identity.principal.revoked.v1.ev\""
+          ]
+        },
+        "principals.identity-broker.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.slo-bridge": {
+          "kind": "object"
+        },
+        "principals.slo-bridge.name": {
+          "kind": "string",
+          "value": "\"slo-bridge\""
+        },
+        "principals.slo-bridge.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.slo-bridge.component": {
+          "kind": "string",
+          "value": "\"slo-bridge\""
+        },
+        "principals.slo-bridge.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.observability.slo.burned.v1.ev\""
+          ]
+        },
+        "principals.slo-bridge.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.platform-api": {
+          "kind": "object"
+        },
+        "principals.platform-api.name": {
+          "kind": "string",
+          "value": "\"platform-api\""
+        },
+        "principals.platform-api.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.platform-api.component": {
+          "kind": "string",
+          "value": "\"platform-api\""
+        },
+        "principals.platform-api.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.workload.deployment.describe.v1.rq\"",
+            "\"pf.<tenant>.workload.deployment.promote.v1.wq\""
+          ]
+        },
+        "principals.platform-api.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.dlq-reporter": {
+          "kind": "object"
+        },
+        "principals.dlq-reporter.name": {
+          "kind": "string",
+          "value": "\"dlq-reporter\""
+        },
+        "principals.dlq-reporter.role": {
+          "kind": "string",
+          "value": "\"bound_puller\""
+        },
+        "principals.dlq-reporter.component": {
+          "kind": "string",
+          "value": "\"dlq-reporter\""
+        },
+        "principals.dlq-reporter.publish": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.dlq-reporter.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.dlq-reporter.consumes": {
+          "kind": "list"
+        },
+        "principals.dlq-reporter.consumes.#0": {
+          "kind": "object"
+        },
+        "principals.dlq-reporter.consumes.#0.stream": {
+          "kind": "string",
+          "value": "\"PF_DLQ\""
+        },
+        "principals.dlq-reporter.consumes.#0.consumer": {
+          "kind": "string",
+          "value": "\"dlq-reporter-observability-v1\""
+        },
+        "principals.dlq-reporter.consumes.#0.filter": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.*.*.*.*.dl\""
+        },
+        "principals.argo-events-bridge": {
+          "kind": "object"
+        },
+        "principals.argo-events-bridge.name": {
+          "kind": "string",
+          "value": "\"argo-events-bridge\""
+        },
+        "principals.argo-events-bridge.role": {
+          "kind": "string",
+          "value": "\"bound_puller\""
+        },
+        "principals.argo-events-bridge.component": {
+          "kind": "string",
+          "value": "\"argo-events-bridge\""
+        },
+        "principals.argo-events-bridge.pending": {
+          "kind": "string",
+          "value": "\"MCAA-7\""
+        },
+        "principals.argo-events-bridge.publish": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.argo-events-bridge.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.argo-events-bridge.consumes": {
+          "kind": "list"
+        },
+        "principals.argo-events-bridge.consumes.#0": {
+          "kind": "object"
+        },
+        "principals.argo-events-bridge.consumes.#0.stream": {
+          "kind": "string",
+          "value": "\"PF_EVENTS\""
+        },
+        "principals.argo-events-bridge.consumes.#0.consumer": {
+          "kind": "string",
+          "value": "\"argo-events-bridge-delivery-v1\""
+        },
+        "principals.argo-events-bridge.consumes.#0.filter": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.delivery.*.*.*.ev\""
+        },
+        "principals.verify": {
+          "kind": "object"
+        },
+        "principals.verify.name": {
+          "kind": "string",
+          "value": "\"verify\""
+        },
+        "principals.verify.role": {
+          "kind": "string",
+          "value": "\"bound_puller\""
+        },
+        "principals.verify.component": {
+          "kind": "string",
+          "value": "\"verify\""
+        },
+        "principals.verify.publish": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.verify.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.verify.consumes": {
+          "kind": "list"
+        },
+        "principals.verify.consumes.#0": {
+          "kind": "object"
+        },
+        "principals.verify.consumes.#0.stream": {
+          "kind": "string",
+          "value": "\"PF_EVENTS\""
+        },
+        "principals.verify.consumes.#0.consumer": {
+          "kind": "string",
+          "value": "\"verify-workload-v1\""
+        },
+        "principals.verify.consumes.#0.filter": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.workload.*.*.v1.ev\""
+        },
+        "conformance": {
+          "kind": "object"
+        },
+        "conformance.level_0": {
+          "kind": "list"
+        },
+        "conformance.level_0.no_wildcard_tenant_grant": {
+          "kind": "object"
+        },
+        "conformance.level_0.no_wildcard_tenant_grant.id": {
+          "kind": "string",
+          "value": "\"no_wildcard_tenant_grant\""
+        },
+        "conformance.level_0.no_wildcard_tenant_grant.asserts": {
+          "kind": "string",
+          "value": "\"No principal publishes or subscribes on `pf.>` or any `pf.*.` form.\""
+        },
+        "conformance.level_0.grant_within_producer_ownership": {
+          "kind": "object"
+        },
+        "conformance.level_0.grant_within_producer_ownership.id": {
+          "kind": "string",
+          "value": "\"grant_within_producer_ownership\""
+        },
+        "conformance.level_0.grant_within_producer_ownership.asserts": {
+          "kind": "string",
+          "value": "\"Every `.ev`/`.rq`/`.wq` publish grant is a subject the registry assigns this component as `producer`, and every `.dl` grant derives from a `wq` subject this principal consumes.\""
+        },
+        "conformance.level_0.grant_within_tenant_ceiling": {
+          "kind": "object"
+        },
+        "conformance.level_0.grant_within_tenant_ceiling.id": {
+          "kind": "string",
+          "value": "\"grant_within_tenant_ceiling\""
+        },
+        "conformance.level_0.grant_within_tenant_ceiling.asserts": {
+          "kind": "string",
+          "value": "\"Every `pf.` grant begins `pf.<tenant>.` and never a literal tenant token.\""
+        },
+        "conformance.level_0.no_shared_inbox_or_ack": {
+          "kind": "object"
+        },
+        "conformance.level_0.no_shared_inbox_or_ack.id": {
+          "kind": "string",
+          "value": "\"no_shared_inbox_or_ack\""
+        },
+        "conformance.level_0.no_shared_inbox_or_ack.asserts": {
+          "kind": "string",
+          "value": "\"No principal is granted `_INBOX.>` or `$JS.ACK.>`, and no ACK grant omits its own stream and consumer.\""
+        },
+        "conformance.level_0.js_api_allow_is_exhaustive": {
+          "kind": "object"
+        },
+        "conformance.level_0.js_api_allow_is_exhaustive.id": {
+          "kind": "string",
+          "value": "\"js_api_allow_is_exhaustive\""
+        },
+        "conformance.level_0.js_api_allow_is_exhaustive.asserts": {
+          "kind": "string",
+          "value": "\"Every role's `js_api_allow` is a subset of the endpoints its role needs, and no role allows `$JS.API.>`, `STREAM.MSG.GET`, `ACCOUNT.PURGE`, `STREAM.RESTORE` or `STREAM.SNAPSHOT`.\""
+        },
+        "conformance.level_0.consumer_create_denies_present": {
+          "kind": "object"
+        },
+        "conformance.level_0.consumer_create_denies_present.id": {
+          "kind": "string",
+          "value": "\"consumer_create_denies_present\""
+        },
+        "conformance.level_0.consumer_create_denies_present.asserts": {
+          "kind": "string",
+          "value": "\"Every role that binds a consumer carries the name-only and legacy-durable denies as defence in depth, and `stream_controller` denies none of the create forms it needs.\""
+        },
+        "conformance.level_0.consumer_create_only_stream_controller": {
+          "kind": "object"
+        },
+        "conformance.level_0.consumer_create_only_stream_controller.id": {
+          "kind": "string",
+          "value": "\"consumer_create_only_stream_controller\""
+        },
+        "conformance.level_0.consumer_create_only_stream_controller.asserts": {
+          "kind": "string",
+          "value": "\"No role but `stream_controller`, and no rendered principal but `nack`, holds an allow that MATCHES a `$JS.API.CONSUMER.CREATE` or `$JS.API.CONSUMER.DURABLE.CREATE` subject, compared as NATS subject patterns so `$JS.API.>`, `$JS.API.CONSUMER.>` and `>` fail as a literal create grant does. (ADR-043 D6b)\""
+        },
+        "conformance.level_0.no_push_consumer": {
+          "kind": "object"
+        },
+        "conformance.level_0.no_push_consumer.id": {
+          "kind": "string",
+          "value": "\"no_push_consumer\""
+        },
+        "conformance.level_0.no_push_consumer.asserts": {
+          "kind": "string",
+          "value": "\"No rendered `Consumer` sets a non-empty `spec.deliverSubject` or `spec.deliverGroup`; every consumer is pull-only, so delivery is never redirected to a subject in Git. (ADR-043 D6b)\""
+        },
+        "conformance.level_0.no_system_account_principal": {
+          "kind": "object"
+        },
+        "conformance.level_0.no_system_account_principal.id": {
+          "kind": "string",
+          "value": "\"no_system_account_principal\""
+        },
+        "conformance.level_0.no_system_account_principal.asserts": {
+          "kind": "string",
+          "value": "\"`accounts.system_account_principals` is empty and no principal names `$SYS`.\""
+        },
+        "conformance.level_0.no_cross_account_link": {
+          "kind": "object"
+        },
+        "conformance.level_0.no_cross_account_link.id": {
+          "kind": "string",
+          "value": "\"no_cross_account_link\""
+        },
+        "conformance.level_0.no_cross_account_link.asserts": {
+          "kind": "string",
+          "value": "\"Exports and imports are forbidden and every topology feature that bypasses them is listed as disabled.\""
+        },
+        "conformance.level_0.jetstream_limits_declared": {
+          "kind": "object"
+        },
+        "conformance.level_0.jetstream_limits_declared.id": {
+          "kind": "string",
+          "value": "\"jetstream_limits_declared\""
+        },
+        "conformance.level_0.jetstream_limits_declared.asserts": {
+          "kind": "string",
+          "value": "\"All four per-account JetStream limits are required, and the rendered account sets all four.\""
+        },
+        "conformance.level_0.durable_not_shared": {
+          "kind": "object"
+        },
+        "conformance.level_0.durable_not_shared.id": {
+          "kind": "string",
+          "value": "\"durable_not_shared\""
+        },
+        "conformance.level_0.durable_not_shared.asserts": {
+          "kind": "string",
+          "value": "\"No two principals name the same (stream, consumer) pair, so a `bound_puller`'s `durable_is_exclusive` is a property of the declaration and not a comment.\""
+        },
+        "conformance.level_0.stream_and_consumer_name_account": {
+          "kind": "object"
+        },
+        "conformance.level_0.stream_and_consumer_name_account.id": {
+          "kind": "string",
+          "value": "\"stream_and_consumer_name_account\""
+        },
+        "conformance.level_0.stream_and_consumer_name_account.asserts": {
+          "kind": "string",
+          "value": "\"Every rendered `Stream` and `Consumer` sets `spec.account`.\""
+        },
+        "conformance.level_0.callout_allowed_accounts_bounded": {
+          "kind": "object"
+        },
+        "conformance.level_0.callout_allowed_accounts_bounded.id": {
+          "kind": "string",
+          "value": "\"callout_allowed_accounts_bounded\""
+        },
+        "conformance.level_0.callout_allowed_accounts_bounded.asserts": {
+          "kind": "string",
+          "value": "\"When the callout backend is configured, `allowed_accounts` is non-empty and excludes `$SYS` -- v2.15.0 delegates EVERY account when it is left empty, so the secure value is not the default.\""
+        },
+        "conformance.level_2": {
+          "kind": "list"
+        },
+        "conformance.level_2.start_bind_pull_ack_reconnect": {
+          "kind": "object"
+        },
+        "conformance.level_2.start_bind_pull_ack_reconnect.id": {
+          "kind": "string",
+          "value": "\"start_bind_pull_ack_reconnect\""
+        },
+        "conformance.level_2.start_bind_pull_ack_reconnect.asserts": {
+          "kind": "string",
+          "value": "\"A principal starts, binds, pulls, ACK/NAK/TERMs and reconnects under the real rendered ACL.\""
+        },
+        "conformance.level_2.lifecycle_refused": {
+          "kind": "object"
+        },
+        "conformance.level_2.lifecycle_refused.id": {
+          "kind": "string",
+          "value": "\"lifecycle_refused\""
+        },
+        "conformance.level_2.lifecycle_refused.asserts": {
+          "kind": "string",
+          "value": "\"Every stream and consumer lifecycle verb outside the allow-list is refused.\""
+        },
+        "conformance.level_2.cross_principal_inbox_and_ack_refused": {
+          "kind": "object"
+        },
+        "conformance.level_2.cross_principal_inbox_and_ack_refused.id": {
+          "kind": "string",
+          "value": "\"cross_principal_inbox_and_ack_refused\""
+        },
+        "conformance.level_2.cross_principal_inbox_and_ack_refused.asserts": {
+          "kind": "string",
+          "value": "\"A principal cannot read another principal's inbox or acknowledge another consumer's messages INSIDE ONE ACCOUNT. Cross-tenant refusal alone does not test this.\""
+        },
+        "conformance.level_2.consumer_create_name_only_reach": {
+          "kind": "object"
+        },
+        "conformance.level_2.consumer_create_name_only_reach.id": {
+          "kind": "string",
+          "value": "\"consumer_create_name_only_reach\""
+        },
+        "conformance.level_2.consumer_create_name_only_reach.measured": {
+          "kind": "object"
+        },
+        "conformance.level_2.consumer_create_name_only_reach.measured.image": {
+          "kind": "string",
+          "value": "\"docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4\""
+        },
+        "conformance.level_2.consumer_create_name_only_reach.measured.suite": {
+          "kind": "string",
+          "value": "\"tests/e2e/nats-auth\""
+        },
+        "conformance.level_2.consumer_create_name_only_reach.measured.run": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/actions/runs/36802082830\""
+        },
+        "conformance.level_2.consumer_create_name_only_reach.asserts": {
+          "kind": "string",
+          "value": "\"No workload principal can create a consumer (ADR-043 D6b, `bound_puller`). The nameless `$JS.API.CONSUMER.CREATE.<stream>` form, legacy `DURABLE.CREATE` and the fully-filtered form are each refused, for a new name and as an update of the NACK durable. The bind to that durable succeeds and it stays pull. So neither the name reach nor the `deliver_subject` push redirect (checked against no publish grant, MCAA-1090) is reachable from a workload credential; only `stream_controller` creates consumers.\""
+        },
+        "conformance.level_2.nack_account_on_stream_move": {
+          "kind": "object"
+        },
+        "conformance.level_2.nack_account_on_stream_move.id": {
+          "kind": "string",
+          "value": "\"nack_account_on_stream_move\""
+        },
+        "conformance.level_2.nack_account_on_stream_move.open_question": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "conformance.level_2.nack_account_on_stream_move.asserts": {
+          "kind": "string",
+          "value": "\"UNMEASURED. NACK 0.35.0's `Account` behaviour when a `Stream` moves between accounts.\""
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant": {
+          "kind": "object"
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.id": {
+          "kind": "string",
+          "value": "\"rq_reply_needs_no_inbox_grant\""
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.measured": {
+          "kind": "object"
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.measured.image": {
+          "kind": "string",
+          "value": "\"docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4\""
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.measured.suite": {
+          "kind": "string",
+          "value": "\"tests/e2e/nats-auth\""
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.measured.run": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/actions/runs/36810662328\""
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.asserts": {
+          "kind": "string",
+          "value": "\"The key is the responder user's `permissions.allow_responses`, measured at `{max: 1, expires: 5s}`. Without it the reply is refused. With it the reply reaches the requester's `_INBOX.<principal>` with no publish grant on that inbox, while an unsolicited publish to, a subscribe on, and a reply after the 5s bound to that inbox are all refused.\""
+        },
+        "conformance.level_2.monitoring_network_policy": {
+          "kind": "object"
+        },
+        "conformance.level_2.monitoring_network_policy.id": {
+          "kind": "string",
+          "value": "\"monitoring_network_policy\""
+        },
+        "conformance.level_2.monitoring_network_policy.asserts": {
+          "kind": "string",
+          "value": "\"Untrusted-pod denial AND authorized scrape, on BOTH 8222 (the monitoring port, published by `nats-headless` and reachable on the pod IP either way) and 7777 (the exporter, which republishes the same cross-account metadata).\""
+        },
+        "conformance.level_2.rotation_and_revocation_drill": {
+          "kind": "object"
+        },
+        "conformance.level_2.rotation_and_revocation_drill.id": {
+          "kind": "string",
+          "value": "\"rotation_and_revocation_drill\""
+        },
+        "conformance.level_2.rotation_and_revocation_drill.asserts": {
+          "kind": "string",
+          "value": "\"Staged new-key publication, Secret delivery, server config reload, client and NACK reconnect, old-key removal, and refusal of both new AND already-established old sessions within a stated bound -- plus rollback and a `$SYS` recovery path that works while the identity service is down. External Secrets and 1Password synchronise material; they do not supply this protocol.\""
+        },
+        "conformance.level_2.cold_start_no_maintainer_account": {
+          "kind": "object"
+        },
+        "conformance.level_2.cold_start_no_maintainer_account.id": {
+          "kind": "string",
+          "value": "\"cold_start_no_maintainer_account\""
+        },
+        "conformance.level_2.cold_start_no_maintainer_account.asserts": {
+          "kind": "string",
+          "value": "\"Cold start on fresh synthetic credentials with no maintainer account, no identity service and no anonymous fallback. This is the fork-ability contract for the bus.\""
+        }
+      }
+    },
     "envelope.v1.schema.json": {
       "fields": {
         "": {

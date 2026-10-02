@@ -4,15 +4,19 @@ name: Fork path (cold, uncached)
 # fork-ability contract in docs/contracts/fork-ability.md, check 3).
 #
 # tilt-ci.yml already proves the Kind + ArgoCD loop converges, but it proves it
-# for `task localdev:ci` — a different entry point — with a restored registry
-# pull-through cache. Three things the readme promises were therefore never
-# executed anywhere:
+# for `task localdev:ci` — a different entry point. Two things the readme
+# promises were therefore never executed anywhere:
 #
 #   1. `task localdev:up`   the readme's first command, the "fork and boot with
 #                           one command" headline. Never run by any workflow.
 #   2. `task localdev:down` never run by any workflow, so teardown was asserted.
-#   3. a cold clock          tilt-ci restores `kind-registry-*`, so its 22-28 min
-#                           is a lower bound, not what a stranger experiences.
+#
+# This job was also created on the premise that tilt-ci's duration is a warm
+# lower bound. That premise is unsupported, on two independent grounds:
+# tilt-ci's `kind-registry-*` restore misses on every run sampled so far
+# (homelab#512), so its runs are not warm; and `localdev:ci` runs `test:e2e`
+# after wait, so it times strictly more work than this job does. Do not publish
+# a cold-vs-cached claim from these runs — see the Summary step.
 #
 # This workflow runs the readme's three commands verbatim, in order, on a runner
 # with NO cache restore of any kind, and publishes the wall clock. There is
@@ -30,11 +34,11 @@ name: Fork path (cold, uncached)
 #                       plus `task localdev:wait` (see its step comment) and an
 #                       assertion that the cluster is actually gone afterwards.
 #
-# Cost: a cold, uncached level-2-sized loop pulls every image from upstream and
-# is expected to take substantially longer than tilt-ci's cached run. It is NOT
-# on the critical path of ordinary pull requests: it runs on demand, weekly, and
-# on a pull request that changes this file (so the workflow is never shipped
-# without having been executed once — the same bar the docs are held to).
+# Cost: a cold, uncached level-2-sized loop pulls every image from upstream;
+# observed 18m55s, 21m03s and 23m04s for up + wait. It is NOT on the critical path of
+# ordinary pull requests: it runs on demand, weekly, and on a pull request that
+# changes this file (so the workflow is never shipped without having been
+# executed once — the same bar the docs are held to).
 #
 # Tool pins come from mise.toml through jdx/mise-action, matching tilt-ci.yml.
 
@@ -191,11 +195,12 @@ jobs:
           task localdev:up
           echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
 
-      # Not a readme command, and that gap is the point: the readme's line for
-      # localdev:up says "all 87 Applications synced", but the command it
-      # documents does not wait for Healthy — tilt-ci gets that from
-      # localdev:ci, which appends localdev:wait. Timed separately so the readme's
-      # claim and the readme's command can be compared honestly.
+      # Not a readme command, and that gap is the point: the readme's localdev:up
+      # line claims a count of Applications synced, but the command it documents
+      # does not wait for Healthy — tilt-ci gets that from localdev:ci, which
+      # appends localdev:wait. Timed separately so the readme's claim and the
+      # readme's command can be compared honestly. The count itself is asserted
+      # against the committed snapshot by scripts/docs-check.ts.
       - name: 'task localdev:wait (the gap between the readme command and the readme claim)'
         id: wait
         run: |
@@ -210,10 +215,23 @@ jobs:
       - name: 'task localdev:report'
         id: report
         if: ${{ !cancelled() }}
-        continue-on-error: true
         run: |
           set -o pipefail
           task localdev:report | tee kind-report.md
+
+      # Must precede localdev:down, which deletes the cluster on every outcome.
+      # Ordered after teardown these commands only ever printed "context does not
+      # exist", so a failed boot reported no cause at all.
+      - name: Diagnostics
+        if: failure()
+        run: |
+          task localdev:diagnose || true
+          kubectl --context "$KIND_CONTEXT" -n argocd get applications.argoproj.io -o wide || true
+          kubectl --context "$KIND_CONTEXT" get pods -A -o wide || true
+          # A pod stuck Pending/ImagePullBackOff reports a state; only events and
+          # describe say why, and both die with the cluster.
+          kubectl --context "$KIND_CONTEXT" get events -A --sort-by=.lastTimestamp || true
+          kubectl --context "$KIND_CONTEXT" describe pods -A || true
 
       # readme.md, third command. Runs even when something above failed: a
       # teardown that only works after a clean run is not a teardown.
@@ -241,13 +259,6 @@ jobs:
             echo "::warning::the cluster is gone but kubeconfig context $KIND_CONTEXT was left behind"
           fi
 
-      - name: Diagnostics
-        if: failure()
-        run: |
-          task localdev:diagnose || true
-          kubectl --context "$KIND_CONTEXT" -n argocd get applications.argoproj.io -o wide || true
-          kubectl --context "$KIND_CONTEXT" get pods -A || true
-
       - name: Summary
         if: always()
         run: |
@@ -272,9 +283,16 @@ jobs:
             echo
             echo "**Cold time to first success (up + wait, every image pulled from upstream): $(fmt "$total_s")**"
             echo
-            echo "Cite this number, not tilt-ci's: \`tilt-ci.yml\` restores a \`kind-registry-*\`"
-            echo "pull-through cache, so its duration is a lower bound rather than a newcomer's"
-            echo "experience. This job restores nothing and saves nothing."
+            echo "What this number is: one run of the readme's command scope on a runner that"
+            echo "restored no cache and saved none."
+            echo
+            echo "What it is not: a figure comparable to tilt-ci's, for two independent reasons."
+            echo "Scope — tilt-ci times \`task localdev:ci\`, which is kind -> argocd -> sync ->"
+            echo "wait **plus \`test:e2e\`**; this job stops after wait, so tilt-ci is timing"
+            echo "strictly more work. Warmth — tilt-ci's \`kind-registry-*\` restore misses on"
+            echo "every run sampled so far (homelab#512), so its runs are not warm either."
+            echo "No cold-vs-cached pair exists yet. Quote this figure as one cold measurement"
+            echo "of up + wait, not as a speedup or a penalty against tilt-ci."
             echo
             if [ -s kind-report.md ]; then
               echo "<details><summary><code>task localdev:report</code> output</summary>"

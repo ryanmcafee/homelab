@@ -47,6 +47,7 @@ import {
   renderSubject,
   renderViolations,
   type Stream,
+  type StreamSource,
   streamsFor,
   subjectMatches,
   tailOfType,
@@ -771,6 +772,48 @@ test("a sourced stream may only mirror what its upstream captures", () => {
     }),
   );
   assert(taxRules(unknown).includes("source-stream-unknown"));
+});
+
+const shippedWithAuditSources = (
+  mutate: (shipped: StreamSource[]) => StreamSource[],
+): Taxonomy => {
+  const taxonomy = structuredClone(loadTaxonomy());
+  const audit = taxonomy.streams.find((s) => s.name === "PF_AUDIT");
+  if (!audit?.sources) throw new Error("PF_AUDIT has no sources to mutate");
+  audit.sources = mutate(audit.sources);
+  return taxonomy;
+};
+
+const gateViolations = (taxonomy: Taxonomy) => [
+  ...validateTaxonomy(taxonomy),
+  ...checkTaxonomyCompatibility(loadBaseline(), taxonomy),
+];
+
+test("two sources entries from one origin fail as the exporter collision (ADR-044)", () => {
+  const added = shippedWithAuditSources((shipped) => [
+    ...shipped,
+    { name: "PF_EVENTS", filters: ["pf.*.workload.*.*.*.ev"] },
+  ]);
+  const cloned = shippedWithAuditSources((shipped) => [
+    ...shipped,
+    ...structuredClone(shipped),
+  ]);
+
+  for (const mutant of [added, cloned]) {
+    const found = gateViolations(mutant).filter(
+      (v) => v.rule === "stream-source-same-origin",
+    );
+    assertEquals(
+      found.map((v) => v.subject),
+      ["PF_AUDIT"],
+    );
+    const message = found[0]?.message ?? "";
+    assertStringIncludes(message, "source_name");
+    assertStringIncludes(message, "subjectTransforms");
+    assertStringIncludes(message, "ADR-044");
+  }
+
+  assertEquals(renderViolations(gateViolations(loadTaxonomy())), "contract ok");
 });
 
 test("a hard-coded replicas breaks the fork-ability contract at stream one", () => {
