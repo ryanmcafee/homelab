@@ -1,0 +1,45 @@
+{
+  "pod": "argocd-redis-6c6f5486cb-lj9j2",
+  "podCount": 1,
+  "phase": "Pending",
+  "image": "ecr-public.aws.com/docker/library/redis:8.2.3-alpine",
+  "imageID": null,
+  "ready": false,
+  "waitingReason": "ImagePullBackOff",
+  "restartCount": 0,
+  "pullEvents": [
+    {
+      "reason": "Pulling",
+      "message": "Pulling image \"ecr-public.aws.com/docker/library/redis:8.2.3-alpine\"",
+      "count": 5,
+      "lastTimestamp": "2026-09-30T12:18:39Z"
+    }
+  ],
+  "failureEvents": [
+    {
+      "reason": "Failed",
+      "message": "Failed to pull image \"ecr-public.aws.com/docker/library/redis:8.2.3-alpine\": failed to pull and unpack image \"ecr-public.aws.com/docker/library/redis:8.2.3-alpine\": failed to copy: httpReadSeeker: failed open: unexpected status from GET request to http://kind-registry-ecr:5000/v2/docker/library/redis/manifests/sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba?ns=ecr-public.aws.com: 500 Internal Server Error\nunknown: unknown error",
+      "count": 5,
+      "lastTimestamp": "2026-09-30T12:18:39Z"
+    },
+    {
+      "reason": "Failed",
+      "message": "Error: ErrImagePull",
+      "count": 5,
+      "lastTimestamp": "2026-09-30T12:18:39Z"
+    },
+    {
+      "reason": "BackOff",
+      "message": "Back-off pulling image \"ecr-public.aws.com/docker/library/redis:8.2.3-alpine\"",
+      "count": 21,
+      "lastTimestamp": "2026-09-30T12:20:47Z"
+    },
+    {
+      "reason": "Failed",
+      "message": "Error: ImagePullBackOff",
+      "count": 21,
+      "lastTimestamp": "2026-09-30T12:20:47Z"
+    }
+  ],
+  "missing": []
+}

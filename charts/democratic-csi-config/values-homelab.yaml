@@ -1,6 +1,9 @@
 # democratic-csi-config homelab values
+#
+# truenas.onePasswordItemPath is NOT set here: the addons democratic-csi-config
+# Application passes it through helm.valuesObject from DEMOCRATIC_CSI_1P_PATH, so
+# a fork's key is what reaches the OnePasswordItem.
 
 truenas:
   enabled: true
   namespace: democratic-csi
-  onePasswordItemPath: "vaults/homelab/items/truenas"

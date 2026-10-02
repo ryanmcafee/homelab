@@ -42,11 +42,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Read image version
+      - name: Read image version and owner
         id: version
         run: |
           VERSION=$(yq '.images.triage-agent' configuration/versions.yaml)
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
       - name: Verify version bumped
         if: github.event_name == 'pull_request'
@@ -82,8 +83,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/homelab-triage-agent:latest
-            ghcr.io/${{ github.repository_owner }}/homelab-triage-agent:${{ steps.version.outputs.version }}
+            ghcr.io/${{ steps.version.outputs.owner }}/homelab-triage-agent:latest
+            ghcr.io/${{ steps.version.outputs.owner }}/homelab-triage-agent:${{ steps.version.outputs.version }}
           cache-from: type=gha,scope=triage-agent
           cache-to: type=gha,mode=max,scope=triage-agent
 

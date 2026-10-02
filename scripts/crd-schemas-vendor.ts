@@ -27,7 +27,7 @@
  *   --out <dir>       Output directory (default: tests/schemas)
  *
  * Exit codes: 0 = success (or --check found no drift); 1 = failure / drift found;
- * 2 = argument error.
+ * 2 = argument error; 3 = a source could not be fetched, so nothing was compared.
  */
 
 import { type Dirent, readdirSync } from "node:fs";
@@ -59,6 +59,9 @@ const VERSIONS_PATH = "configuration/versions.yaml";
 const DEFAULT_SOURCES_PATH = "tests/schemas/sources.yaml";
 const DEFAULT_OUT_DIR = "tests/schemas";
 const DRAFT07_SCHEMA = "http://json-schema.org/draft-07/schema#";
+export const EXIT_FETCH_FAILED = 3;
+const FETCH_ATTEMPTS = 3;
+const FETCH_BACKOFF_MS = 2000;
 
 // Schema-composition keywords whose values are themselves (nested) schemas and
 // therefore need the same strip/convert treatment recursively.
@@ -154,6 +157,7 @@ Exit codes:
   0  Success (or --check found no drift)
   1  Failure, or --check found drift
   2  Argument error
+  3  A source could not be fetched (network or registry); nothing was compared
 `,
   );
 }
@@ -197,6 +201,60 @@ type CRD = any;
 interface PlannedFile {
   path: string;
   content: string;
+}
+
+// ============================================================================
+// Fetch failures and bounded retry
+// ============================================================================
+export class SourceFetchError extends Error {}
+
+export interface RetryOptions {
+  attempts: number;
+  backoffMs: number;
+  sleep?: (ms: number) => Promise<void>;
+  onRetry?: (attempt: number, err: unknown) => void;
+}
+
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  { attempts, backoffMs, sleep = Bun.sleep, onRetry }: RetryOptions,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      lastError = err;
+      if (attempt < attempts) {
+        onRetry?.(attempt, err);
+        await sleep(backoffMs * attempt);
+      }
+    }
+  }
+  throw lastError;
+}
+
+function fetchRetry(label: string): RetryOptions {
+  return {
+    attempts: FETCH_ATTEMPTS,
+    backoffMs: FETCH_BACKOFF_MS,
+    onRetry: (attempt, err) =>
+      log.warn(
+        `${label} attempt ${attempt}/${FETCH_ATTEMPTS} failed, retrying: ${errorMessage(err)}`,
+      ),
+  };
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Exit code for a run whose sources failed: fetch failures mean nothing was compared. */
+export function exitCodeForErrors(errors: unknown[]): number {
+  if (errors.length === 0) return 0;
+  return errors.some((e) => e instanceof SourceFetchError)
+    ? EXIT_FETCH_FAILED
+    : 1;
 }
 
 // ============================================================================
@@ -297,10 +355,17 @@ async function fetchChartCRDs(
       tmpDir,
     ];
     log.info(`[${source.name}] ${pullCmd.slice(0, -2).join(" ")}`);
-    const pull = await run(pullCmd);
-    if (pull.code !== 0) {
-      throw new Error(
-        `helm pull failed for source "${source.name}" (${chart.repo} ${chart.name}@${version}):\n${pull.stderr}`,
+    try {
+      await withRetry(
+        async () => {
+          const pull = await run(pullCmd);
+          if (pull.code !== 0) throw new Error(pull.stderr.trim());
+        },
+        fetchRetry(`[${source.name}] helm pull`),
+      );
+    } catch (err) {
+      throw new SourceFetchError(
+        `helm pull failed after ${FETCH_ATTEMPTS} attempts for source "${source.name}" (${chart.repo} ${chart.name}@${version}):\n${errorMessage(err)}`,
       );
     }
     const chartDir = `${tmpDir}/${chart.name}`;
@@ -420,6 +485,40 @@ export function contentsApiError(
   ].join("\n");
 }
 
+interface FetchOkHooks {
+  /** Sees every response, including failed attempts. */
+  onResponse?: (res: Response) => void;
+  /** Describes a non-OK response; defaults to its status line. */
+  describeFailure?: (res: Response) => string;
+}
+
+async function fetchOk(
+  url: string,
+  init: RequestInit,
+  sourceName: string,
+  { onResponse, describeFailure }: FetchOkHooks = {},
+): Promise<Response> {
+  try {
+    return await withRetry(
+      async () => {
+        const res = await fetch(url, init);
+        onResponse?.(res);
+        if (!res.ok) {
+          throw new Error(
+            describeFailure?.(res) ?? `${res.status} ${res.statusText}`,
+          );
+        }
+        return res;
+      },
+      fetchRetry(`[${sourceName}] GET`),
+    );
+  } catch (err) {
+    throw new SourceFetchError(
+      `GET ${url} failed after ${FETCH_ATTEMPTS} attempts for source "${sourceName}": ${errorMessage(err)}`,
+    );
+  }
+}
+
 async function fetchGithubCRDs(
   source: Source,
   version: string,
@@ -435,30 +534,24 @@ async function fetchGithubCRDs(
     log.info(`[${source.name}] GET ${apiUrl}`);
     const headers = githubApiHeaders(process.env);
     const authenticated = "Authorization" in headers;
-    const res = await fetch(apiUrl, { headers });
-    if (!budgetLogged) {
-      budgetLogged = true;
-      log.info(
-        `contents API budget: ${res.headers.get("x-ratelimit-remaining") ?? "?"} of ${res.headers.get("x-ratelimit-limit") ?? "?"} per hour remaining (${authenticated ? "authenticated" : "unauthenticated, shared per IP"})`,
-      );
-    }
-    if (!res.ok) {
-      throw new Error(
-        contentsApiError(source.name, apiUrl, res, authenticated),
-      );
-    }
+    const res = await fetchOk(apiUrl, { headers }, source.name, {
+      onResponse: (r) => {
+        if (budgetLogged) return;
+        budgetLogged = true;
+        log.info(
+          `contents API budget: ${r.headers.get("x-ratelimit-remaining") ?? "?"} of ${r.headers.get("x-ratelimit-limit") ?? "?"} per hour remaining (${authenticated ? "authenticated" : "unauthenticated, shared per IP"})`,
+        );
+      },
+      describeFailure: (r) =>
+        contentsApiError(source.name, apiUrl, r, authenticated),
+    });
     const entries = (await res.json()) as GithubContentEntry[];
     const yamlFiles = entries.filter(
       (e) => e.type === "file" && e.name.endsWith(".yaml"),
     );
     for (const entry of yamlFiles) {
       if (!entry.download_url) continue;
-      const raw = await fetch(entry.download_url);
-      if (!raw.ok) {
-        throw new Error(
-          `Failed to download ${entry.download_url} for source "${source.name}": ${raw.status}`,
-        );
-      }
+      const raw = await fetchOk(entry.download_url, {}, source.name);
       const text = await raw.text();
       for (const doc of parseAll(text) as unknown[]) {
         if (isCRDDoc(doc)) pool.set(doc.metadata.name, doc);
@@ -717,7 +810,7 @@ async function main(): Promise<number> {
     : args.outDir;
 
   const allFiles: PlannedFile[] = [];
-  const errors: string[] = [];
+  const errors: unknown[] = [];
   for (const source of sources) {
     try {
       const files = await processSource(
@@ -728,16 +821,22 @@ async function main(): Promise<number> {
       );
       allFiles.push(...files);
     } catch (err) {
-      errors.push(err instanceof Error ? err.message : String(err));
+      errors.push(err);
     }
   }
 
   if (errors.length > 0) {
-    for (const e of errors) log.error(e);
+    for (const e of errors) log.error(errorMessage(e));
     if (args.check) {
       await rm(targetOutDir, { recursive: true }).catch(() => {});
     }
-    return 1;
+    const code = exitCodeForErrors(errors);
+    if (code === EXIT_FETCH_FAILED) {
+      log.error(
+        `Could not fetch every source, so ${args.outDir} was not compared. This is not a staleness verdict: re-run once the registry is reachable.`,
+      );
+    }
+    return code;
   }
 
   if (args.dryRun) {

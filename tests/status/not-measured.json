@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-28T09:00:00Z",
+  "pollAfterSeconds": 30,
+  "page": {
+    "title": "Example Homelab Status",
+    "timeZone": "Etc/UTC",
+    "incidentWindowDays": 7
+  },
+  "features": {
+    "subscriptions": false
+  },
+  "overall": {
+    "state": "unknown",
+    "summary": "No fault is firing, but one component is not measured."
+  },
+  "components": [
+    {
+      "id": "automation",
+      "name": "Automation & Agents",
+      "description": "The agent fleet, dependency updates and workflow execution.",
+      "group": "platform",
+      "order": 5,
+      "state": "unknown",
+      "stateReason": "no_signal",
+      "coverage": { "mappedAlertCount": 0, "hasSli": false },
+      "uptime": {
+        "windowDays": 7,
+        "ratio": null,
+        "unavailableReason": "no_sli",
+        "buckets": []
+      },
+      "maintenance": null
+    },
+    {
+      "id": "media",
+      "name": "Media",
+      "description": "Streaming, the library and everything that fills it.",
+      "group": "applications",
+      "order": 6,
+      "state": "operational",
+      "stateReason": "no_firing_alerts",
+      "coverage": { "mappedAlertCount": 3, "hasSli": true },
+      "uptime": {
+        "windowDays": 7,
+        "ratio": null,
+        "unavailableReason": "insufficient_history",
+        "buckets": [
+          { "date": "2026-09-21", "ratio": null },
+          { "date": "2026-09-22", "ratio": null },
+          { "date": "2026-09-23", "ratio": null },
+          { "date": "2026-09-24", "ratio": null },
+          { "date": "2026-09-25", "ratio": 0.9922 },
+          { "date": "2026-09-26", "ratio": 1 },
+          { "date": "2026-09-27", "ratio": 1 }
+        ]
+      },
+      "maintenance": null
+    }
+  ],
+  "incidents": [],
+  "signals": [
+    { "id": "prometheus", "state": "available", "observedAt": "2026-09-28T09:00:00Z" },
+    { "id": "alertmanager", "state": "available", "observedAt": "2026-09-28T09:00:00Z" }
+  ]
+}

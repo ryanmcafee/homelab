@@ -62,3 +62,18 @@ GRAFANA_CONFIG_PVC: grafana-config
 
 # GPU
 GPU_VENDOR: "none"
+
+# NATS / JetStream sizing (docs/event-backbone.md)
+NATS_SERVER_REPLICAS: "3"
+NATS_STREAM_REPLICAS: "1"
+# Empty leaves the bus anonymous. One pair renders the accounts block and the server
+# refuses every client without a key, so list every principal before setting it
+# (contracts/events/bus-principals.v1.yaml, docs/event-backbone.md).
+NATS_TENANT: "local"
+NATS_PRINCIPAL_NKEYS: ""
+NATS_SYSTEM_ACCOUNT_NKEY: ""
+NATS_BOX_PRINCIPALS: ""
+# 1Password vault path the per-principal seed items live under. Required once
+# NATS_PRINCIPAL_NKEYS is set with SECRETS_PROVIDER=onepassword: a public key the server
+# accepts is unusable until its seed reaches the client (docs/runbooks/nats-credentials.md).
+NATS_CREDENTIALS_1P_PATH: ""

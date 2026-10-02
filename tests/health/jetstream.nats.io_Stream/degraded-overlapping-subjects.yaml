@@ -1,0 +1,20 @@
+# expect: Degraded
+# message: subjects overlap with an existing stream
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: pf-audit
+  namespace: nats
+  generation: 2
+spec:
+  name: PF_AUDIT
+  subjects:
+    - pf.*.identity.*.*.*.ev
+status:
+  observedGeneration: 2
+  conditions:
+    - type: Ready
+      status: "False"
+      reason: Errored
+      message: "subjects overlap with an existing stream (10065)"
+      lastTransitionTime: "2026-09-28T00:00:00Z"

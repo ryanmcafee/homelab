@@ -93,6 +93,12 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      # The 1Password item path comes from this parent's tailscale-operator
+      # values (configuration/ TAILSCALE_OPERATOR_1P_PATH via the CMP), so a
+      # fork's key reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        tailscale:
+          onePasswordItemPath: {{ (index .Values "tailscale-operator" "onePasswordItemPath") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ index .Values "tailscale-operator" "namespace" }}

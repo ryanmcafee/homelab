@@ -46,14 +46,18 @@ auth:
   # through the e-mail/password sign-up API, which PAPERCLIP_AUTH_DISABLE_SIGN_UP
   # blocks for everyone, first user included (EMAIL_PASSWORD_SIGN_UP_DISABLED;
   # bugs.md 2026-09-15, upstream paperclipinc/paperclip-operator issue). Flip back
-  # to true in a follow-up PR as soon as the Instance reports status.bootstrap;
-  # the Job short-circuits afterwards and never re-registers.
+  # to true in a follow-up PR. The Job does NOT short-circuit once the admin
+  # exists (bugs.md 2026-09-30); admin.bootstrap false removes it instead.
   disableSignUp: false
 
 # One-time admin bootstrap (spec.auth.adminUser): e-mail from PAPERCLIP_ADMIN_EMAIL
 # through the parent, password from the ADMIN_PASSWORD key of the same Secret.
 # An empty e-mail renders no adminUser (the first human to log in claims the instance).
+# bootstrap false renders no adminUser even with an e-mail: set it once the admin
+# exists, because operator 0.19.1 keeps re-creating the bootstrap Job while
+# adminUser is in the spec and every re-run fails (bugs.md 2026-09-30).
 admin:
+  bootstrap: true
   email: ""
   name: Admin
   passwordKey: ADMIN_PASSWORD

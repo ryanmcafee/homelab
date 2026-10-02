@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-28T09:00:00Z",
+  "pollAfterSeconds": 30,
+  "page": {
+    "title": "Example Homelab Status",
+    "timeZone": "Etc/UTC",
+    "incidentWindowDays": 7
+  },
+  "features": {
+    "subscriptions": false
+  },
+  "overall": {
+    "state": "down",
+    "summary": "Media is unavailable. Databases & Storage is degraded during planned maintenance."
+  },
+  "components": [
+    {
+      "id": "data",
+      "name": "Databases & Storage",
+      "description": "Persistent volumes, the Postgres clusters and their backups.",
+      "group": "platform",
+      "order": 3,
+      "state": "degraded",
+      "stateReason": "alert_firing",
+      "coverage": { "mappedAlertCount": 9, "hasSli": true },
+      "uptime": {
+        "windowDays": 7,
+        "ratio": 0.9944,
+        "unavailableReason": null,
+        "buckets": [
+          { "date": "2026-09-21", "ratio": 1 },
+          { "date": "2026-09-22", "ratio": 1 },
+          { "date": "2026-09-23", "ratio": 1 },
+          { "date": "2026-09-24", "ratio": 0.9611 },
+          { "date": "2026-09-25", "ratio": 1 },
+          { "date": "2026-09-26", "ratio": 1 },
+          { "date": "2026-09-27", "ratio": 1 }
+        ]
+      },
+      "maintenance": {
+        "summary": "Storage backend upgrade; volumes may be slow to attach.",
+        "startsAt": "2026-09-28T08:00:00Z",
+        "endsAt": "2026-09-28T12:00:00Z"
+      }
+    },
+    {
+      "id": "media",
+      "name": "Media",
+      "description": "Streaming, the library and everything that fills it.",
+      "group": "applications",
+      "order": 6,
+      "state": "down",
+      "stateReason": "alert_firing",
+      "coverage": { "mappedAlertCount": 3, "hasSli": true },
+      "uptime": {
+        "windowDays": 7,
+        "ratio": 0.8532,
+        "unavailableReason": null,
+        "buckets": [
+          { "date": "2026-09-21", "ratio": 1 },
+          { "date": "2026-09-22", "ratio": 1 },
+          { "date": "2026-09-23", "ratio": 1 },
+          { "date": "2026-09-24", "ratio": 1 },
+          { "date": "2026-09-25", "ratio": 1 },
+          { "date": "2026-09-26", "ratio": 0.9726 },
+          { "date": "2026-09-27", "ratio": 0.0001 }
+        ]
+      },
+      "maintenance": null
+    }
+  ],
+  "incidents": [
+    {
+      "id": "inc-2026-09-27-media-unreachable",
+      "state": "firing",
+      "severity": "critical",
+      "title": "Media streaming is not answering requests.",
+      "componentIds": ["media"],
+      "startedAt": "2026-09-27T22:14:00Z",
+      "endedAt": null,
+      "runbookUrl": "https://github.com/ryanmcafee/homelab/blob/main/docs/runbooks/alerting.md"
+    },
+    {
+      "id": "inc-2026-09-28-storage-latency",
+      "state": "firing",
+      "severity": "warning",
+      "title": "Volume attach latency is above its threshold.",
+      "componentIds": ["data"],
+      "startedAt": "2026-09-28T08:11:00Z",
+      "endedAt": null,
+      "runbookUrl": null
+    },
+    {
+      "id": "inc-2026-09-26-unmapped-exporter",
+      "state": "firing",
+      "severity": "warning",
+      "title": "An exporter has stopped reporting.",
+      "componentIds": [],
+      "startedAt": "2026-09-26T04:02:00Z",
+      "endedAt": null,
+      "runbookUrl": null
+    },
+    {
+      "id": "inc-2026-09-24-storage-capacity",
+      "state": "resolved",
+      "severity": "info",
+      "title": "A storage pool passed its capacity warning level.",
+      "componentIds": ["data"],
+      "startedAt": "2026-09-24T01:30:00Z",
+      "endedAt": "2026-09-24T02:35:00Z",
+      "runbookUrl": null
+    }
+  ],
+  "signals": [
+    { "id": "prometheus", "state": "available", "observedAt": "2026-09-28T09:00:00Z" },
+    { "id": "alertmanager", "state": "available", "observedAt": "2026-09-28T09:00:00Z" }
+  ]
+}
