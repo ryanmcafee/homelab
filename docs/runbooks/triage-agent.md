@@ -151,7 +151,7 @@ later workflows. The first run downloads the toolchain (a few minutes); later ru
 | serena | on | from the repository's `.mcp.json`; the chart copy is skipped so it is registered once |
 | paperclip | with both Paperclip fields | `uvx paperclip-mcp` against `paperclip.paperclip.svc:3100`, read tools only |
 | puppeteer | off | deprecated upstream; the image has no Chromium |
-| codesearch | n/a | a workstation binary, not available in the cluster |
+| codesearch | not registered | the cluster service ([codesearch.md](../apps/codesearch.md)) serves HTTP MCP to namespaces labelled `codesearch-client`; this namespace is not one yet |
 
 ## Security model
 

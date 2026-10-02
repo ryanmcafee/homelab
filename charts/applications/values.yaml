@@ -1116,6 +1116,8 @@ paperclip:
     agentPolicy:
       enabled: false
       image: ""
+    codesearch:
+      enabled: false
 
   # PostSync smoke hook (templates/_smoke.tpl): the operator's health path on
   # the Instance Service; the in-cluster Service name is always an allowed

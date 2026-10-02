@@ -1,0 +1,94 @@
+{{- if .Values.workflows.enabled }}
+---
+# Backup steps: report step results to the Argo controller, nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codesearch-backup
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "codesearch-dependencies.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codesearch-executor
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "codesearch-dependencies.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [workflowtaskresults]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codesearch-backup
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "codesearch-dependencies.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codesearch-executor
+subjects:
+  - kind: ServiceAccount
+    name: codesearch-backup
+    namespace: {{ .Values.namespace }}
+---
+# Restore steps: the executor role plus patching the codesearch Deployment's
+# pod template, which replaces the pod so its init container applies the backup.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codesearch-restore
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "codesearch-dependencies.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codesearch-restart
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "codesearch-dependencies.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [{{ .Values.server.deploymentName }}]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codesearch-restore-executor
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "codesearch-dependencies.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codesearch-executor
+subjects:
+  - kind: ServiceAccount
+    name: codesearch-restore
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codesearch-restore-restart
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "codesearch-dependencies.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codesearch-restart
+subjects:
+  - kind: ServiceAccount
+    name: codesearch-restore
+    namespace: {{ .Values.namespace }}
+{{- end }}

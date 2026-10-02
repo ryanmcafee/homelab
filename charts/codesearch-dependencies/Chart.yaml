@@ -1,0 +1,9 @@
+apiVersion: v2
+name: codesearch-dependencies
+description: >-
+  Homelab additions to the upstream codesearch chart (docs/apps/codesearch.md): the git token and Argo Workflows
+  log store OnePasswordItems, the daily codesearch-backup CronWorkflow and the codesearch-restore WorkflowTemplate.
+  Synced before the main chart (wave 13 < 14).
+type: application
+version: 1.0.0
+appVersion: "1.0"

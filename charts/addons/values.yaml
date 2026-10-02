@@ -991,6 +991,7 @@ argo-workflows:
 
   # Controller configuration
   controller:
+    serviceMonitor: false
     resources:
       requests:
         cpu: 100m
@@ -1029,6 +1030,7 @@ argo-workflows:
       name: argo-workflows-logs
       bucket: argo-workflows-logs
       secretName: argo-workflows-artifacts
+      backupBuckets: []
 
 # ============================================================================
 # Argo Rollouts - progressive delivery (templates/argo-rollouts.yaml)
@@ -1202,3 +1204,27 @@ triage-agent:
   pushoverItemPath: ""
   artifactsItemPath: ""
   storageClass: ""
+
+# ============================================================================
+# codesearch - upstream chart + homelab dependencies (templates/codesearch.yaml)
+# Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
+# ============================================================================
+
+codesearch:
+  enabled: false
+  namespace: codesearch
+  chart:
+    name: codesearch
+    repo: https://ryanmcafee.github.io/codesearch
+    # Placeholder; configuration/versions.yaml charts.codesearch wins at render time.
+    version: "1.7.0"
+  repos: ""
+  # Handed verbatim to the upstream chart (spec.source.helm.values).
+  values: {}
+  dependencies:
+    image: ""
+    gitItemPath: ""
+    artifactsItemPath: ""
+    backupBucket: codesearch-backups
+  smoke:
+    enabled: false

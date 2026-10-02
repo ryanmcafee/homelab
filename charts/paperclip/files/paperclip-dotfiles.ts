@@ -5,7 +5,7 @@
  * gives the agents the operator's own Claude Code setup from any dotfiles repository.
  *
  *   1. clone or fast-forward DOTFILES_REPO_URL@DOTFILES_REF into DOTFILES_DIR
- *   2. install pinned tools into ~/.local/bin (bun, codesearch) when asked for
+ *   2. install bun into ~/.local/bin when asked for
  *   3. run DOTFILES_SETUP_COMMAND in the checkout (e.g. render a settings profile)
  *   4. symlink every entry of DOTFILES_DIR/DOTFILES_CLAUDE_DIR into ~/.claude
  *   5. add the marketplaces and install the plugins ~/.claude/settings.json enables
@@ -24,28 +24,20 @@
  *   DOTFILES_SETUP_COMMAND  sh command run in the checkout after the tools are installed
  *   DOTFILES_GIT_TOKEN      token for a private repository (sent as a header, never stored)
  *   BUN_VERSION             bun release to install from npm; empty skips it
- *   CODESEARCH_REPO         GitHub repository URL publishing codesearch-linux-x86_64.tar.gz
- *   CODESEARCH_VERSION      release tag; empty skips codesearch
  *   MCP_SERVERS             JSON object name -> Claude Code MCP server config
  */
 
 import { spawnSync } from "node:child_process";
 import {
-  chmodSync,
-  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   renameSync,
-  rmSync,
   symlinkSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize } from "node:path";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -62,7 +54,6 @@ export interface Config {
   setupCommand: string;
   gitToken: string;
   bunVersion: string;
-  codesearch: { repo: string; version: string };
   mcpServers: JsonObject;
 }
 
@@ -106,15 +97,6 @@ export function parseConfig(env: Record<string, string | undefined>): Config {
       `DOTFILES_CLAUDE_DIR must be a path inside the repository, got '${claudeDir}'`,
     );
   }
-  const codesearch = {
-    repo: env.CODESEARCH_REPO ?? "",
-    version: env.CODESEARCH_VERSION ?? "",
-  };
-  if (codesearch.version && !codesearch.repo.startsWith("https://")) {
-    throw new Error(
-      `CODESEARCH_REPO must be an https repository URL when CODESEARCH_VERSION is set, got '${codesearch.repo}'`,
-    );
-  }
   return {
     home,
     repoUrl,
@@ -125,7 +107,6 @@ export function parseConfig(env: Record<string, string | undefined>): Config {
     setupCommand: env.DOTFILES_SETUP_COMMAND ?? "",
     gitToken: env.DOTFILES_GIT_TOKEN ?? "",
     bunVersion: env.BUN_VERSION ?? "",
-    codesearch,
     mcpServers: parseMcpServers(env.MCP_SERVERS ?? ""),
   };
 }
@@ -302,45 +283,6 @@ function installBun(config: Config, binDir: string, env: NodeJS.ProcessEnv) {
   log.ok(`bun ${config.bunVersion} installed in ${binDir}`);
 }
 
-async function installCodesearch(
-  config: Config,
-  binDir: string,
-  env: NodeJS.ProcessEnv,
-) {
-  const { repo, version } = config.codesearch;
-  const want = `${repo}@${version}`;
-  const marker = join(config.home, ".codesearch", "installed-from");
-  const bin = join(binDir, "codesearch");
-  if (
-    existsSync(bin) &&
-    existsSync(marker) &&
-    readFileSync(marker, "utf8").trim() === want
-  ) {
-    log.ok(`codesearch ${want} already installed`);
-    return;
-  }
-  const url = `${repo.replace(/\/+$/, "")}/releases/download/${version}/codesearch-linux-x86_64.tar.gz`;
-  const response = await fetch(url);
-  if (!response.ok)
-    throw new Error(
-      `codesearch download ${url} failed: HTTP ${response.status}`,
-    );
-  const tmp = mkdtempSync(join(tmpdir(), "codesearch-"));
-  try {
-    const archive = join(tmp, "codesearch.tar.gz");
-    writeFileSync(archive, Buffer.from(await response.arrayBuffer()));
-    run(["tar", "xzf", archive, "-C", tmp], { env });
-    copyFileSync(join(tmp, "codesearch"), bin);
-    chmodSync(bin, 0o755);
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
-  }
-  run([bin, "-q", "setup"], { env });
-  mkdirSync(join(config.home, ".codesearch"), { recursive: true });
-  writeFileSync(marker, `${want}\n`);
-  log.ok(`codesearch ${want} installed in ${binDir}`);
-}
-
 function installedPlugins(env: NodeJS.ProcessEnv): Installed {
   const names = (raw: string, key: string): string[] => {
     const parsed: Json = JSON.parse(raw);
@@ -378,7 +320,6 @@ async function main() {
 
   syncRepo(config, env);
   if (config.bunVersion) installBun(config, binDir, env);
-  if (config.codesearch.version) await installCodesearch(config, binDir, env);
 
   if (config.setupCommand) {
     log.info(`running setup command in ${config.dir}`);

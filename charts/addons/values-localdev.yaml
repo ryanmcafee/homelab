@@ -1219,8 +1219,11 @@ argo-workflows:
         memory: 128Mi
 
   controller:
+    # /metrics with the workflows' custom metrics (codesearch backups), scraped by Prometheus.
+    serviceMonitor: true
     # Informer caches (Workflows, Pods, ConfigMaps, templates) plus the archive
-    # DB pool; 48Mi crash-looped the controller (bugs.md 2026-10-01).
+    # DB pool; 48Mi crash-looped the controller (bugs.md 2026-10-01). The metrics
+    # server and custom metrics fit in the same headroom.
     resources:
       requests:
         cpu: 100m
@@ -1273,6 +1276,10 @@ argo-workflows:
       secretName: argo-workflows-artifacts
       onePassword:
         itemPath: ""
+      # Buckets outside the log retention; the store keeps the newest `keep` objects of each.
+      backupBuckets:
+        - name: codesearch-backups
+          keep: 14
 
 # ============================================================================
 # Argo Rollouts - Progressive delivery (canary + automated rollback)
@@ -1697,3 +1704,117 @@ triage-agent:
   artifactsItemPath: ""
   # Workspace and cache volumes; shared across step pods on any node, so RWX.
   storageClass: local-path
+
+# ============================================================================
+# codesearch - upstream chart + homelab dependencies (docs/apps/codesearch.md)
+# Sync Waves: codesearch-dependencies 13 (after argo-workflows 12) < codesearch 14
+# ============================================================================
+
+codesearch:
+  # Off in Kind until the upstream chart is published (bd homelab-3m8.5).
+  enabled: false
+  namespace: codesearch
+
+  # ArgoCD source: configuration/versions.yaml charts.codesearch is the only place to bump it.
+  chart:
+    name: codesearch
+    repo: https://ryanmcafee.github.io/codesearch
+    version: "1.7.0"
+
+  # Comma-separated https URLs (CODESEARCH_REPOS); templates/codesearch.yaml
+  # splits them into values.repositories.urls.
+  repos: "https://github.com/ryanmcafee/codesearch"
+
+  # Handed verbatim to the upstream chart (spec.source.helm.values).
+  values:
+    # serve binds loopback and a forwarder publishes it; the NetworkPolicy is
+    # the access control, no API key (docs/apps/codesearch.md).
+    auth:
+      mode: networkPolicy
+    # One replica on a ReadWriteOnce volume: the old pod must release it first.
+    strategy:
+      type: Recreate
+    persistence:
+      size: 20Gi
+      # LMDB and tantivy want block storage.
+      storageClassName: local-path
+      annotations:
+        argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    repositories:
+      intervalSeconds: 300
+    networkPolicy:
+      enabled: true
+      ingress:
+        namespaceSelectors:
+          - codesearch-client: "true"
+          - kubernetes.io/metadata.name: monitoring
+        # The smoke Job and the backup and restore pods of this namespace.
+        extraPeers:
+          - podSelector: {}
+    serviceMonitor:
+      enabled: true
+    prometheusRule:
+      enabled: true
+      additionalLabels: {}
+    # The kube-prometheus-stack Grafana sidecar loads ConfigMaps with this label.
+    dashboard:
+      enabled: true
+      labels:
+        grafana_dashboard: "1"
+      annotations: {}
+    # Swaps a backup staged by the codesearch-restore workflow into place
+    # before serve starts (charts/codesearch-dependencies, docs/runbooks/codesearch.md).
+    extraInitContainers:
+      - name: restore-apply
+        image: "ghcr.io/ryanmcafee/codesearch:1.7.0"
+        command:
+          - /bin/sh
+          - -c
+          - |
+            set -eu
+            staged=/data/restore-staging/ready
+            config=/data/home/.codesearch
+            [ -d "$staged" ] || exit 0
+            mkdir -p "$config/embedding_cache"
+            for model in "$staged"/embedding_cache/*/; do
+              [ -d "$model" ] || continue
+              name=$(basename "$model")
+              rm -rf "$config/embedding_cache/$name"
+              mv "$model" "$config/embedding_cache/$name"
+            done
+            if [ -f "$staged/repos.json" ]; then mv "$staged/repos.json" "$config/repos.json"; fi
+            touch "$config/force-reindex"
+            rm -rf /data/restore-staging
+            echo "applied the staged codesearch backup"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+          - name: data
+            mountPath: /data
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  # charts/codesearch-dependencies: OnePasswordItems, backup CronWorkflow,
+  # restore WorkflowTemplate. Backups need Argo Workflows and its S3 log store,
+  # which need the secret store.
+  dependencies:
+    # The upstream image, which carries mdb_copy and tar for the backup steps.
+    image: "ghcr.io/ryanmcafee/codesearch:1.7.0"
+    gitItemPath: ""
+    artifactsItemPath: ""
+    backupBucket: codesearch-backups
+
+  # PostSync smoke hook (charts/addons/templates/_smoke.tpl): curl the
+  # in-cluster Service after sync.
+  smoke:
+    enabled: true
+    url: http://codesearch.codesearch.svc.cluster.local:39725/healthz
+    expect: ["200"]

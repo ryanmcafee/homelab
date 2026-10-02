@@ -259,7 +259,8 @@ settings:
 # unset variable is skipped, so the paperclip server needs PAPERCLIP_API_KEY
 # and PAPERCLIP_COMPANY_ID in the 1Password item. serena also comes from the
 # repository's .mcp.json; the project copy wins and this one is skipped.
-# codesearch is a workstation binary and has no in-cluster equivalent.
+# The cluster codesearch service (docs/apps/codesearch.md) is not registered:
+# this namespace is not labelled codesearch-client.
 mcpServers:
   sequential-thinking:
     enabled: true

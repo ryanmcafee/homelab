@@ -321,6 +321,9 @@ charts:
   opentelemetry-collector: "0.173.1"
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
   altinity-clickhouse-operator: "0.27.3"
+  # Cluster-wide codesearch (docs/apps/codesearch.md); the chart's image tag is the same version.
+  # renovate: datasource=helm depName=codesearch registryUrl=https://ryanmcafee.github.io/codesearch
+  codesearch: "1.7.0"
   # Componentized LiteLLM chart (gateway, backend, ui, migrations Job), OCI-only (issue #424).
   # renovate: datasource=docker depName=ghcr.io/berriai/litellm/chart/litellm
   litellm: "1.102.1"
@@ -363,10 +366,6 @@ tools:
   helm: "4.3.0"
   # renovate: datasource=github-releases depName=kubernetes-sigs/kind
   kind: "v0.33.0"
-  # Code search MCP server of the Paperclip agents (PAPERCLIP_MCP_CODESEARCH), from the
-  # PAPERCLIP_CODESEARCH_REPO default; another repository sets PAPERCLIP_CODESEARCH_VERSION.
-  # renovate: datasource=git-tags depName=https://github.com/ryanmcafee/codesearch
-  codesearch: "v1.6.1"
   # renovate: datasource=github-releases depName=kyverno/chainsaw
   chainsaw: "v0.2.15"
   # renovate: datasource=github-releases depName=argoproj/argo-cd

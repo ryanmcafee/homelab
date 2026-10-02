@@ -863,14 +863,20 @@ tasks:
       # The rules are extracted from the rendered Application instead of being
       # copied into tests/, so a test can never assert about an expression that
       # is not deployed. promtool check rules covers every group; the unit tests
-      # in tests/alerts cover the ones whose thresholds carry a decision.
+      # in tests/alerts cover the ones whose thresholds carry a decision. Groups
+      # only homelab renders (Argo Workflows is off in Kind) come from its
+      # golden snapshot; a group both render is taken from homelab.
       - |
         set -euo pipefail
         out="$(mktemp -d)"
         trap 'rm -rf "$out"' EXIT
+        rules='select(.kind=="Application" and .metadata.name=="kube-prometheus-stack") | .spec.source.helm.values'
+        groups='{"groups": [.additionalPrometheusRulesMap[].groups[]]}'
+        yq -r "$rules" tests/snapshots/homelab/addons.yaml | yq -r "$groups" > "$out/homelab.yaml"
         helm template addons charts/addons -f charts/addons/values-localdev.yaml \
-          | yq -r 'select(.kind=="Application" and .metadata.name=="kube-prometheus-stack") | .spec.source.helm.values' \
-          | yq -r '{"groups": [.additionalPrometheusRulesMap[].groups[]]}' > "$out/rules.yaml"
+          | yq -r "$rules" | yq -r "$groups" > "$out/localdev.yaml"
+        yq ea '.groups[] as $g ireduce ([]; . + [$g]) | unique_by(.name) | {"groups": .}' \
+          "$out/homelab.yaml" "$out/localdev.yaml" > "$out/rules.yaml"
         promtool check rules "$out/rules.yaml"
         cp tests/alerts/*.test.yaml "$out/"
         cd "$out" && promtool test rules ./*.test.yaml
@@ -932,7 +938,8 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        prs="$(gh pr list --repo "${GITHUB_REPOSITORY:-ryanmcafee/homelab}" --state open --limit 100 \
+        repo="${GITHUB_REPOSITORY:-}"
+        prs="$(gh pr list ${repo:+--repo "$repo"} --state open --limit 100 \
           --json headRefName,body \
           --jq '[.[] | select(.headRefName | startswith("renovate/"))]')"
         # In the workflow this gate runs only on a renovate/* head, so the PR it is
