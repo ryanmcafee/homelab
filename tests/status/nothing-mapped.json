@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-28T09:00:00Z",
+  "pollAfterSeconds": 60,
+  "page": {
+    "title": "Example Homelab Status",
+    "timeZone": "Etc/UTC",
+    "incidentWindowDays": 7
+  },
+  "features": {
+    "subscriptions": false
+  },
+  "overall": {
+    "state": "unknown",
+    "summary": "No components are configured on this status page yet."
+  },
+  "components": [],
+  "incidents": [],
+  "signals": [
+    { "id": "prometheus", "state": "available", "observedAt": "2026-09-28T09:00:00Z" },
+    { "id": "alertmanager", "state": "available", "observedAt": "2026-09-28T09:00:00Z" }
+  ]
+}

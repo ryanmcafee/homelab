@@ -138,7 +138,7 @@ spec:
         type: LoadBalancer
         externalTrafficPolicy: Cluster
         annotations:
-          io.cilium/lb-ipam-ips: "192.168.1.200"
+          io.cilium/lb-ipam-ips: "198.51.100.200"
           port-forwarding.replaceme-domain.com/enable: "true"
       envoyHpa:
         minReplicas: 2
@@ -242,7 +242,7 @@ spec:
         type: LoadBalancer
         externalTrafficPolicy: Cluster
         annotations:
-          io.cilium/lb-ipam-ips: "192.168.1.101"
+          io.cilium/lb-ipam-ips: "198.51.100.101"
       envoyHpa:
         minReplicas: 2
         maxReplicas: 3
@@ -347,7 +347,7 @@ metadata:
   namespace: envoy-gateway-system
   annotations:
     # external-dns publishes this instead of status.addresses, which is empty until the LB IP binds.
-    external-dns.alpha.kubernetes.io/target: "192.168.1.101"
+    external-dns.alpha.kubernetes.io/target: "198.51.100.101"
 spec:
   gatewayClassName: envoy-internal
   listeners:

@@ -1,0 +1,112 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: nats-auth
+spec:
+  description: >-
+    ADR-043's level-2 conformance suite. A NATS server rendered exactly as the localdev `nats`
+    Application renders it once nats.principalNkeys is set -- the accounts block from
+    contracts/events/bus-principals.v1.yaml, on the image the chart pins -- runs in the test
+    namespace on keys minted for this run, so the shared anonymous bus is untouched. The
+    probes (probes.sh) assert refusals on the server's own violation text and settle the
+    contract's open questions consumer_create_name_only_reach and rq_reply_needs_no_inbox_grant
+    against the running digest, which the first step prints.
+  steps:
+    - name: render-and-start
+      description: >-
+        Mints a key per declared non-pending principal inside the client pod, renders the server
+        with those public keys and starts it on fresh storage.
+      try:
+        - script:
+            timeout: 6m
+            content: |
+              set -eu
+              root=$(git rev-parse --show-toplevel)
+              dir="$root/tests/e2e/nats-auth"
+              box=$(sh "$dir/render.sh" box-image)
+              kubectl -n "$NAMESPACE" create configmap nats-auth-probes \
+                --from-file="$dir/probes.sh" --from-file="$dir/keygen.sh"
+              kubectl -n "$NAMESPACE" apply -f - <<EOF
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: nats-client
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: client
+                    image: $box
+                    command: ["sleep", "infinity"]
+                    resources:
+                      requests: {cpu: 10m, memory: 32Mi}
+                      limits: {cpu: 500m, memory: 128Mi}
+                    volumeMounts:
+                      - {name: probes, mountPath: /probes}
+                      - {name: seeds, mountPath: /seeds}
+                volumes:
+                  - name: probes
+                    configMap: {name: nats-auth-probes}
+                  - name: seeds
+                    emptyDir: {medium: Memory}
+              EOF
+              kubectl -n "$NAMESPACE" wait pod/nats-client --for=condition=Ready --timeout=3m
+              principals=$(yq '.principals[] | select(has("pending") | not) | .name' \
+                "$root/charts/addons/files/nats-accounts.gen.yaml" | tr '\n' ' ')
+              pairs=$(kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh $principals)
+              probe_pairs=$(kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh \
+                rq-responder-bare rq-responder-bounded)
+              out=$(mktemp -d)
+              PAIRS="$pairs" PROBE_PAIRS="$probe_pairs" NAMESPACE="$NAMESPACE" OUT="$out" sh "$dir/render.sh"
+              kubectl -n "$NAMESPACE" apply -f "$out/server.yaml"
+              kubectl -n "$NAMESPACE" rollout status statefulset/nats --timeout=4m
+              echo "image digests under test:"
+              digests='{range .items[*]}{range .status.containerStatuses[*]}{.name}{"\t"}{.imageID}{"\n"}{end}{end}'
+              kubectl -n "$NAMESPACE" get pods nats-0 nats-client -o jsonpath="$digests"
+      catch:
+        - describe:
+            apiVersion: v1
+            kind: Pod
+        - events: {}
+        - podLogs:
+            selector: app.kubernetes.io/name=nats
+            tail: 50
+
+    - name: probes
+      description: >-
+        cold_start_no_maintainer_account, start_bind_pull_ack_reconnect (start), lifecycle_refused,
+        cross_principal_inbox_and_ack_refused, consumer_create_name_only_reach and
+        rq_reply_needs_no_inbox_grant, in one connection-per-command client.
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              principals=$(yq '.principals[] | select(has("pending") | not) | .name' \
+                "$(git rev-parse --show-toplevel)/charts/addons/files/nats-accounts.gen.yaml" | tr '\n' ' ')
+              kubectl -n "$NAMESPACE" exec nats-client -- env NATS_URL=nats://nats:4222 SEEDS=/seeds \
+                PRINCIPALS="$principals" sh /probes/probes.sh \
+                cold streams push_redirect consumer_create start lifecycle cross_principal rq
+      catch:
+        - podLogs:
+            selector: app.kubernetes.io/name=nats
+            tail: 100
+
+    - name: restart-and-reconnect
+      description: >-
+        The server pod is deleted; on its replacement the durable consumer resumes at the message
+        left unacknowledged and a fresh publish flows through under the same rendered ACL.
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              kubectl -n "$NAMESPACE" delete pod nats-0 --wait=true
+              kubectl -n "$NAMESPACE" rollout status statefulset/nats --timeout=4m
+              kubectl -n "$NAMESPACE" wait pod/nats-0 --for=condition=Ready --timeout=3m
+              kubectl -n "$NAMESPACE" exec nats-client -- env NATS_URL=nats://nats:4222 SEEDS=/seeds \
+                sh /probes/probes.sh reconnect
+      catch:
+        - podLogs:
+            selector: app.kubernetes.io/name=nats
+            tail: 100

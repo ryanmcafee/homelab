@@ -1,0 +1,17 @@
+# expect: Degraded
+# message: replicas > 1 not supported in non-clustered mode
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: pf-work
+  namespace: nats
+spec:
+  name: PF_WORK
+  replicas: 3
+status:
+  conditions:
+    - type: Ready
+      status: "False"
+      reason: Errored
+      message: "replicas > 1 not supported in non-clustered mode (10074)"
+      lastTransitionTime: "2026-09-28T00:00:00Z"
