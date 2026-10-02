@@ -268,7 +268,7 @@ has no address; with `policy: sync` an empty address list would delete every rec
 
 | Application | Provider | Sources | Selects | Target |
 |-------------|----------|---------|---------|--------|
-| `external-dns-cloudflare` | cloudflare (`proxied` from values) | `gateway-httproute` | `--gateway-name=envoy-external --gateway-namespace=envoy-gateway-system` plus an `annotationFilter` | `--default-targets=<EXTERNAL_DNS_DEFAULT_TARGET>` (`<DUCKDNS_SUBDOMAIN>.duckdns.org`), so public names are **CNAMEs to the DuckDNS name**, never the LAN address |
+| `external-dns-cloudflare` | cloudflare (records unproxied, below) | `gateway-httproute` | `--gateway-name=envoy-external --gateway-namespace=envoy-gateway-system` plus an `annotationFilter` | `--default-targets=<EXTERNAL_DNS_DEFAULT_TARGET>` (`<DUCKDNS_SUBDOMAIN>.duckdns.org`), so public names are **CNAMEs to the DuckDNS name**, never the LAN address |
 | `external-dns-cloudflare-crd` | cloudflare | `crd` (`DNSEndpoint`) | explicit `DNSEndpoint` records | same default target |
 | `external-dns-unifi-ingress` | UniFi webhook (`charts.external-dns-webhook-unifi`) | `gateway-httproute`, `service` | `--gateway-name=envoy-internal --gateway-namespace=envoy-gateway-system` | the Gateway's `external-dns.alpha.kubernetes.io/target` (`GATEWAY_INTERNAL_STATIC_IP`), else its address; a Service's LoadBalancer address |
 | `external-dns-unifi-crd` | UniFi webhook | `crd` | `DNSEndpoint` records for the LAN (`charts/external-dns-config`) | as declared |
@@ -285,6 +285,29 @@ Resolution therefore depends on where the client sits:
 | Internet | Cloudflare → CNAME DuckDNS → WAN IP → port forward → `<GATEWAY_EXTERNAL_STATIC_IP>` | NXDOMAIN (no public record) |
 | LAN | UniFi answers first (`external-dns-unifi`), otherwise the public CNAME; either way ends at `envoy-external` | UniFi → `envoy-internal` address |
 | Tailnet | Split DNS sends `<DOMAIN>` to `<GATEWAY_IP>` through the subnet router, same answers as the LAN | same as LAN |
+
+### Cloudflare records are deliberately DNS-only
+
+Public records are unproxied ("gray-clouded"), and that is the intended state. external-dns
+turns the proxy on with `--cloudflare-proxied`, which defaults to `false`; neither Cloudflare
+Application passes it, so the proxy has never been on. The `external-dns` chart declares no
+`cloudflare.proxied` value either, so a key of that name in an Application is inert and changes
+nothing.
+
+Proxying is not wanted for the one public name, `plex.<DOMAIN>`:
+
+- Plex remote access reaches `<PLEX_LB_IP>:32400` through its own port forward. Cloudflare's
+  proxy carries HTTPS only on 443, 2053, 2083, 2087, 2096 and 8443, so a proxied record cannot
+  serve that port at all; Cloudflare's own guidance for other ports is to leave the record
+  gray-clouded or to buy Spectrum.
+- Proxying moves TLS termination to Cloudflare's edge, which demotes the wildcard
+  `gateway-wildcard-tls` certificate to an origin certificate and makes the zone's encryption
+  mode matter. That mode is Cloudflare dashboard state, not in this repo, so enabling the proxy
+  cannot be reviewed from git alone.
+
+To revisit it, the mechanism is `extraArgs: [--cloudflare-proxied]` on the Application, or the
+per-record annotation `external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"`, which
+overrides the flag for a single route.
 
 ---
 

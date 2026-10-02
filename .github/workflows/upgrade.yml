@@ -15,9 +15,19 @@ name: Upgrade verification
 #               custom resource still validates against the new CRDs. Nothing is
 #               committed. The report is the sticky `upgrade-diff` comment. On
 #               renovate/* heads the job sets the `upgrade/automerge-gate`
-#               commit status: success only when no rendered manifest changed
-#               and revalidation passed. Renovate (platformAutomerge false)
+#               commit status: success only when no rendered manifest changed,
+#               revalidation passed and no Application sets a helm value its
+#               chart does not declare. Renovate (platformAutomerge false)
 #               automerges only when every status is green.
+#
+#               The undeclared-values check (`task upstream:values`) lives here
+#               rather than in level 0 because it pulls every pinned chart, and
+#               level 0 is network-free by contract. Here is also where it is
+#               most needed: a chart that renames a values key in a bump leaves
+#               the old key inert, and helm reports nothing because almost no
+#               chart ships a values.schema.json. pr-contract.yml would be the
+#               wrong home twice over -- it skips `renovate/*` heads, which is
+#               exactly the PR that renames a key.
 #   renovate-regime
 #               renovate/* heads only. Decodes the base64 renovate-debug blob
 #               Renovate appends to its own PR bodies and fails as
@@ -29,7 +39,8 @@ name: Upgrade verification
 #   regenerate  renovate/* heads only, and only when the regeneration bot's
 #               GitHub App secrets (HOMELAB_BOT_APP_ID, HOMELAB_BOT_PRIVATE_KEY)
 #               exist; otherwise a notice. Regenerates the committed localdev
-#               values, tests/schemas and tests/snapshots and pushes one commit
+#               values, tests/schemas, tests/snapshots and the versions.yaml
+#               block embedded in Claude.md, and pushes one commit
 #               as homelab-regen-bot with an App token. Unlike GITHUB_TOKEN, an
 #               App-token push triggers the other workflows, and renovate.json5
 #               lists the author in gitIgnoredAuthors so Renovate keeps managing
@@ -45,6 +56,11 @@ on:
       - 'Taskfile.yml'
       - 'scripts/renovate-regen.ts'
       - 'scripts/renovate-pr-list_test.ts'
+      # The undeclared-values gate and its allowlist: a PR that changes either
+      # has to run it, and tests/snapshots is where it reads the values from.
+      - 'scripts/upstream-values-check.ts'
+      - 'tests/gitops/upstream-values-allowlist.yaml'
+      - 'tests/snapshots/**'
 
 concurrency:
   group: upgrade-${{ github.ref }}
@@ -161,14 +177,51 @@ jobs:
           } >> upgrade-report.md
           echo "pass=$ok" >> "$GITHUB_OUTPUT"
 
+      # A chart that renames a values key in a version bump is silent: helm
+      # ignores the old key, the render succeeds and the diff above shows only
+      # the loss of whatever the key used to do. This names the key instead.
+      - name: Helm values the upstream chart does not declare
+        id: values
+        if: always()
+        run: |
+          set +e
+          task upstream:values -- --json > values.raw.json
+          code=$?
+          set -e
+          sed -n '/^{/,/^}/p' values.raw.json > values.json
+          if ! jq -e '.inspected' values.json > /dev/null 2>&1; then
+            echo "::error::task upstream:values produced no JSON result (exit ${code})"
+            echo '{"pass":false,"inspected":{"sources":0,"charts":0},"findings":[],"unusedAllowEntries":[],"pullErrors":[]}' > values.json
+          fi
+          pass="$(jq -r '.pass' values.json)"
+          {
+            echo
+            echo '## Undeclared helm values'
+            echo
+            echo 'Every Application Helm chart source is compared against the key paths its pinned chart and that chart'"'"'s vendored dependencies declare. A key the chart does not declare is inert: helm ignores it, so the rendered manifest never shows it. Holes are declared in `tests/gitops/upstream-values-allowlist.yaml`.'
+            echo
+            if [ "$pass" = true ]; then
+              echo "**Result:** PASS ($(jq -r '.inspected.sources') chart source(s), $(jq -r '.inspected.charts') pinned chart(s) inspected)"
+            else
+              echo "**Result:** FAIL"
+              echo
+              jq -r '.findings[] | "- `\(.env)/\(.app)` [`\(.chart)@\(.targetRevision)`] sets `\(.path)`, which the chart does not declare"' values.json
+              jq -r '.unusedAllowEntries[] | "- allowlist entry `\(.chart): \(.path)` matched nothing; the chart declares it now, so remove it"' values.json
+              jq -r '.pullErrors[] | "- `\(.key)` could not be pulled, so its Applications were not checked: \(.error)"' values.json
+            fi
+          } >> upgrade-report.md
+          echo "pass=$pass" >> "$GITHUB_OUTPUT"
+
       # success only when every upgrade/* check passed with an "unchanged"
-      # detail (upgrade/base aside) and revalidation passed. A manifest diff,
-      # a skipped comparison or a failed render all block automerge.
+      # detail (upgrade/base aside), revalidation passed and no Application
+      # sets a key its chart does not declare. A manifest diff, a skipped
+      # comparison, a failed render or a renamed key all block automerge.
       - name: Automerge gate decision
         id: gate
         if: always()
         env:
           REVALIDATED: ${{ steps.revalidate.outputs.pass }}
+          VALUES: ${{ steps.values.outputs.pass }}
         run: |
           state=failure
           if ! jq -e '(.checks | length) > 0' upgrade.json > /dev/null 2>&1; then
@@ -178,6 +231,8 @@ jobs:
             description="rendered manifests changed - human review required, automerge blocked"
           elif [ "$REVALIDATED" != "true" ]; then
             description="CRD revalidation failed - automerge blocked"
+          elif [ "$VALUES" != "true" ]; then
+            description="an Application sets a helm value the chart does not declare - automerge blocked"
           else
             state=success
             description="no rendered manifest changes"
@@ -224,16 +279,18 @@ jobs:
             upgrade-report.md
             upgrade.json
             revalidate.json
+            values.json
           if-no-files-found: ignore
           retention-days: 14
 
       # A manifest diff is information, not a failure; a render that fails at
       # head or a custom resource that no longer validates is.
-      - name: Fail on a failed upgrade check or revalidation
+      - name: Fail on a failed upgrade check, revalidation or undeclared value
         if: always()
         env:
           UPGRADE_PASS: ${{ steps.upgrade.outputs.pass }}
           REVALIDATED: ${{ steps.revalidate.outputs.pass }}
+          VALUES: ${{ steps.values.outputs.pass }}
         run: |
           ok=true
           if [ "$UPGRADE_PASS" != "true" ]; then
@@ -243,6 +300,11 @@ jobs:
           fi
           if [ "$REVALIDATED" != "true" ]; then
             echo "::error::CRD revalidation failed: see the CRD revalidation section of the report."
+            ok=false
+          fi
+          if [ "$VALUES" != "true" ]; then
+            jq -r '.findings[]? | "\(.env)/\(.app) [\(.chart)@\(.targetRevision)]: \(.path)"' values.json
+            echo "::error::An Application passes a helm value its chart does not declare, so the value is inert. Run task upstream:values."
             ok=false
           fi
           [ "$ok" = true ]
@@ -355,11 +417,11 @@ jobs:
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
 
-      - name: Install go, helm, bun, task from mise.toml
+      - name: Install go, helm, bun, embedme, task from mise.toml
         if: steps.guard.outputs.run == 'true'
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go helm bun task
+          install_args: go helm bun npm:embedme task
 
       - name: Install script dependencies from bun.lock
         if: steps.guard.outputs.run == 'true'
@@ -375,6 +437,7 @@ jobs:
           task config:export:localdev
           task schemas:vendor
           task test:snapshot -- --update
+          task docs:embedme
 
       - name: Commit and push as the regeneration bot
         if: steps.guard.outputs.run == 'true'
@@ -382,14 +445,14 @@ jobs:
           BRANCH: ${{ github.head_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          paths="tests/snapshots tests/schemas charts/addons/values-localdev.yaml charts/applications/values-localdev.yaml"
+          paths="tests/snapshots tests/schemas charts/addons/values-localdev.yaml charts/applications/values-localdev.yaml Claude.md"
           # shellcheck disable=SC2086
           if [ -z "$(git status --porcelain -- $paths)" ]; then
-            echo "::notice::Snapshots, schemas and localdev values are already current."
+            echo "::notice::Snapshots, schemas, localdev values and embedded snippets are already current."
             exit 0
           fi
           other="$(git status --porcelain | awk '{print $2}' | while read -r f; do
-            case "$f" in tests/snapshots/*|tests/schemas/*|charts/addons/values-localdev.yaml|charts/applications/values-localdev.yaml) ;; *) echo "$f" ;; esac
+            case "$f" in tests/snapshots/*|tests/schemas/*|charts/addons/values-localdev.yaml|charts/applications/values-localdev.yaml|Claude.md) ;; *) echo "$f" ;; esac
           done)"
           if [ -n "$other" ]; then
             echo "::warning::Regeneration also touched files outside its scope; they are not committed: ${other}"
@@ -397,7 +460,7 @@ jobs:
           # shellcheck disable=SC2086
           git add -A -- $paths
           git -c user.name="$REGEN_BOT_NAME" -c user.email="$REGEN_BOT_EMAIL" commit \
-            -m "chore(deps): regenerate snapshots, schemas and localdev values" \
+            -m "chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets" \
             -m "Generated by .github/workflows/upgrade.yml (job regenerate) for ${HEAD_SHA}."
           if ! git push origin "HEAD:refs/heads/${BRANCH}"; then
             remote="$(git ls-remote origin "refs/heads/${BRANCH}" | awk '{print $1}')"

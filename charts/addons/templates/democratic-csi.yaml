@@ -161,6 +161,12 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      # The 1Password item path comes from this parent's democratic-csi values
+      # (configuration/ DEMOCRATIC_CSI_1P_PATH via the CMP), so a fork's key
+      # reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        truenas:
+          onePasswordItemPath: {{ (index .Values "democratic-csi" "truenas" "onePasswordItemPath") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: democratic-csi

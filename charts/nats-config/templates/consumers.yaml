@@ -1,0 +1,33 @@
+{{- $defaults := .Values.consumerDefaults }}
+{{- range $consumer := .Values.consumers }}
+---
+apiVersion: jetstream.nats.io/v1beta2
+kind: Consumer
+metadata:
+  name: {{ $consumer.name }}
+  labels:
+    app.kubernetes.io/part-of: {{ $.Chart.Name | trimSuffix "-config" }}
+    app.kubernetes.io/component: jetstream-consumer
+spec:
+  durableName: {{ $consumer.name }}
+  streamName: {{ $consumer.streamName }}
+  description: {{ $consumer.description | quote }}
+  servers:
+    - {{ $.Values.natsUrl }}
+  {{- with $.Values.account.name }}
+  # The same account as the stream it binds. A consumer created in another account reaches no
+  # stream at all, and the failure reads as a missing stream rather than a crossed boundary.
+  account: {{ . }}
+  {{- end }}
+  {{- if $consumer.filterSubject }}
+  # Consumers filter by subject, never by decoding the body and discarding.
+  filterSubject: {{ $consumer.filterSubject }}
+  {{- end }}
+  deliverPolicy: {{ $consumer.deliverPolicy | default $defaults.deliverPolicy }}
+  replayPolicy: {{ $consumer.replayPolicy | default $defaults.replayPolicy }}
+  ackPolicy: {{ $consumer.ackPolicy | default $defaults.ackPolicy }}
+  ackWait: {{ $consumer.ackWait | default $defaults.ackWait }}
+  maxDeliver: {{ $consumer.maxDeliver | default $defaults.maxDeliver }}
+  maxAckPending: {{ $consumer.maxAckPending | default $defaults.maxAckPending }}
+  preventDelete: true
+{{- end }}

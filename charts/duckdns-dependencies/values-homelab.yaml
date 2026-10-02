@@ -1,5 +1,7 @@
 # duckdns-dependencies homelab values
+#
+# onePasswordItemPath is NOT set here: the applications duckdns-dependencies
+# Application passes it through helm.valuesObject from DUCKDNS_1P_PATH, so a
+# fork's key is what reaches the OnePasswordItem.
 
 namespace: duckdns
-
-onePasswordItemPath: vaults/homelab/items/duckdns

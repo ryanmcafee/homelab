@@ -258,6 +258,9 @@ spec:
         github:
           owner: ryanmcafee
           repo: homelab
+          tokenRef:
+            secretName: previews-github-token
+            key: token
           labels:
             - preview
         requeueAfterSeconds: 300
@@ -317,3 +320,18 @@ spec:
             duration: 10s
             factor: 2
             maxDuration: 3m
+
+---
+# Source: gitops/templates/previews-github-token.yaml
+# Secret key (1Password field label): token, matching
+# previews.github.tokenSecret.key. Wave appProjectSyncWave, before the
+# ApplicationSet (applicationSetSyncWave) that reads it.
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: previews-github-token
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  itemPath: "vaults/homelab/items/previews-github-token"
