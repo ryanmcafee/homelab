@@ -1970,7 +1970,7 @@ triage-agent:
   namespace: triage-agent
   # Published by .github/workflows/triage-agent-image.yml to the fork's own
   # ghcr namespace; the image name there is fixed, only the owner varies.
-  image: "ghcr.io/{{ .GitOps.Owner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"
+  image: "ghcr.io/{{ .GitOps.ImageOwner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"
   repoSlug: "{{ .GitOps.Slug }}"
   workflowUiUrl: "https://{{ .Values.WORKFLOWS_HOSTNAME.Value }}"
   # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN plus optional fields (docs/runbooks/triage-agent.md).

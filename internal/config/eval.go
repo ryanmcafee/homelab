@@ -281,17 +281,35 @@ func DeriveGitOpsRepo(values map[string]string) (*GitOpsRepo, error) {
 		return nil, nil
 	}
 
+	if strings.ContainsAny(trimmed, "?#") {
+		return nil, fmt.Errorf(
+			"%s %q has a query or fragment: give the clone URL, not a web page", GitOpsRepoKey, raw)
+	}
+
 	// Accept both https://host/owner/repo(.git) and git@host:owner/repo(.git).
 	normalized := strings.TrimSuffix(strings.TrimRight(trimmed, "/"), ".git")
 	path := normalized
+	var host string
 	if scheme := strings.Index(path, "://"); scheme >= 0 {
 		path = path[scheme+len("://"):]
-		host, rest, found := strings.Cut(path, "/")
-		if !found || host == "" {
+		authority, rest, found := strings.Cut(path, "/")
+		if userinfo, h, hasUser := cutLast(authority, "@"); hasUser {
+			if strings.Contains(userinfo, ":") {
+				return nil, errGitOpsRepoPassword()
+			}
+			authority = h
+		}
+		if !found || authority == "" {
 			return nil, fmt.Errorf("%s %q has no path after the host", GitOpsRepoKey, raw)
 		}
+		host = authority
 		path = rest
-	} else if _, rest, found := strings.Cut(path, ":"); found {
+	} else if authority, rest, found := strings.Cut(path, ":"); found {
+		// user:password@host:owner/repo splits at the password's colon.
+		if strings.Contains(rest, "@") {
+			return nil, errGitOpsRepoPassword()
+		}
+		_, host, _ = cutLast(authority, "@")
 		path = rest
 	} else {
 		// Without a scheme or an scp-style colon there is no way to tell the
@@ -308,6 +326,12 @@ func DeriveGitOpsRepo(values map[string]string) (*GitOpsRepo, error) {
 			"%s %q does not name an owner and a repository: expected <host>/<owner>/<repo>, "+
 				"which is what the ArgoCD Application and the GitHub queries are built from", GitOpsRepoKey, raw)
 	}
+	hostname, _, _ := strings.Cut(host, ":")
+	if strings.EqualFold(hostname, "github.com") && len(segments) > 2 {
+		return nil, fmt.Errorf(
+			"%s %q has %d path segments, but github.com repositories are exactly <owner>/<repo>: "+
+				"this looks like a web page URL (/tree/, /blob/), not the clone URL", GitOpsRepoKey, raw, len(segments))
+	}
 	// A self-hosted forge can nest the owner (gitlab.example.com/group/sub/repo);
 	// the repository is the last segment and its owner is everything before it.
 	name := segments[len(segments)-1]
@@ -317,12 +341,27 @@ func DeriveGitOpsRepo(values map[string]string) (*GitOpsRepo, error) {
 	}
 
 	return &GitOpsRepo{
-		URL:      normalized,
-		CloneURL: normalized + ".git",
-		Owner:    owner,
-		Name:     name,
-		Slug:     owner + "/" + name,
+		URL:        normalized,
+		CloneURL:   normalized + ".git",
+		Owner:      owner,
+		ImageOwner: strings.ToLower(owner),
+		Name:       name,
+		Slug:       owner + "/" + name,
 	}, nil
+}
+
+// errGitOpsRepoPassword omits the value so the credential never reaches a log.
+func errGitOpsRepoPassword() error {
+	return fmt.Errorf("%s embeds a password; it would be rendered into every ArgoCD Application's repoURL. "+
+		"Remove it and give ArgoCD the credential as a repository Secret", GitOpsRepoKey)
+}
+
+func cutLast(s, sep string) (before, after string, found bool) {
+	i := strings.LastIndex(s, sep)
+	if i < 0 {
+		return "", s, false
+	}
+	return s[:i], s[i+len(sep):], true
 }
 
 // DeriveControlPlane resolves the control-plane address list from the schema's
