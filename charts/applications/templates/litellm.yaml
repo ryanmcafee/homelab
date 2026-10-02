@@ -224,6 +224,21 @@ spec:
             proxy_config:
               model_list:
                 {{- toYaml $ll.proxy.models | nindent 16 }}
+              # The metrics sidecar only aggregates what the workers write, and
+              # the workers write nothing until the prometheus callback is on:
+              # without this the ServiceMonitor scrapes an empty registry.
+              # client_ip, user_agent, end_user, user_email and hashed_api_key
+              # are per-request or per-caller, so they are dropped before they
+              # multiply every series on a homelab-sized Prometheus.
+              litellm_settings:
+                callbacks:
+                  - prometheus
+                prometheus_exclude_labels:
+                  - client_ip
+                  - user_agent
+                  - end_user
+                  - user_email
+                  - hashed_api_key
           livenessProbe:
             httpGet: {path: /health/liveliness, port: http}
             initialDelaySeconds: 10
@@ -313,4 +328,21 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+---
+# "LiteLLM gateway" for the kube-prometheus-stack Grafana sidecar, which
+# watches the grafana_dashboard label in every namespace. It reads the same
+# series the alerts do, so it lives and is pruned with the app rather than
+# with charts/grafana-config (docs/runbooks/litellm.md).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-gateway-dashboard
+  namespace: {{ $ll.namespace }}
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+data:
+  litellm-gateway.json: |-
+    {{- .Files.Get "dashboards/litellm-gateway.json" | nindent 4 }}
 {{- end }}

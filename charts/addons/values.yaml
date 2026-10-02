@@ -1191,6 +1191,12 @@ github-pr-exporter:
   secretName: github-pr-alerts
   onePasswordItemPath: ""
 
+# LiteLLM alert rules (templates/kube-prometheus-stack.yaml, group homelab-litellm); the app itself
+# is charts/applications/templates/litellm.yaml. Placeholder; the CMP template renders the real block.
+litellm:
+  enabled: false
+  namespace: litellm
+
 # Alert triage agent (templates/triage-agent.yaml, charts/triage-agent). Placeholder; the CMP template renders the real block.
 triage-agent:
   enabled: false

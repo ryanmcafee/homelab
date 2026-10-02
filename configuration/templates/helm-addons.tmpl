@@ -1970,6 +1970,18 @@ github-pr-exporter:
       url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s review-requested:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_REQUESTED.Value .GitOps.Owner .GitOps.Owner $prExclude) }}&per_page=100"
 
 # ============================================================================
+# LiteLLM alert rules (templates/kube-prometheus-stack.yaml, homelab-litellm)
+# Sync Wave: 9, with the monitoring stack (docs/runbooks/litellm.md)
+# ============================================================================
+# Only the alert group lives here; the app is the litellm block of
+# helm-apps.tmpl. Both follow the same enablement, so a cluster without the
+# proxy carries no rules that can only go absent.
+
+litellm:
+  enabled: true
+  namespace: litellm
+
+# ============================================================================
 # Alert triage agent (templates/triage-agent.yaml, charts/triage-agent)
 # Sync Wave: 13 (docs/runbooks/triage-agent.md)
 # ============================================================================
