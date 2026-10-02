@@ -414,11 +414,11 @@ interface Result {
 
 async function exec(
   cmd: string[],
-  opts: { cwd?: string; quiet?: boolean } = {},
+  opts: { cwd?: string; quiet?: boolean; input?: string } = {},
 ): Promise<Result> {
   const p = Bun.spawn(cmd, {
     cwd: opts.cwd,
-    stdin: "ignore",
+    stdin: opts.input === undefined ? "ignore" : Buffer.from(opts.input),
     stdout: opts.quiet === false ? "inherit" : "pipe",
     stderr: "pipe",
   });
@@ -583,8 +583,8 @@ export async function mergeAndResolve(
 /**
  * Replaces git's whole-side union result with resolveUnionText's, from the
  * diff3 view of a merge without attributes. A real conflict goes back into
- * the file as markers, staged, so the marker check blocks the commit until a
- * human resolves it.
+ * the file as markers and back into the unmerged state (markUnmerged), so it
+ * reads as `UU` until a human resolves it.
  */
 async function resolveUnionFiles(
   cwd: string,
@@ -618,9 +618,47 @@ async function resolveUnionFiles(
       .stdout;
     const resolved = resolveUnionText(conflicted);
     await writeFile(join(cwd, path), resolved ?? conflicted);
-    await git(cwd, "add", "--", path);
-    (resolved === null ? out.manual : out.union).push(path);
+    if (resolved === null) {
+      await markUnmerged(cwd, path, head, base);
+      out.manual.push(path);
+    } else {
+      await git(cwd, "add", "--", path);
+      out.union.push(path);
+    }
   }
+}
+
+/**
+ * Puts a path git's union driver already resolved back into the unmerged
+ * state (index stages 1-3), so `git status` shows it as `UU` and --continue's
+ * unmerged check, `git checkout -m` and mergetools all treat it as the real
+ * conflict it is.
+ */
+async function markUnmerged(
+  cwd: string,
+  path: string,
+  head: string,
+  base: string,
+): Promise<void> {
+  const ancestor = await git(cwd, "merge-base", head, base);
+  const entries: string[] = [];
+  for (const [stage, rev] of [
+    [1, ancestor],
+    [2, head],
+    [3, base],
+  ] as const) {
+    // "<mode> blob <sha>\t<path>", or nothing when the side lacks the file.
+    const tree = await git(cwd, "ls-tree", rev, "--", path);
+    const [meta] = tree.split("\t");
+    const [mode, , sha] = meta?.split(" ") ?? [];
+    if (mode && sha) entries.push(`${mode} ${sha} ${stage}\t${path}`);
+  }
+  await git(cwd, "update-index", "--force-remove", "--", path);
+  const r = await exec(["git", "update-index", "--index-info"], {
+    cwd,
+    input: `${entries.join("\n")}\n`,
+  });
+  if (r.code !== 0) throw new Error(`git update-index failed:\n${r.stderr}`);
 }
 
 // ---------------------------------------------------------------------------

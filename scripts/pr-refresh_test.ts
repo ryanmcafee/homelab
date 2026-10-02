@@ -572,6 +572,54 @@ test("mergeAndResolve: an edited row next to an inserted row is not duplicated",
   }
 });
 
+test("mergeAndResolve: two rewrites of one union line stay a real, unmerged conflict", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pr-refresh-"));
+  try {
+    sh(dir, "git", "init", "-q", "-b", "main");
+    sh(dir, "git", "config", "user.email", "t@example.com");
+    sh(dir, "git", "config", "user.name", "t");
+    const log = (row: string) => `# Log\n\n| a | 1 |\n${row}\n| c | 3 |\n`;
+    write(dir, { "docs/project_notes/issues.md": log("| b | 2 |") });
+    sh(dir, "git", "add", "-A");
+    sh(dir, "git", "commit", "-qm", "init");
+    sh(dir, "git", "checkout", "-qb", "feat/pr");
+    write(dir, { "docs/project_notes/issues.md": log("| b | 2, PR |") });
+    sh(dir, "git", "commit", "-qam", "pr");
+    sh(dir, "git", "checkout", "-q", "main");
+    write(dir, {
+      ".gitattributes": "docs/project_notes/issues.md merge=union\n",
+      "docs/project_notes/issues.md": log("| b | 2, main |"),
+    });
+    sh(dir, "git", "add", "-A");
+    sh(dir, "git", "commit", "-qm", "main");
+    sh(dir, "git", "checkout", "-q", "feat/pr");
+    const out = await mergeAndResolve(dir, "main");
+    assertEquals(out.union, []);
+    assertEquals(out.manual, ["docs/project_notes/issues.md"]);
+    assertEquals(
+      sh(dir, "git", "diff", "--name-only", "--diff-filter=U"),
+      "docs/project_notes/issues.md",
+      "unmerged, not staged",
+    );
+    const text = readFileSync(
+      join(dir, "docs/project_notes/issues.md"),
+      "utf8",
+    );
+    assert(
+      text.includes("| b | 2, PR |") && text.includes("| b | 2, main |"),
+      text,
+    );
+    assert(text.includes("<<<<<<<") && text.includes("|||||||"), text);
+    write(dir, {
+      "docs/project_notes/issues.md": log("| b | 2, PR and main |"),
+    });
+    sh(dir, "git", "add", "docs/project_notes/issues.md");
+    assertEquals(sh(dir, "git", "diff", "--name-only", "--diff-filter=U"), "");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("mergeAndResolve: a clean merge stays uncommitted for regeneration", async () => {
   const dir = mkdtempSync(join(tmpdir(), "pr-refresh-"));
   try {
