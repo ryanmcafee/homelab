@@ -1600,6 +1600,15 @@ nats:
   systemAccountNkey: "{{ .Values.NATS_SYSTEM_ACCOUNT_NKEY.Value }}"
   natsBoxPrincipals: "{{ .Values.NATS_BOX_PRINCIPALS.Value }}"
 
+  # Where each principal's PRIVATE seed comes from. Exactly one source, or the accounts block
+  # refuses to render: a public key the server accepts is unusable until its seed reaches the
+  # client. Kind has no vault, so its bootstrap mints the seeds into Secrets directly
+  # (scripts/localdev-kind.ts); homelab delivers them through the 1Password operator.
+  credentials:
+    onePasswordVaultPath: "{{ if and $onepassword (not $localdev) }}{{ .Values.NATS_CREDENTIALS_1P_PATH.Value }}{{ end }}"
+    bootstrapSeeded: {{ $localdev }}
+    extraNamespaces: {}
+
   # Per-account JetStream limits, mandatory rather than advisory (ADR-043 D8). Both store
   # limits are checked against the SERVER's stores at startup and a limit above what the
   # server offers is fatal for every account, not just the greedy one -- measured on v2.15.0
