@@ -102,6 +102,12 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      # The 1Password item path comes from this parent's cert-manager values
+      # (configuration/ CERT_MANAGER_1P_PATH via the CMP), so a fork's key
+      # reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        cloudflare:
+          onePasswordItemPath: {{ (index .Values "cert-manager" "cloudflare" "onePasswordItemPath") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager

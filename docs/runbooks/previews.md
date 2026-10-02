@@ -81,10 +81,20 @@ scope. Label a fork PR only after reading its diff. What bounds a preview:
 
 - `charts/gitops/templates/previews-applicationset.yaml` (homelab only,
   `previews.enabled`): `pullRequest.github` generator (`github.com/ryanmcafee/homelab`, label
-  `preview`, anonymous: the repo is public; set `previews.github.tokenSecret.name` to use a
-  token Secret in `argocd`). The template renders `charts/applications` at `{{.head_sha}}`
+  `preview`, authenticated with `tokenRef` to the Secret `previews-github-token` in `argocd`).
+  The template renders `charts/applications` at `{{.head_sha}}`
   through plugin `homelab-config-helm-v1.0` with env `PREVIEW_PR={{.number}}` and
   `PREVIEW_APPS=<preview:* labels, prefix stripped, lower-cased, comma-joined>`.
+- `charts/gitops/templates/previews-github-token.yaml`: the `OnePasswordItem` that produces
+  `previews-github-token` from 1Password item `previews-github-token` (field `token`; a
+  fine-grained, read-only token for this repository: pull requests read). It renders only
+  when `previews.github.tokenSecret.name` is set and requires
+  `previews.github.tokenSecret.onePasswordItemPath`. The generator must not poll anonymously:
+  GitHub's anonymous limit (60/hour) is per egress IP and shared with every other anonymous
+  caller in the cluster. When it runs out, the generator cannot list PRs, the `previews`
+  ApplicationSet reports `ErrorOccurred`, and the `gitops` Application goes Degraded
+  (`HomelabArgoCDApplicationDegraded` with `name="gitops"`). A missing 1Password item has
+  the same symptom, and the `OnePasswordItem` itself goes Degraded.
 - `charts/gitops/templates/previews-appproject.yaml`: the `previews` AppProject.
 - `charts/bootstrap/values-homelab.yaml`: `configs.params."application.namespaces":
   "preview-*"` lets the controller and server reconcile Applications outside `argocd`.
@@ -101,6 +111,9 @@ scope. Label a fork PR only after reading its diff. What bounds a preview:
 
 ## Rollout (human, after merge)
 
+0. Before the token change merges: create the 1Password item `previews-github-token` in the
+   `homelab` vault with field `token`, holding a fine-grained token scoped to this repository
+   with read-only pull request access.
 1. The pre-commit hook bumps `images.homelab-cmp` for the `cmp/plugin.yaml` change; the
    new image must be running before a PR is labelled. An old CMP ignores the preview
    variables and renders the production chart, which the `previews` AppProject then

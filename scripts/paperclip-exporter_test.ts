@@ -37,8 +37,9 @@ function run(
   status: string,
   finishedAt: string | null,
   errorCode: string | null = null,
+  agentId: string | null = null,
 ) {
-  return { id: crypto.randomUUID(), status, finishedAt, errorCode };
+  return { id: crypto.randomUUID(), agentId, status, finishedAt, errorCode };
 }
 
 const RUNS = [
@@ -48,7 +49,7 @@ const RUNS = [
   run("interrupted", "2026-09-25T03:20:00Z", "orphaned_running_run"),
   run("interrupted", "2026-09-25T03:10:00Z", "orphaned_running_run"),
   run("cancelled", "2026-09-25T03:05:00Z", "cancelled"),
-  run("running", null),
+  run("running", null, null, "a1"),
   run("failed", "2026-09-25T02:30:00Z", "acpx_turn_failed"),
 ];
 
@@ -191,6 +192,59 @@ test("summarize counts agents by status and running agents without a live run as
   );
   assertEquals(summary.agentsByStatus, { running: 2, idle: 1 });
   assertEquals(summary.liveRuns, 1);
+  assertEquals(summary.phantomRunning, 1);
+});
+
+test("summarize does not count a running agent as phantom when its live run is only in heartbeat-runs", () => {
+  // /live-runs caps its response; a2's queued run fell past the cap.
+  const truncated = Array.from({ length: 50 }, (_, i) => ({
+    id: `r${i}`,
+    agentId: "a1",
+    status: i === 0 ? "running" : "queued",
+  }));
+  const summary = summarize(
+    {
+      runs: parseRuns([
+        run("running", null, null, "a1"),
+        run("queued", null, null, "a2"),
+        run("succeeded", "2026-09-25T03:50:00Z", null, "a2"),
+      ]),
+      agents: parseAgents(AGENTS),
+      liveRuns: parseLiveRuns(truncated),
+    },
+    NOW,
+    HOUR,
+  );
+  assertEquals(summary.phantomRunning, 0);
+  assertEquals(summary.liveRuns, 50);
+});
+
+test("summarize reports the larger live count of live-runs and heartbeat-runs", () => {
+  const summary = summarize(
+    {
+      runs: parseRuns([
+        run("running", null, null, "a1"),
+        run("queued", null, null, "a2"),
+        run("scheduled_retry", null, null, "a2"),
+      ]),
+      agents: parseAgents(AGENTS),
+      liveRuns: parseLiveRuns(LIVE_RUNS),
+    },
+    NOW,
+    HOUR,
+  );
+  assertEquals(summary.liveRuns, 3);
+  assertEquals(summary.phantomRunning, 0);
+});
+
+test("summarize ignores heartbeat-runs without an agentId when looking for live runs", () => {
+  const runs = parseRuns([run("queued", null)]);
+  assertEquals(runs[0]?.agentId, null);
+  const summary = summarize(
+    { runs, agents: parseAgents(AGENTS), liveRuns: parseLiveRuns(LIVE_RUNS) },
+    NOW,
+    HOUR,
+  );
   assertEquals(summary.phantomRunning, 1);
 });
 

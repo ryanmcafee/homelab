@@ -55,7 +55,7 @@ spec:
       name: {{ .Values.auth.secretName }}
       key: {{ .Values.auth.secretKey }}
     disableSignUp: {{ .Values.auth.disableSignUp }}
-    {{- if .Values.admin.email }}
+    {{- if and .Values.admin.bootstrap .Values.admin.email }}
     adminUser:
       email: {{ .Values.admin.email }}
       name: {{ .Values.admin.name | quote }}
