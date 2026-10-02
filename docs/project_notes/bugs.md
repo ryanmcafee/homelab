@@ -30,6 +30,12 @@ Each entry should include:
 - **Solution**: Removed the three dead keys from `charts/addons/values.yaml` and `charts/addons/templates/spegel.yaml`. Rendering the upstream chart with the Application's own `spec.source.helm.values` is byte-identical before and after, which is the proof they were inert. Mirroring was already all-registries, so argo-cd's redis was never missing a cache hit
 - **Prevention**: `helm show values <chart> --version <v>` before trusting a values key; translating a dead allowlist to its real key name would have been a regression here. MCAA-434 tracks a CI gate for this class
 
+### 2026-10-01 - argo-workflows workflow-controller CrashLoopBackOff under a 48Mi limit
+- **Issue**: `KubePodCrashLooping` for `argo-workflows-workflow-controller` (container `controller`); while it is down no Workflows are reconciled or archived, so the triage and CI workflows stall
+- **Root Cause**: The homelab render capped the controller at 32Mi request / 48Mi limit (and the server the same) since the block was introduced in 9835d66. The controller holds informer caches for Workflows, Pods, ConfigMaps and WorkflowTemplates plus the Postgres archive pool and needs about 100-250Mi, so it is OOM-killed. Inferred from the config: the pod's `lastState.terminated.reason` and logs could not be read during triage; the other documented cause is an unreachable `argo-workflows-postgres-rw` (docs/runbooks/argo-workflows.md)
+- **Solution**: homelab controller memory request 128Mi, limit 256Mi; server request 64Mi, limit 128Mi (`configuration/templates/helm-addons.tmpl`)
+- **Prevention**: Size Argo controllers for their informer caches; 48Mi is below a Go controller's baseline. Confirm `lastState.terminated.reason` before assuming OOM on a crash loop
+
 ### 2026-09-26 - plex and otel-collector-gateway permanently OutOfSync on their HTTPRoute (#387)
 - **Issue**: After the Envoy Gateway cutover, `plex` and `otel-collector-gateway` stayed `OutOfSync`/`Healthy` with only the HTTPRoute out of sync; `argocd app diff` showed nothing
 - **Root Cause**: The `plex-media-server` and `opentelemetry-collector` chart templates render `backendRefs` with only `name` and `port` and accept no `group`/`kind`, so the API server adds `group: ""`, `kind: Service` and `weight: 1`, which the controller's diff flags on every refresh
@@ -551,14 +557,26 @@ These are documented errors with known solutions:
 - **Root Cause**: `unifi_setting.syslog` set `this_controller = true` and `this_controller_encrypted_only = true`; `this_controller` makes the controller itself the syslog destination and excludes the remote SIEM server
 - **Solution**: Both flags are `false` in `terragrunt/modules/unifi-gateway/main.tf`; apply with `task tf:apply:component COMPONENT=unifi-gateway`
 - **Prevention**: Test an export end to end with one synthetic message before trusting the controller's setting page
+
 ### 2026-09-30 - PR dependency triage label write returned 403
 - **Issue**: `pull_request_target` run 36656956730 failed on `PUT /repos/ryanmcafee/homelab/issues/511/labels` although the job log granted `Issues: write`.
 - **Diagnosis**: The workflow labels pull requests through the shared Issues endpoint. The response advertises `issues=write; pull_requests=write`, but the granted Issues scope did not authorize the operation in this run. Repository Actions permission settings could not be read by the current integration (403), so the exact server-side policy remains unconfirmed.
 - **Candidate fix**: PR #533 changes the job to only `pull-requests: write`, adds a one-PR dispatch guard, and documents fork behavior. Security signed off on the token scope. This integration gets 403 when dispatching the branch workflow, so a successful live label write is still required before calling this resolved.
 - **Prevention**: Confirm effective token permissions in the job setup log and exercise a real write; a green static workflow check does not prove authorization.
 
+### 2026-09-30 - PR dependency triage cancelled unrelated PR events
+- **Issue**: A single `pr-dependency-triage` concurrency group let any PR event or hourly sweep cancel a run for a different PR.
+- **Solution**: Key `pull_request_target` runs by the base repository's PR number and put schedule/manual sweeps in a distinct `sweep` group, retaining `cancel-in-progress` for same-PR supersession.
+- **Prevention**: `scripts/pr-dependency-triage-concurrency_test.ts` checks different-PR isolation, same-PR supersession, and sweep separation.
+
 ### 2026-09-30 - Cold-draw policy tests timed out on unavailable external commands
 - **Issue**: PR #460's policy job exceeded Bun's five-second limit in two `kind-cold-draw` cases.
 - **Likely Cause**: The capture unit test ran four real `kubectl` and two real `docker` commands through synchronous `Bun.spawnSync`; their latency and host state were outside the test's control. The fixture-only verdict case also timed out in that run, consistent with the synchronous capture blocking the runner. The CI log does not isolate which external command consumed the time.
 - **Solution**: Let the capture test inject a failing command runner, while production capture retains the real runner. The test still checks missing pod and registry evidence and the written artifacts, and now asserts that all six commands ran through the fixture.
 - **Prevention**: In script unit tests, simulate external command results and assert the commands issued; reserve real `kubectl` and `docker` for integration checks.
+
+### 2026-10-01 - KubeCPUOvercommit after the Paperclip/NATS request increases
+- **Issue**: `KubeCPUOvercommit` from 2026-10-01 02:35 UTC: pod CPU requests 13.97 CPU against 13.75 CPU allocatable with the largest node (7.95 CPU) down, 0.22 CPU over
+- **Root Cause**: Requests grew from 12.79 to 13.97 CPU in two days: ca1e123 (Paperclip request to one core, +0.5), #438 (NATS, +0.325), #562 (paperclip-postgres 250m -> 500m, +0.25, merged 18 minutes before the alert) and argo-rollouts (+0.1). Paperclip and postgres use what they request; several other workloads asked for 10-40x their 7-day peak
+- **Solution**: CPU requests sized from the 7-day peak, limits unchanged: sonarr and radarr 200m -> 75m (peak ~50m), tautulli 100m -> 25m (~9m), lazylibrarian 100m -> 25m (~3m), production NATS 100m -> 25m per replica (~6m, 3 replicas). Frees ~0.6 CPU, enough for the overcommit plus one 250m triage stage pod
+- **Prevention**: Before raising a request, check `sum(namespace_cpu:kube_pod_container_resource_requests:sum) - (sum(kube_node_status_allocatable{resource="cpu"}) - max(kube_node_status_allocatable{resource="cpu"}))` stays below 0 with the new value; same failure as the 2026-09-23 entry (KubeCPUOvercommit after the observability rollout)
