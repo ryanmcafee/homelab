@@ -48,6 +48,9 @@ providers:
   # external-dns-cloudflare-crd is the DNSEndpoint consumer (sources: [crd]),
   # so it is named here; it and external-dns-cloudflare share wave 4.
   externaldns.k8s.io: external-dns-cloudflare-crd
+  # NACK (wave 11) ships the Stream/Consumer CRDs in its chart's crds/ directory;
+  # nats-config (wave 12) renders the stream set strictly after it.
+  jetstream.nats.io: nack
   deviceplugin.intel.com: intel-device-plugins-operator
   nvidia.com: nvidia-gpu-operator
   snapshot.storage.k8s.io: democratic-csi

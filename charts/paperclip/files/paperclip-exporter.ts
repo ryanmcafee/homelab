@@ -8,6 +8,11 @@
  * `running` without a live run ("phantom"), and the latest week of
  * recovery-observability. paperclip_up is 0 when any request fails.
  *
+ * Live runs come from /live-runs together with the queued, running and
+ * scheduled_retry runs among the newest RUN_LIMIT heartbeat runs: /live-runs
+ * returns at most 50 entries, so on its own it would undercount live runs and
+ * report agents whose run is past the cap as phantom.
+ *
  * Runs from a ConfigMap in the stock oven/bun image (charts/paperclip
  * templates/exporter.yaml), so it has no dependencies beyond Bun itself.
  *
@@ -35,6 +40,7 @@ export interface Company {
   status: string;
 }
 export interface Run {
+  agentId: string | null;
   status: string;
   finishedAt: string | null;
   errorCode: string | null;
@@ -121,6 +127,7 @@ export function parseCompanies(json: unknown): Company[] {
 
 export function parseRuns(json: unknown): Run[] {
   return records(json, "heartbeat-runs").map((r) => ({
+    agentId: str(r["agentId"]),
     status: requireString(r, "status", "heartbeat-runs"),
     finishedAt: str(r["finishedAt"]),
     errorCode: str(r["errorCode"]),
@@ -185,13 +192,19 @@ export function summarize(
       finishedByStatus[run.status] = (finishedByStatus[run.status] ?? 0) + 1;
     }
   }
+  // /live-runs caps its response (flat at 50), so a running agent whose run
+  // is past the cap would look phantom. The newest heartbeat runs fill the gap.
   const live = data.liveRuns.filter((r) => LIVE_STATUSES.has(r.status));
+  const liveHeartbeat = data.runs.filter((r) => LIVE_STATUSES.has(r.status));
   const agentsWithLiveRun = new Set(live.map((r) => r.agentId));
+  for (const run of liveHeartbeat) {
+    if (run.agentId !== null) agentsWithLiveRun.add(run.agentId);
+  }
   return {
     finishedByStatus,
     errorsByCode: countBy(finished, (r) => r.errorCode),
     agentsByStatus: countBy(data.agents, (a) => a.status),
-    liveRuns: live.length,
+    liveRuns: Math.max(live.length, liveHeartbeat.length),
     phantomRunning: data.agents.filter(
       (a) => a.status === "running" && !agentsWithLiveRun.has(a.id),
     ).length,

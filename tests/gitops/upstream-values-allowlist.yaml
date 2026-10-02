@@ -1,0 +1,305 @@
+# Holes in the undeclared-values gate (`task upstream:values`,
+# scripts/upstream-values-check.ts).
+#
+# The gate fails when an Application sets a `spec.source.helm` key path that its
+# pinned chart -- or any chart that chart vendors -- does not declare in
+# values.yaml. Almost no chart ships a values.schema.json, so helm accepts an
+# unknown key silently and the rendered manifest never shows it. Three rules are
+# applied before this file is consulted: a vendored dependency's values count
+# (at the root for a `type: library` chart, under its alias or name otherwise),
+# a sole underscore-prefixed root key is unwrapped (istio), and an upstream
+# default of `{}` or null declares everything below it.
+#
+# Everything here is a key those rules cannot settle. Each entry matches one
+# chart, one path and everything under it, and needs a reason: an entry is a
+# place the gate cannot see, so it has to justify itself. An entry that stops
+# matching anything fails the gate, so a key upstream has since declared cannot
+# sit here forever.
+#
+# An entry is NOT the place to park a key the chart does not read. That is the
+# defect this gate exists to find; fix or delete the key instead.
+#
+# Fields: chart (required, the chart name as spec.source.chart spells it),
+# path (required, dotted), reason (required).
+---
+allow:
+  # --------------------------------------------------------------------------
+  # Free-form config documents: the chart copies the whole subtree into a
+  # ConfigMap, so its children are the upstream product's own schema, not the
+  # chart's. values.yaml can only ship an example.
+  # --------------------------------------------------------------------------
+  - chart: argo-cd
+    path: configs.cm
+    reason: >-
+      templates/_helpers.tpl omits two keys and ranges the rest of
+      .Values.configs.cm straight into the argocd-cm ConfigMap
+      (templates/argocd-configs/argocd-cm.yaml). Every child is an argocd-cm
+      setting, and they are literal dotted keys ("accounts.agent"), not nesting.
+  - chart: argo-cd
+    path: configs.params
+    reason: >-
+      Same construction for argocd-cmd-params-cm: _helpers.tpl ranges
+      .Values.configs.params wholesale. A few are also read by name, e.g.
+      "server.insecure" in templates/argocd-server/ingress.yaml.
+  - chart: opentelemetry-collector
+    path: config
+    reason: >-
+      templates/_config.tpl deep-copies .Values.config and writes it out as the
+      collector's own configuration file. Receiver, processor, exporter and
+      connector names are an OpenTelemetry convention (type/name), so no chart
+      schema can enumerate them.
+  - chart: opentelemetry-collector
+    path: ports
+    reason: >-
+      _config.tpl ranges .Values.ports by key to build both the Service ports
+      and the container ports; the map key becomes the port name. values.yaml
+      ships only the built-in ports.
+  - chart: prometheus-blackbox-exporter
+    path: config.modules
+    reason: >-
+      templates/configmap.yaml toYamls .Values.config into blackbox.yaml, where
+      modules is a user-named map. values.yaml ships the http_2xx example only.
+  - chart: kiali-server
+    path: external_services
+    reason: >-
+      templates/configmap.yaml renders the entire .Values tree minus two keys as
+      Kiali's config.yaml, which values.yaml says outright. Only
+      external_services.prometheus.enabled and custom_dashboards.enabled are
+      seeded as defaults.
+  - chart: kiali-server
+    path: server
+    reason: >-
+      Same config.yaml passthrough; web_fqdn, web_schema and web_port are also
+      read directly by templates/service.yaml, ingress.yaml and oauth.yaml.
+
+  # --------------------------------------------------------------------------
+  # Name-keyed maps: the key is chosen here, so the chart cannot declare it.
+  # --------------------------------------------------------------------------
+  - chart: flaresolverr
+    path: persistence
+    reason: >-
+      The TrueCharts common library spawns a PVC, volume and mount per key of
+      .Values.persistence (common/templates/spawner/_pvc.tpl), and reads size,
+      accessModes, storageClass and existingClaim per volume against
+      global.fallbackDefaults. Both the volume name and those fields are
+      undeclarable upstream.
+  - chart: lazylibrarian
+    path: persistence
+    reason: >-
+      Same TrueCharts common library volume spawner; see the flaresolverr entry.
+  - chart: mosquitto
+    path: persistence
+    reason: >-
+      Same TrueCharts common library volume spawner; see the flaresolverr entry.
+  - chart: nzbget
+    path: persistence
+    reason: >-
+      Same TrueCharts common library volume spawner; see the flaresolverr entry.
+  - chart: prowlarr
+    path: persistence
+    reason: >-
+      Same TrueCharts common library volume spawner; see the flaresolverr entry.
+  - chart: radarr
+    path: persistence
+    reason: >-
+      Same TrueCharts common library volume spawner; see the flaresolverr entry.
+  - chart: sonarr
+    path: persistence
+    reason: >-
+      Same TrueCharts common library volume spawner; see the flaresolverr entry.
+  - chart: tautulli
+    path: persistence
+    reason: >-
+      Same TrueCharts common library volume spawner; see the flaresolverr entry.
+  - chart: flaresolverr
+    path: workload.main.podSpec
+    reason: >-
+      The TrueCharts common library ranges podSpec.containers by name
+      (lib/pod/_containerSpawner.tpl) and takes per-container resources
+      (lib/container/_resources.tpl) and a per-pod nodeSelector
+      (lib/pod/_nodeSelector.tpl) as overrides of the chart-wide blocks, which
+      are the only forms common/values.yaml declares.
+  - chart: lazylibrarian
+    path: workload
+    reason: >-
+      Same TrueCharts common library workload spawner; see the flaresolverr
+      entry. This chart's own values.yaml declares no workload block at all, so
+      the override sits one level higher.
+  - chart: mosquitto
+    path: workload.main.podSpec
+    reason: >-
+      Same TrueCharts common library workload spawner; see the flaresolverr
+      entry.
+  - chart: nzbget
+    path: workload.main.podSpec
+    reason: >-
+      Same TrueCharts common library workload spawner; see the flaresolverr
+      entry.
+  - chart: prowlarr
+    path: workload.main.podSpec
+    reason: >-
+      Same TrueCharts common library workload spawner; see the flaresolverr
+      entry.
+  - chart: radarr
+    path: workload.main.podSpec
+    reason: >-
+      Same TrueCharts common library workload spawner; see the flaresolverr
+      entry.
+  - chart: sonarr
+    path: workload.main.podSpec
+    reason: >-
+      Same TrueCharts common library workload spawner; see the flaresolverr
+      entry.
+  - chart: tautulli
+    path: workload.main.podSpec
+    reason: >-
+      Same TrueCharts common library workload spawner; see the flaresolverr
+      entry.
+  - chart: mosquitto
+    path: service.main
+    reason: >-
+      The TrueCharts common library reads type per service and nodePort and
+      protocol per port (lib/service/_ports.tpl); common/values.yaml declares
+      only the built-in service.main.ports.main and the
+      global.fallbackDefaults.serviceType default. A NodePort service with no
+      nodePort is a hard fail in lib/service/_ports.tpl.
+  - chart: mosquitto
+    path: service.websockets
+    reason: >-
+      A second service this repository defines, so the TrueCharts common library
+      declares none of its per-port fields; see the service.main entry.
+
+  # --------------------------------------------------------------------------
+  # Subtrees the chart passes through with toYaml: values.yaml seeds some leaves
+  # and the rest render just as well.
+  # --------------------------------------------------------------------------
+  - chart: spegel
+    path: resources
+    reason: >-
+      templates/daemonset.yaml toYamls .Values.resources; values.yaml seeds
+      memory under both requests and limits but no cpu.
+  - chart: metrics-server
+    path: resources.limits
+    reason: >-
+      templates/deployment.yaml toYamls .Values.resources; values.yaml declares
+      requests only and carries limits as a commented-out example.
+  - chart: ztunnel
+    path: resources.limits
+    reason: >-
+      _helpers.tpl ztunnel.resources explicitly ranges "limits" and "requests",
+      and daemonset.yaml reads (.Values.resources.limits).cpu; values.yaml ships
+      requests only.
+  - chart: node-feature-discovery
+    path: master.resources
+    reason: >-
+      templates/master.yaml toYamls .Values.master.resources; values.yaml seeds
+      limits.memory and both requests but not limits.cpu.
+  - chart: node-feature-discovery
+    path: worker.resources
+    reason: >-
+      templates/worker.yaml toYamls .Values.worker.resources; values.yaml omits
+      limits.cpu the same way.
+  - chart: kiali-server
+    path: deployment.resources
+    reason: >-
+      templates/deployment.yaml toYamls .Values.deployment.resources;
+      values.yaml seeds both requests and limits.memory but not limits.cpu.
+  - chart: gateway-helm
+    path: deployment.envoyGateway.resources
+    reason: >-
+      templates/envoy-gateway-deployment.yaml toYamls the block; values.yaml
+      declares limits.memory only.
+  - chart: gateway-helm
+    path: deployment.pod.annotations
+    reason: >-
+      templates/envoy-gateway-deployment.yaml toYamls the annotations map, whose
+      keys are annotation names chosen here.
+
+  # --------------------------------------------------------------------------
+  # Keys the chart deliberately leaves undeclared so that "unset" is a distinct,
+  # meaningful third state. Declaring a default would change behaviour, so
+  # upstream ships them commented out.
+  # --------------------------------------------------------------------------
+  - chart: cilium
+    path: socketLB.hostNamespaceOnly
+    reason: >-
+      templates/cilium-configmap.yaml gates on hasKey, so absent means "emit no
+      bpf-lb-sock-hostns-only at all"; values.yaml keeps the key commented out
+      for exactly that reason.
+  - chart: kiali-server
+    path: deployment.ingress.enabled
+    reason: >-
+      _helpers.tpl branches on hasKey to tell unset (default on by platform)
+      from an explicit false, so values.yaml leaves it commented out.
+  - chart: kube-prometheus-stack
+    path: grafana.adminPassword
+    reason: >-
+      Read by charts/grafana/templates/_config.tpl; commented out in
+      charts/grafana/values.yaml because there is no safe default password.
+  - chart: kube-prometheus-stack
+    path: grafana.persistence.existingClaim
+    reason: >-
+      Read by charts/grafana/templates/_pod.tpl and guarded in pvc.yaml and
+      statefulset.yaml; commented out upstream because an empty default would
+      change the truthiness those guards depend on.
+  - chart: kube-prometheus-stack
+    path: grafana.persistence.storageClassName
+    reason: >-
+      Read by charts/grafana/templates/pvc.yaml; commented out upstream because
+      absent means "use the cluster default StorageClass", which an explicit
+      empty string does not.
+  - chart: plex-media-server
+    path: service.externalTrafficPolicy
+    reason: >-
+      Read by templates/service.yaml; commented out in values.yaml so that
+      unset leaves Kubernetes to default the policy to Cluster.
+  - chart: opentelemetry-collector
+    path: service.loadBalancerSourceRanges
+    reason: >-
+      Read by templates/service.yaml when service.type is LoadBalancer, which
+      the gateway collector sets; values.yaml carries it commented out.
+  - chart: istiod
+    path: base.validationFailurePolicy
+    reason: >-
+      Read by templates/validatingwebhookconfiguration.yaml; commented out in
+      values.yaml because unset means "start at Ignore and let istiod flip it".
+  - chart: base
+    path: base.validationFailurePolicy
+    reason: >-
+      The same opt-in key in the istio base chart, read by
+      templates/defaultrevision-validatingwebhookconfiguration.yaml.
+
+  # --------------------------------------------------------------------------
+  # istio reads these off raw .Values before its own defaults merge, so they are
+  # absent from the _internal_defaults_do_not_set block the gate unwraps.
+  # --------------------------------------------------------------------------
+  - chart: istiod
+    path: profile
+    reason: >-
+      templates/zzz_profile.yaml coalesces .Values.profile to pick
+      files/profile-<name>.yaml, before the defaults are merged in.
+  - chart: cni
+    path: profile
+    reason: >-
+      Same zzz_profile.yaml mechanism in the istio cni chart.
+  - chart: ztunnel
+    path: profile
+    reason: >-
+      Same zzz_profile.yaml mechanism in the istio ztunnel chart.
+  - chart: istiod
+    path: pilot
+    reason: >-
+      templates/zzy_descope_legacy.yaml merges everything under the legacy
+      "pilot" prefix onto the chart root, so the prefix is deliberately not a
+      declared key.
+  - chart: cni
+    path: cni
+    reason: >-
+      The same legacy-prefix alias in the istio cni chart, merged onto the root
+      by templates/zzy_descope_legacy.yaml.
+  - chart: istiod
+    path: meshConfig
+    reason: >-
+      templates/configmap.yaml mergeOverwrites the whole .Values.meshConfig map
+      into the rendered MeshConfig; values.yaml declares only
+      enablePrometheusMerge as a default.

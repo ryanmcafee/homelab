@@ -1,0 +1,11 @@
+# democratic-csi-config — local development overrides
+#
+# Kind has no 1Password Connect credentials and no TrueNAS appliance, so there
+# is no API key to fetch. The chart now fails the render when truenas.enabled
+# is true without an item path, so the producer is disabled outright rather
+# than left enabled with the empty DEMOCRATIC_CSI_1P_PATH default.
+#
+# Kind storage comes from local-path; see charts/addons/values-localdev.yaml.
+
+truenas:
+  enabled: false

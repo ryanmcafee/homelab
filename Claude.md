@@ -259,6 +259,14 @@ charts:
   plugin-barman-cloud: "0.8.0"
   # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
   argo-workflows: "1.0.18"
+  # renovate: datasource=helm depName=argo-rollouts registryUrl=https://argoproj.github.io/argo-helm
+  argo-rollouts: "2.43.2"
+  # renovate: datasource=helm depName=nats registryUrl=https://nats-io.github.io/k8s/helm/charts/
+  nats: "2.15.0"
+  # NACK ships the jetstream.nats.io CRDs (Stream, Consumer) that charts/nats-config
+  # declares the platform streams with. Bump it together with the nats chart.
+  # renovate: datasource=helm depName=nack registryUrl=https://nats-io.github.io/k8s/helm/charts/
+  nack: "0.35.0"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
   plex-media-server: "1.6.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
@@ -297,6 +305,13 @@ charts:
   unifi-port-forward: "1.1.1"
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
+  # OCI-only and cosign-signed keyless (docs/apps/openclaw.md). Verify a bump before
+  # trusting the tag; the release workflow identity is the only accepted signer:
+  #   cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  #     --certificate-identity https://github.com/paperclipinc/openclaw-operator/.github/workflows/release.yaml@refs/tags/v<version> \
+  #     ghcr.io/paperclipinc/charts/openclaw-operator:<version>
+  # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/openclaw-operator
+  openclaw-operator: "0.40.0"
   # One key for base, istiod, cni and ztunnel: the four Istio charts must run the same release.
   # renovate: datasource=helm depName=istiod registryUrl=https://blob.istio.io/istio-release/charts
   istio: "1.31.1"
@@ -313,8 +328,11 @@ charts:
   opentelemetry-collector: "0.173.1"
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
   altinity-clickhouse-operator: "0.27.3"
+  # Componentized LiteLLM chart (gateway, backend, ui, migrations Job), OCI-only (issue #424).
+  # renovate: datasource=docker depName=ghcr.io/berriai/litellm/chart/litellm
+  litellm: "1.102.1"
 images:
-  homelab-cmp: "0.1.52"
+  homelab-cmp: "0.1.54"
   # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);
   # bump it with every change under triage-agent/ so main publishes a new tag.
   triage-agent: "0.1.1"
@@ -327,6 +345,10 @@ images:
   # Master build for paperclipai/paperclip#13515; move back to the first release tag that contains it.
   # renovate: datasource=docker depName=ghcr.io/paperclipai/paperclip
   paperclip: "sha-d3e0f0a"
+  # OpenClaw agent image (charts/openclaw). The CRD rejects an Instance without a tag
+  # or digest, and the registry publishes release tags without the leading "v".
+  # renovate: datasource=docker depName=ghcr.io/openclaw/openclaw
+  openclaw: "2026.9.6"
   # Runtime of the paperclip agent health exporter (charts/paperclip files/paperclip-exporter.ts).
   # renovate: datasource=docker depName=oven/bun
   bun: "1.4.2-alpine"
