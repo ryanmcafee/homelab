@@ -1,0 +1,25 @@
+# litellm-dependencies values: the 1Password items the LiteLLM proxy reads
+# (wave 11 < litellm-database 12 < litellm 13). Item paths arrive through the
+# parent Application's helm.valuesObject from configuration/
+# (LITELLM_MASTER_KEY_1P_PATH, LITELLM_SALT_KEY_1P_PATH,
+# LITELLM_API_KEYS_1P_PATH); nothing here is environment-specific.
+
+namespace: litellm
+
+# Each OnePasswordItem needs the toggle and its own path: an item with an empty
+# itemPath renders but is inert (the operator has nothing to fetch). Localdev
+# has no secret store (SECRETS_PROVIDER=none) and seeds the same Secrets in
+# localdev/fakes/secrets.yaml.
+onePassword:
+  enabled: false
+  # Secret litellm-master-key-secret: field master-key, the sk-... proxy master
+  # key the chart reads through masterKey.secretName/secretKey.
+  masterKeyItemPath: ""
+  # Secret litellm-salt-key: field salt-key, injected as LITELLM_SALT_KEY.
+  # Generated once and never rotated; a new value makes every provider
+  # credential already stored in the database undecryptable.
+  saltKeyItemPath: ""
+  # Secret litellm-api-keys: one field per upstream provider credential
+  # (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...) that the proxy config resolves as
+  # os.environ/<field>.
+  apiKeysItemPath: ""

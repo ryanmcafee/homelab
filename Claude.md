@@ -259,6 +259,16 @@ charts:
   plugin-barman-cloud: "0.8.0"
   # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
   argo-workflows: "1.0.18"
+  # renovate: datasource=helm depName=argo-rollouts registryUrl=https://argoproj.github.io/argo-helm
+  argo-rollouts: "2.43.2"
+  # renovate: datasource=helm depName=argo-events registryUrl=https://argoproj.github.io/argo-helm
+  argo-events: "2.4.27"
+  # renovate: datasource=helm depName=nats registryUrl=https://nats-io.github.io/k8s/helm/charts/
+  nats: "2.15.0"
+  # NACK ships the jetstream.nats.io CRDs (Stream, Consumer) that charts/nats-config
+  # declares the platform streams with. Bump it together with the nats chart.
+  # renovate: datasource=helm depName=nack registryUrl=https://nats-io.github.io/k8s/helm/charts/
+  nack: "0.35.0"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
   plex-media-server: "1.6.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
@@ -313,8 +323,11 @@ charts:
   opentelemetry-collector: "0.173.1"
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
   altinity-clickhouse-operator: "0.27.3"
+  # Componentized LiteLLM chart (gateway, backend, ui, migrations Job), OCI-only (issue #424).
+  # renovate: datasource=docker depName=ghcr.io/berriai/litellm/chart/litellm
+  litellm: "1.102.1"
 images:
-  homelab-cmp: "0.1.52"
+  homelab-cmp: "0.1.54"
   # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);
   # bump it with every change under triage-agent/ so main publishes a new tag.
   triage-agent: "0.1.1"
@@ -337,6 +350,12 @@ images:
   # Grafana plugin, installed by the kube-prometheus-stack Grafana at startup.
   # renovate: datasource=github-releases depName=grafana/clickhouse-datasource
   grafana-clickhouse-datasource: "v4.21.3"
+  # NATS on the Argo Events trigger bus. Deliberately un-annotated for Renovate:
+  # this is not a free image tag but a key the argo-events chart's
+  # controller-config maps to an image, so it may only move to a version that
+  # chart declares in configs.jetstream.versions. Bump it with the argo-events
+  # chart; a Renovate bump on its own would render clean and fail at reconcile.
+  argo-events-bus-nats: "2.10.29"
 tools:
   # talos and kubernetes are the TARGET (Renovate bumps them). What the cluster runs is
   # terragrunt/environments/homelab/env.hcl; while it lags, the lag is registered with a

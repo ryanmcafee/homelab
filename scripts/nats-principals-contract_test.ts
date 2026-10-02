@@ -18,10 +18,15 @@
  */
 
 import { test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assert, assertEquals, assertStringIncludes } from "./lib/assert.ts";
-import { parse as parseYaml, parseAll as parseYamlAll } from "./lib/yaml.ts";
+import {
+  parseAll as parseYamlAll,
+  parse as parseYaml,
+  stringify as stringifyYaml,
+} from "./lib/yaml.ts";
 import {
   ARTIFACT_PATH,
   renderFromDeclaration,
@@ -72,6 +77,7 @@ interface ConformanceEntry {
   asserts: string;
   pending?: string;
   open_question?: boolean;
+  measured?: { image: string; suite: string; run: string };
 }
 
 interface Declaration {
@@ -365,7 +371,7 @@ test("js_api_allow_is_exhaustive: no role reaches a destructive or account-wide 
     }
   }
   assert(
-    inspected >= 20,
+    inspected >= 17,
     `only ${inspected} $JS.API allow entries were inspected across ${Object.keys(declaration.roles).length} roles`,
   );
 });
@@ -384,54 +390,142 @@ test("js_api_allow_is_exhaustive: only the stream controller holds stream lifecy
   }
 });
 
-test("js_api_allow_is_exhaustive: a puller's reads are scoped to its own stream and consumer", () => {
-  for (const name of ["puller", "bound_puller"]) {
-    const role = declaration.roles[name];
-    assert(role !== undefined, `role ${name} is missing`);
-    for (const allowed of role.js_api_allow) {
-      if (allowed === "$JS.API.INFO") continue;
-      assert(
-        allowed.includes("<stream>"),
-        `role ${name} allows ${allowed} without naming <stream>; an account-wide read reaches a neighbour's stream inside the same account`,
-      );
-    }
-    assert(
-      role.binds_stream_explicitly,
-      `role ${name} does not bind its stream explicitly; nats.go's subscribe path then discovers over $JS.API.STREAM.NAMES, which is not in the allow-list (ADR-043 D5b)`,
-    );
-  }
-});
-
-test("js_api_allow_is_exhaustive: a bound puller holds no consumer-create endpoint at all", () => {
-  // The audit, DLQ and ADR-045 bridge readers bind a durable NACK pre-created. That is a
-  // separate startup path with its own grant, and the PF_WORK exact-filter argument does not
-  // establish their behaviour (ADR-043 D6a).
+test("js_api_allow_is_exhaustive: a bound puller's reads are scoped to its own stream and consumer", () => {
   const role = declaration.roles.bound_puller;
   assert(role !== undefined, "role bound_puller is missing");
   for (const allowed of role.js_api_allow) {
+    if (allowed === "$JS.API.INFO") continue;
     assert(
-      !allowed.includes("CONSUMER.CREATE") &&
-        !allowed.includes("CONSUMER.DURABLE"),
-      `role bound_puller allows ${allowed}; it binds a pre-created durable and must hold no consumer-create grant`,
+      allowed.includes("<stream>"),
+      `role bound_puller allows ${allowed} without naming <stream>; an account-wide read reaches a neighbour's stream inside the same account`,
     );
   }
+  assert(
+    role.binds_stream_explicitly,
+    "role bound_puller does not bind its stream explicitly; nats.go's subscribe path then discovers over $JS.API.STREAM.NAMES, which is not in the allow-list (ADR-043 D5b)",
+  );
   assert(
     role.durable_is_exclusive === true,
     "role bound_puller does not declare durable_is_exclusive; an ack on a SHARED durable advances the delivery state every other reader of it depends on (ADR-043 D7a)",
   );
 });
 
-test("consumer_create_denies_present: the name-only and legacy-durable entrances are denied, and the broad form is not", () => {
-  // v2.15.0 routes three subjects to one handler. Under default-deny the alternates are already
-  // refused; these denies exist so a later broader grant cannot quietly re-open them. THE BROAD
-  // `CONSUMER.CREATE.*.>` FORM IS DELIBERATELY NOT DENIED -- deny takes precedence over allow,
-  // so denying it would also kill the filtered endpoint the component legitimately needs.
+/** Whether two NATS subject patterns admit at least one common subject. */
+function subjectsIntersect(a: string, b: string): boolean {
+  const left = a.split(".");
+  const right = b.split(".");
+  for (let i = 0; ; i += 1) {
+    if (i === left.length || i === right.length) {
+      return i === left.length && i === right.length;
+    }
+    if (left[i] === ">" || right[i] === ">") return true;
+    if (left[i] !== "*" && right[i] !== "*" && left[i] !== right[i]) {
+      return false;
+    }
+  }
+}
+
+/** Every subject shape v2.15.0 routes to its consumer-create handler. */
+const CONSUMER_CREATE_SUBJECTS = [
+  "$JS.API.CONSUMER.CREATE.*",
+  "$JS.API.CONSUMER.CREATE.*.>",
+  "$JS.API.CONSUMER.DURABLE.CREATE.*.*",
+];
+
+/** Placeholders widened to the broadest subject they can render to, so no allow hides behind one. */
+function widenPlaceholders(template: string): string {
+  return template
+    .replaceAll("<stream>", "*")
+    .replaceAll("<consumer>", "*")
+    .replaceAll("<filter>", ">")
+    .replaceAll("<tenant>", "*");
+}
+
+/** The allows among `allow` that reach a consumer-create subject. */
+function consumerCreateReach(allow: string[]): string[] {
+  return allow.filter((subject) =>
+    CONSUMER_CREATE_SUBJECTS.some((create) =>
+      subjectsIntersect(widenPlaceholders(subject), create),
+    ),
+  );
+}
+
+test("consumer_create_only_stream_controller: the matcher fails a broad allow and passes the controller", () => {
+  // A literal substring check passes `$JS.API.>`, which is a create grant like any other.
+  for (const broad of [
+    ">",
+    "$JS.>",
+    "$JS.API.>",
+    "$JS.API.CONSUMER.>",
+    "$JS.API.CONSUMER.*.*",
+    "$JS.API.CONSUMER.*.<stream>.<consumer>",
+    "$JS.API.*.DURABLE.CREATE.*.*",
+    "$JS.API.CONSUMER.CREATE.<stream>.<consumer>.<filter>",
+  ]) {
+    assertEquals(
+      consumerCreateReach([broad]),
+      [broad],
+      `${broad} reaches a consumer-create subject but the matcher did not flag it`,
+    );
+  }
+  for (const narrow of [
+    "$JS.API.INFO",
+    "$JS.API.CONSUMER.INFO.<stream>.<consumer>",
+    "$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>",
+    "$JS.API.STREAM.CREATE.*",
+  ]) {
+    assertEquals(
+      consumerCreateReach([narrow]),
+      [],
+      `${narrow} reaches no consumer-create subject but the matcher flagged it`,
+    );
+  }
+  assertEquals(
+    consumerCreateReach(declaration.roles.stream_controller.js_api_allow)
+      .length,
+    CONSUMER_CREATE_SUBJECTS.length,
+    "the matcher does not see stream_controller's three create allows, so a pass elsewhere proves nothing",
+  );
+});
+
+test("consumer_create_only_stream_controller: no other role or rendered principal can create a consumer", () => {
+  // A create body carries a `deliver_subject` the server never checks against the creator's
+  // publish grant, so any create authority is a redirect of the stream (ADR-043 D6b).
   let inspected = 0;
   for (const [name, role] of Object.entries(declaration.roles)) {
-    const createsFiltered = role.js_api_allow.some((s) =>
-      s.startsWith("$JS.API.CONSUMER.CREATE.<stream>"),
+    if (name === "stream_controller") continue;
+    inspected += role.js_api_allow.length;
+    assertEquals(
+      consumerCreateReach(role.js_api_allow),
+      [],
+      `role ${name} holds consumer-create authority; only stream_controller creates consumers`,
     );
-    if (!createsFiltered) continue;
+  }
+  const artifact = parseYaml(readFileSync(ARTIFACT_PATH, "utf8")) as {
+    principals: { name: string; role: string; publish: { allow: string[] } }[];
+  };
+  for (const principal of artifact.principals) {
+    if (principal.role === "stream_controller") continue;
+    inspected += principal.publish.allow.length;
+    assertEquals(
+      consumerCreateReach(principal.publish.allow),
+      [],
+      `rendered principal ${principal.name} may publish to a consumer-create subject; only nack creates consumers`,
+    );
+  }
+  assert(inspected >= 20, `only ${inspected} allow entries were inspected`);
+});
+
+test("consumer_create_denies_present: binding roles deny the alternates, and the controller denies no create form", () => {
+  // Under default-deny the name-only and legacy-durable entrances are already refused; the denies
+  // exist so a later broader grant cannot quietly re-open them. Deny takes precedence over allow,
+  // so the controller denying any create form would stop NACK reconciling consumers.
+  let inspected = 0;
+  for (const [name, role] of Object.entries(declaration.roles)) {
+    const binds = role.js_api_allow.some((s) =>
+      s.startsWith("$JS.API.CONSUMER.MSG.NEXT."),
+    );
+    if (name === "stream_controller" || !binds) continue;
     inspected += 1;
     for (const required of [
       "$JS.API.CONSUMER.CREATE.*",
@@ -439,20 +533,19 @@ test("consumer_create_denies_present: the name-only and legacy-durable entrances
     ]) {
       assert(
         role.js_api_deny.includes(required),
-        `role ${name} allows the filtered consumer-create endpoint but does not deny ${required}`,
+        `role ${name} binds a consumer but does not deny ${required}`,
       );
     }
   }
-  assert(
-    inspected > 0,
-    "no role was found allowing the filtered consumer-create endpoint, so this assertion read nothing",
+  assert(inspected > 0, "no binding role was inspected");
+  const controllerDenies = consumerCreateReach(
+    declaration.roles.stream_controller.js_api_deny,
   );
-  for (const [name, role] of Object.entries(declaration.roles)) {
-    assert(
-      !role.js_api_deny.includes("$JS.API.CONSUMER.CREATE.*.>"),
-      `role ${name} denies the broad $JS.API.CONSUMER.CREATE.*.> form; deny takes precedence over allow, so that also kills the filtered endpoint a puller needs`,
-    );
-  }
+  assertEquals(
+    controllerDenies,
+    [],
+    "stream_controller denies a consumer-create form; deny takes precedence over allow, so NACK could not create the durables every bound_puller needs",
+  );
 });
 
 test("no_system_account_principal: nothing on the platform holds $SYS", () => {
@@ -623,6 +716,14 @@ function publicNkeyArgs(principal: string): string[] {
   return ["--set", `nats.principalNkeys=${principal}=${generated}`];
 }
 
+/** A distinct public nkey placeholder per label, derived at run time like `publicNkeyArgs`. */
+function fixtureNkey(label: string): string {
+  return `U${label.toUpperCase()}${NOT_A_CREDENTIAL}`;
+}
+
+/** A 1Password vault path for delivery renders, assembled at run time for the same reason. */
+const FIXTURE_VAULT_PATH = ["vaults", "Fixture", "items"].join("/");
+
 test("the committed accounts artifact matches the declaration", () => {
   // charts/addons cannot read `contracts/` -- Helm's `.Files.Get` is scoped to the chart
   // directory -- so the expansion is committed. This is the only thing pinning the copy the
@@ -713,6 +814,70 @@ test("stream_and_consumer_name_account: the field is absent only when no account
   );
 });
 
+interface RenderedConsumer {
+  kind: string;
+  metadata: { name: string };
+  spec: Record<string, unknown>;
+}
+
+/** The Consumers among `docs` whose spec selects push delivery, by the CRD's own field names. */
+function pushConsumers(docs: RenderedConsumer[]): string[] {
+  const nonEmpty = (value: unknown) =>
+    value !== undefined && value !== null && value !== "";
+  return docs
+    .filter((doc) => doc.kind === "Consumer")
+    .filter(
+      (doc) =>
+        nonEmpty(doc.spec.deliverSubject) || nonEmpty(doc.spec.deliverGroup),
+    )
+    .map((doc) => doc.metadata.name);
+}
+
+function renderedConsumers(): RenderedConsumer[] {
+  const rendered = helmTemplate(NATS_CONFIG_CHART);
+  assert(
+    rendered.code === 0,
+    `helm template exited ${rendered.code}\n${rendered.output}`,
+  );
+  return parseYamlAll(rendered.output).filter(
+    (doc): doc is RenderedConsumer =>
+      doc !== null &&
+      typeof doc === "object" &&
+      (doc as { kind?: unknown }).kind === "Consumer",
+  );
+}
+
+test("no_push_consumer: no rendered Consumer sets deliverSubject or deliverGroup", () => {
+  // A push consumer declared in Git is the deliver_subject redirect with a reviewer's signature
+  // on it; on v2.15.0 deliverSubject alone selects push mode (ADR-043 D6b).
+  const consumers = renderedConsumers();
+  assertEquals(
+    consumers.length,
+    chart.consumers.length,
+    `${consumers.length} of the chart's ${chart.consumers.length} Consumers were rendered`,
+  );
+  assertEquals(pushConsumers(consumers), [], "a rendered Consumer is push");
+});
+
+test("no_push_consumer: each push field alone fails the rule", () => {
+  const [base] = renderedConsumers();
+  assert(base !== undefined, "the chart rendered no Consumer to mutate");
+  for (const field of ["deliverSubject", "deliverGroup"]) {
+    const mutated = { ...base, spec: { ...base.spec, [field]: "pf.x.y" } };
+    assertEquals(
+      pushConsumers([mutated]),
+      [base.metadata.name],
+      `a Consumer setting spec.${field} was not flagged`,
+    );
+  }
+  const emptied = { ...base, spec: { ...base.spec, deliverSubject: "" } };
+  assertEquals(
+    pushConsumers([emptied]),
+    [],
+    "an empty deliverSubject was flagged",
+  );
+});
+
 test("callout_allowed_accounts_bounded: an unbounded callout is refused before it renders", () => {
   // v2.15.0 delegates EVERY account to the callout service when `allowed_accounts` is left
   // empty, so the secure value is not the default. The bound is checked before the backend
@@ -785,9 +950,10 @@ test("callout_allowed_accounts_bounded: an unbounded callout is refused before i
 test("callout_allowed_accounts_bounded: the shipped config configures no callout at all", () => {
   const rendered = helmTemplate(
     ADDONS_CHART,
-    "--set",
-    "nats.enabled=true",
-    ...publicNkeyArgs("nack"),
+    // A public key with no seed source is refused in its own right, and the map has to cover
+    // every declared principal, so a rendering case supplies both. Kind's source is the
+    // bootstrap that mints the seeds.
+    ...fullPrincipalValues({ credentials: { bootstrapSeeded: true } }),
     "--show-only",
     "templates/nats.yaml",
   );
@@ -809,6 +975,360 @@ test("callout_allowed_accounts_bounded: the shipped config configures no callout
   // that, so the omission is a crash loop on sync rather than a rejected config.
   assertStringIncludes(rendered.output, "system_account: $SYS");
   assertStringIncludes(rendered.output, "$SYS:\n                users: []");
+});
+
+// ============================================================================
+// Seed delivery (MCAA-624): the accounts block and the credentials that make it
+// usable land together, or neither does.
+// ============================================================================
+
+interface RenderedItem {
+  metadata: { name: string; namespace: string };
+  spec: { itemPath: string };
+}
+
+/** The OnePasswordItem documents in a rendered template, as objects rather than line matches. */
+function onePasswordItems(output: string): RenderedItem[] {
+  return parseYamlAll(output).filter(
+    (doc): doc is RenderedItem =>
+      typeof doc === "object" &&
+      doc !== null &&
+      (doc as { kind?: string }).kind === "OnePasswordItem",
+  );
+}
+
+/**
+ * A values file naming EVERY non-pending principal, because the chart requires exact coverage: a
+ * partial map is an outage. It also has to be a file rather than `--set`, since `helm --set`
+ * splits on unescaped commas and would keep only the first pair -- the trap the coverage guard
+ * exists to make loud.
+ */
+function fullPrincipalValues(
+  extra: Record<string, unknown> = {},
+  extraPairs: string[] = [],
+): string[] {
+  const principals = declaration.principals.filter(
+    (p) => p.pending === undefined,
+  );
+  // Distinct placeholder public keys: two principals sharing one are refused.
+  const pairs = [
+    ...principals.map((p, i) => `${p.name}=${fixtureNkey(String(i))}`),
+    ...extraPairs,
+  ];
+  const path = join(
+    tmpdir(),
+    `nats-principals-${pairs.length}-${Object.keys(extra).join("-") || "bare"}.yaml`,
+  );
+  writeFileSync(
+    path,
+    stringifyYaml({
+      nats: { enabled: true, principalNkeys: pairs.join(","), ...extra },
+    }),
+  );
+  return ["-f", path];
+}
+
+/** The chart arguments that render an accounts block with one principal. */
+const SEED_BASE = [
+  "--set",
+  "nats.enabled=true",
+  "--set",
+  `nats.principalNkeys=nack=${fixtureNkey("nack")}`,
+];
+
+test("a public key with no seed source is refused, and never falls back to anonymous", () => {
+  const rendered = helmTemplate(ADDONS_CHART, ...SEED_BASE);
+  assert(
+    rendered.code !== 0,
+    `an accounts block rendered with no seed source\n${rendered.output}`,
+  );
+  assertStringIncludes(rendered.output, "no seed source is declared");
+  // The refusal has to be the whole render, not a silently omitted accounts block: a chart that
+  // rendered the server without the block would leave the bus anonymous and read as success.
+  assert(
+    !rendered.output.includes("system_account"),
+    "the server config rendered anyway, leaving the bus anonymous",
+  );
+});
+
+test("this renderer accepts one key per principal, so a staged overlap is refused", () => {
+  // The rotation protocol turns on whether the server can accept two keys for one principal at
+  // once. It cannot here: the values map holds one key per name, so a second pair REPLACES the
+  // first and every client still holding the old seed is refused at connect with nothing in the
+  // values diff to show it. Naming that is what makes the runbook's maintenance interruption the
+  // documented path rather than an assumed overlap.
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    "--set",
+    "nats.enabled=true",
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+    "--set",
+    `nats.principalNkeys=nack=${fixtureNkey("nack")}\\,nack=${fixtureNkey("nack2")}`,
+  );
+  assert(
+    rendered.code !== 0,
+    `a second key for nack rendered\n${rendered.output}`,
+  );
+  assertStringIncludes(rendered.output, "one key per principal");
+});
+
+test("two principals sharing a public key are refused", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    "--set",
+    "nats.enabled=true",
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+    "--set",
+    `nats.principalNkeys=nack=${fixtureNkey("nack")}\\,verify=${fixtureNkey("nack")}`,
+  );
+  assert(
+    rendered.code !== 0,
+    `one identity for two principals rendered\n${rendered.output}`,
+  );
+  assertStringIncludes(rendered.output, "union of both permission sets");
+});
+
+test("a seed in public configuration is refused before it reaches a rendered manifest", () => {
+  for (const [args, reason] of [
+    [["--set", "nats.principalNkeys=nack=SDPROBESEED"], "public configuration"],
+    [
+      [
+        "--set",
+        `nats.principalNkeys=nack=${fixtureNkey("nack")}`,
+        "--set",
+        "nats.systemAccountNkey=SDPROBESEED",
+      ],
+      "only the PUBLIC half",
+    ],
+  ] as const) {
+    const rendered = helmTemplate(
+      ADDONS_CHART,
+      "--set",
+      "nats.enabled=true",
+      "--set",
+      "nats.credentials.bootstrapSeeded=true",
+      ...args,
+    );
+    assert(
+      rendered.code !== 0,
+      `a seed rendered into the server config\n${rendered.output}`,
+    );
+    assertStringIncludes(rendered.output, reason);
+  }
+});
+
+test("an incomplete public-key map is refused, and never renders a partial account", () => {
+  // The server refuses every principal absent from the accounts block, so a map covering some of
+  // them is an outage with no error until a client connects -- not a partial rollout and not a
+  // fallback to anonymous. The whole render fails rather than emitting the short account.
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...SEED_BASE,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+  );
+  assert(rendered.code !== 0, `a partial account rendered\n${rendered.output}`);
+  assertStringIncludes(rendered.output, "nats.principalNkeys is missing");
+  const named = declaration.principals.filter(
+    (p) => p.pending === undefined && p.name !== "nack",
+  );
+  for (const principal of named) {
+    assertStringIncludes(
+      rendered.output,
+      principal.name,
+      `the refusal does not name the missing principal ${principal.name}`,
+    );
+  }
+  assert(
+    !rendered.output.includes("system_account"),
+    "the server config rendered anyway, with an account short of its principals",
+  );
+});
+
+test("the --set comma trap is named in the refusal, because it is how a map silently truncates", () => {
+  // `helm --set a=1,b=2` splits on the comma and keeps only the first pair, so an operator who
+  // sets the map that way gets exactly the incomplete account above. The message has to say so,
+  // or the failure looks like the generator produced a short map.
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...SEED_BASE,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+  );
+  assertStringIncludes(rendered.output, "--set splits on unescaped commas");
+});
+
+test("a key for an undeclared principal is refused rather than dropped", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...fullPrincipalValues({ credentials: { bootstrapSeeded: true } }, [
+      `ghost=${fixtureNkey("ghost")}`,
+    ]),
+  );
+  assert(rendered.code !== 0, `an undeclared key rendered\n${rendered.output}`);
+  assertStringIncludes(rendered.output, "nats.principalNkeys names ghost");
+});
+
+test("two seed sources for one principal are refused", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...SEED_BASE,
+    "--set",
+    `nats.credentials.onePasswordVaultPath=${FIXTURE_VAULT_PATH}`,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+  );
+  assert(rendered.code !== 0, `both sources rendered\n${rendered.output}`);
+  assertStringIncludes(
+    rendered.output,
+    "both onePasswordVaultPath and bootstrapSeeded",
+  );
+});
+
+test("the break-glass $SYS key is refused in the tenant principal map", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    "--set",
+    "nats.enabled=true",
+    "--set",
+    `nats.principalNkeys=system=${fixtureNkey("system")}`,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+  );
+  assert(
+    rendered.code !== 0,
+    `a $SYS tenant user rendered\n${rendered.output}`,
+  );
+  assertStringIncludes(rendered.output, "belongs in nats.systemAccountNkey");
+});
+
+test("a replicated seed for a principal the server does not accept is refused", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...SEED_BASE,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+    "--set",
+    "nats.credentials.extraNamespaces.verify[0]=platform",
+  );
+  assert(
+    rendered.code !== 0,
+    `an orphan replication rendered\n${rendered.output}`,
+  );
+  assertStringIncludes(rendered.output, "authenticates nothing");
+});
+
+test("homelab delivery renders one OnePasswordItem per accepted principal, and none for $SYS", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...fullPrincipalValues({
+      systemAccountNkey: fixtureNkey("sys"),
+      // The trailing slash must not double up in the rendered item path.
+      credentials: { onePasswordVaultPath: `${FIXTURE_VAULT_PATH}/` },
+    }),
+    "--show-only",
+    "templates/nats.yaml",
+  );
+  assert(rendered.code === 0, `delivery did not render\n${rendered.output}`);
+
+  // Exactly the declared non-pending principals: one item each, and none for a pending one.
+  assertEquals(
+    onePasswordItems(rendered.output)
+      .map((i) => i.metadata.name)
+      .sort(),
+    declaration.principals
+      .filter((p) => p.pending === undefined)
+      .map((p) => `nats-principal-${p.name}`)
+      .sort(),
+  );
+  for (const pending of declaration.principals.filter(
+    (p) => p.pending !== undefined,
+  )) {
+    assert(
+      !rendered.output.includes(`nats-principal-${pending.name}`),
+      `${pending.name} is pending, so nothing pre-creates its durable and a credential for it has no owner`,
+    );
+  }
+  // A trailing slash on the vault path must not double up in the item path.
+  assertStringIncludes(
+    rendered.output,
+    `itemPath: "${FIXTURE_VAULT_PATH}/nats-principal-nack"`,
+  );
+  // No platform component holds the system account, so no Secret carries its seed (ADR-043 D4).
+  assert(
+    !rendered.output.includes("nats-principal-system"),
+    "a $SYS seed Secret rendered next to the ordinary clients",
+  );
+  // Seeds reach workloads as Secrets. A seed in the rendered manifests is a seed in Git.
+  assert(
+    !/\bS[UAO][A-Z2-7]{20}/.test(rendered.output),
+    "a seed-shaped token appeared in the rendered manifests",
+  );
+});
+
+test("an explicitly replicated principal gets a Secret in each named namespace", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...fullPrincipalValues({
+      credentials: {
+        onePasswordVaultPath: FIXTURE_VAULT_PATH,
+        extraNamespaces: { nack: ["platform"] },
+      },
+    }),
+    "--show-only",
+    "templates/nats.yaml",
+  );
+  assert(rendered.code === 0, `replication did not render\n${rendered.output}`);
+  const items = onePasswordItems(rendered.output);
+  assertEquals(
+    items
+      .filter((i) => i.metadata.name === "nats-principal-nack")
+      .map((i) => i.metadata.namespace)
+      .sort(),
+    ["nats", "platform"],
+  );
+  // Only the named principal reaches the second namespace. A blanket copy would put every
+  // other principal's seed there too, which is the least-privilege failure this asserts.
+  assertEquals(
+    items
+      .filter((i) => i.metadata.namespace !== "nats")
+      .map((i) => i.metadata.name),
+    ["nats-principal-nack"],
+  );
+});
+
+test("the Kind surface renders no OnePasswordItem: its bootstrap mints the seeds", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...fullPrincipalValues({ credentials: { bootstrapSeeded: true } }),
+    "--show-only",
+    "templates/nats.yaml",
+  );
+  assert(
+    rendered.code === 0,
+    `the Kind surface did not render\n${rendered.output}`,
+  );
+  assert(
+    !rendered.output.includes("OnePasswordItem"),
+    `Kind rendered a vault reference\n${rendered.output}`,
+  );
+});
+
+test("the seed Secret name and key are the ones NACK and nats-box read", () => {
+  // charts/nats-config's Account resource and the nats-box contexts both address the seed by
+  // `<credentialSecretPrefix><principal>` / `nats.nk`. The delivery template has to produce
+  // exactly that, or the credential arrives under a name nothing reads.
+  const values = parseYaml(
+    readFileSync(join(ADDONS_CHART, "values.yaml"), "utf8"),
+  ) as { nats: { credentialSecretPrefix: string } };
+  assertEquals(values.nats.credentialSecretPrefix, "nats-principal-");
+
+  const chartValues = parseYaml(readFileSync(CHART_VALUES_PATH, "utf8")) as {
+    account: { credentialSecretKey: string };
+  };
+  assertEquals(chartValues.account.credentialSecretKey, "nats.nk");
 });
 
 test("every level_0 conformance id has a test or a tracking issue", () => {
@@ -843,17 +1363,51 @@ test("every level_2 conformance id states whether it is measured", () => {
   );
   assertEquals(
     openQuestions.map((entry) => entry.id).sort(),
-    [
-      "consumer_create_name_only_reach",
-      "nack_account_on_stream_move",
-      "rq_reply_needs_no_inbox_grant",
-    ],
+    ["nack_account_on_stream_move"],
     "the set of open questions changed; promoting one to a claim needs the level-2 measurement, and adding one needs the ADR amended",
   );
   for (const entry of openQuestions) {
     assert(
       entry.asserts.includes("UNMEASURED"),
       `level_2 open question ${entry.id} does not say it is unmeasured`,
+    );
+    assert(
+      entry.measured === undefined,
+      `level_2 open question ${entry.id} also records a measurement`,
+    );
+  }
+  const promoted = declaration.conformance.level_2.filter(
+    (entry) => entry.measured !== undefined,
+  );
+  assertEquals(
+    promoted.map((entry) => entry.id).sort(),
+    ["consumer_create_name_only_reach", "rq_reply_needs_no_inbox_grant"],
+    "every former open question must cite the level-2 run that answered it",
+  );
+  for (const { id, asserts, measured } of promoted) {
+    assert(
+      !asserts.includes("UNMEASURED"),
+      `level_2 id ${id} is measured but still says UNMEASURED`,
+    );
+    assert(
+      /^docker\.io\/library\/nats@sha256:[0-9a-f]{64}$/.test(
+        measured?.image ?? "",
+      ),
+      `level_2 id ${id} cites ${JSON.stringify(measured?.image)}, not a rendered nats image digest`,
+    );
+    assert(
+      /^https:\/\/github\.com\/ryanmcafee\/homelab\/actions\/runs\/\d+$/.test(
+        measured?.run ?? "",
+      ),
+      `level_2 id ${id} cites ${JSON.stringify(measured?.run)}, not a CI run`,
+    );
+    const probes = readFileSync(
+      join(ROOT, measured?.suite ?? "", "probes.sh"),
+      "utf8",
+    );
+    assert(
+      probes.includes(`id=${id}`),
+      `level_2 id ${id} cites suite ${measured?.suite}, whose probes.sh does not exercise it`,
     );
   }
   assert(
