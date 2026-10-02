@@ -109,6 +109,7 @@ Each entry should include:
 
 ## Pending/In Progress
 
+- **2026-09-30** - PR dependency triage cross-PR cancellation: workflow concurrency now keys PR events by number and schedule/manual sweeps separately; focused regression test reproduced the prior collision and passes after the fix. [MCAA-1070](/MCAA/issues/MCAA-1070).
 - **2026-09-30** - Cold-draw script test stabilization for PR #460: injectable command runner removes real `kubectl`/`docker` calls from the no-cluster unit test while retaining missing-evidence assertions; 25 focused and 619 script cases pass locally. [MCAA-1007](/MCAA/issues/MCAA-1007).
 - **2026-09-30** - PR dependency triage label-write 403: PR #533 (`1cc4189`) scopes the job to `pull-requests: write` and adds targeted dispatch; run 36656956730 is the known-bad case. Security signed off on the scope, but this integration's targeted dispatch of #511 returns Actions HTTP 403, so a live known-good label write remains pending — https://github.com/ryanmcafee/homelab/pull/533
 - **2026-09-25** - Envoy Gateway becomes the ingress (Gateways `envoy-internal`/`envoy-external`, wildcard TLS at the Gateway, every Ingress converted to an HTTPRoute, external-dns `gateway-httproute`, OIDC plugin dropped) and Istio gateways deployed for comparison (ADR-040, docs/runbooks/envoy-gateway.md) — PR #387 (https://github.com/ryanmcafee/homelab/pull/387)
