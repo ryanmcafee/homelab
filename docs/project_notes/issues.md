@@ -13,6 +13,10 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-10-01 - KubePodCrashLooping argo-workflows: raise workflow-controller and server memory
+- **Status**: PR pending (branch `triage/kubepodcrashlooping-ad4dc7b1`); before merge confirm the previous container terminated `OOMKilled`, after merge confirm the controller is Running and the alert resolves
+- **Description**: homelab controller 128Mi/256Mi (was 32Mi/48Mi), server 64Mi/128Mi (was 32Mi/48Mi). Kind is unaffected (argo-workflows is disabled in localdev). bugs.md 2026-10-01
+
 ### 2026-09-30 - KubeJobFailed paperclip-bootstrap: stop rendering spec.auth.adminUser in homelab
 - **Status**: PR pending (branch `triage/kubejobfailed-a4e08b4c`); after merge confirm no new `paperclip-bootstrap` pods and remove the leftover failed Job if the operator keeps it
 - **Description**: New `admin.bootstrap` toggle in `charts/paperclip`; homelab sets it false so operator 0.19.1 stops re-creating the failing admin-seed Job every ~70 minutes, Kind keeps it true. The concurrent `paperclip-agent-policy-29846565` failure was a transient (~1% of runs) and needs no change. bugs.md 2026-09-30

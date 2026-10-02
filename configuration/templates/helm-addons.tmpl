@@ -1461,19 +1461,21 @@ argo-workflows:
     resources:
       requests:
         cpu: 50m
-        memory: 32Mi
+        memory: 64Mi
       limits:
         cpu: 200m
-        memory: 48Mi
+        memory: 128Mi
 
   controller:
+    # Informer caches (Workflows, Pods, ConfigMaps, templates) plus the archive
+    # DB pool; 48Mi crash-looped the controller (bugs.md 2026-10-01).
     resources:
       requests:
         cpu: 100m
-        memory: 32Mi
+        memory: 128Mi
       limits:
         cpu: 500m
-        memory: 48Mi
+        memory: 256Mi
 
     # Garbage collection of live objects. Completed workflows stay browsable in
     # the archive (retentionDays) after their TTL removes them from the cluster.
