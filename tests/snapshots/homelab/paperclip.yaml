@@ -1678,12 +1678,6 @@ spec:
       name: paperclip-auth
       key: BETTER_AUTH_SECRET
     disableSignUp: false
-    adminUser:
-      email: admin@REPLACEME-domain.com
-      name: "Admin"
-      passwordSecretRef:
-        name: paperclip-auth
-        key: ADMIN_PASSWORD
   availability:
     nodeSelector:
       paperclip.homelab/pin: "true"

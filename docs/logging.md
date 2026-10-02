@@ -190,7 +190,7 @@ protocol, source and destination IP:
 | Security | UniFi security events over time, top blocked sources, IDS/IPS and threat events (CEF `UNIFIcategory=Security`), risky destination ports (SMB, RDP, databases, ...), inbound from the internet to service ports, scan-like local hosts, hourly egress outliers (z-score), Hubble drops by reason and policy drops |
 | UniFi syslog | raw lines (collapsed) |
 
-`NETWORK_NAMES` (`name=CIDR` pairs, comma-separated, e.g. `homelab=192.168.1.0/24`) names the
+`NETWORK_NAMES` (`name=CIDR` pairs, comma-separated, e.g. `homelab=198.51.100.0/24`) names the
 subnets; unnamed private addresses show as their /24 and public ones as `internet`. It is PII like
 `NFS_SHARE_ALLOW`, so it lives in the environment file and reaches the dashboard through the
 `clickhouse` Application's `valuesObject`. IPFIX records are unidirectional: a reply counts

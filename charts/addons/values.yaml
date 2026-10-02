@@ -973,7 +973,7 @@ argo-workflows:
   # Server configuration
   server:
     # Authentication mode: server (no auth), client (requires token), sso
-    authMode: server
+    authMode: client
 
     # HTTPRoute on the internal Gateway
     route:
@@ -1138,6 +1138,22 @@ nats:
   # `<credentialSecretPrefix><principal>` under key `nats.nk`.
   natsBoxPrincipals: ""
   credentialSecretPrefix: nats-principal-
+  # Where each principal's PRIVATE seed comes from. Exactly one source, or the accounts block
+  # does not render: a public key the server accepts is unusable until its seed reaches the
+  # client, so the two land together. Generate the pairs with
+  # `bun scripts/nats-principals-keygen.ts` (docs/runbooks/nats-credentials.md).
+  credentials:
+    # 1Password vault path the items live under, e.g. `vaults/Platform/items`. Each item is
+    # named `<credentialSecretPrefix><principal>` and carries the seed in a field labelled
+    # `nats.nk`. `$SYS` deliberately has no item here: no platform component holds the system
+    # account, so its custody is a separate restricted item plus an offline copy.
+    onePasswordVaultPath: ""
+    # Kind has no vault, so its bootstrap mints the seeds straight into Secrets. Mutually
+    # exclusive with the vault path: two sources for one principal can disagree.
+    bootstrapSeeded: false
+    # Namespaces beyond `nats` that need a principal's seed, as `<principal>: [namespace]`.
+    # Replication is explicit and per principal rather than a blanket copy.
+    extraNamespaces: {}
   # The auth-callout backend. Unset: only the static backend ships. Setting it is refused,
   # and `allowedAccounts` is bounds-checked first so the widest setting is named as such.
   authCallout: {}

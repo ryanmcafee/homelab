@@ -13,6 +13,22 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-10-02 - Stop the same five files conflicting across most open PRs
+- **Status**: PR pending (branch `fix/pr-conflict-hotspots`); after merge, `task pr:refresh` each conflicting PR (stacked ones against their own base first)
+- **Description**: 29/86 open PRs conflicted, mostly in verification.md, readme.md/homelab.svg, bugs.md/issues.md and snapshots. `.gitattributes` unions the logs and the runbook; `task pr:refresh` (`scripts/pr-refresh.ts`) merges with the base's attributes, resolves generated and count-only conflicts, regenerates, runs level 0 and commits. Also fixes a glued heading in bugs.md and ignores `.serena/project.local.yml`.
+
+### 2026-10-01 - KubeCPUOvercommit: size media and NATS CPU requests from measured usage
+- **Status**: PR pending (branch `triage/kubecpuovercommit-2f0d9038`); after merge confirm the overcommit expression drops below 0 and the alert resolves
+- **Description**: CPU requests sonarr/radarr 200m -> 75m, tautulli/lazylibrarian 100m -> 25m, homelab NATS 100m -> 25m (x3); limits unchanged, ~0.6 CPU freed. bugs.md 2026-10-01
+
+### 2026-10-01 - KubePodCrashLooping argo-workflows: raise workflow-controller and server memory
+- **Status**: PR pending (branch `triage/kubepodcrashlooping-ad4dc7b1`); before merge confirm the previous container terminated `OOMKilled`, after merge confirm the controller is Running and the alert resolves
+- **Description**: homelab controller 128Mi/256Mi (was 32Mi/48Mi), server 64Mi/128Mi (was 32Mi/48Mi). Kind is unaffected (argo-workflows is disabled in localdev). bugs.md 2026-10-01
+
+### 2026-09-30 - KubeJobFailed paperclip-bootstrap: stop rendering spec.auth.adminUser in homelab
+- **Status**: PR pending (branch `triage/kubejobfailed-a4e08b4c`); after merge confirm no new `paperclip-bootstrap` pods and remove the leftover failed Job if the operator keeps it
+- **Description**: New `admin.bootstrap` toggle in `charts/paperclip`; homelab sets it false so operator 0.19.1 stops re-creating the failing admin-seed Job every ~70 minutes, Kind keeps it true. The concurrent `paperclip-agent-policy-29846565` failure was a transient (~1% of runs) and needs no change. bugs.md 2026-09-30
+
 ### 2026-09-30 - MCAA-852: Kind Redis image pull diagnosis and source repair
 - **Status**: PR #536 ready, rebased onto `main` for MCAA-970; new-head checks pending
 - **Description**: QA reproduced the ECR Public `toomanyrequests: Data limit exceeded` response in run 36713254067. Kind ArgoCD now selects Docker Hub's official Redis image at the pinned chart tag, and CI retains pod events plus ECR/Docker proxy logs. The Redis test passes with Docker Hub and fails with the old ECR Public repository.
@@ -105,6 +121,7 @@ Each entry should include:
 
 ## Pending/In Progress
 
+- **2026-09-30** - PR dependency triage cross-PR cancellation: workflow concurrency now keys PR events by number and schedule/manual sweeps separately; focused regression test reproduced the prior collision and passes after the fix. [MCAA-1070](/MCAA/issues/MCAA-1070).
 - **2026-09-30** - Cold-draw script test stabilization for PR #460: injectable command runner removes real `kubectl`/`docker` calls from the no-cluster unit test while retaining missing-evidence assertions; 25 focused and 619 script cases pass locally. [MCAA-1007](/MCAA/issues/MCAA-1007).
 - **2026-09-30** - PR dependency triage label-write 403: PR #533 (`1cc4189`) scopes the job to `pull-requests: write` and adds targeted dispatch; run 36656956730 is the known-bad case. Security signed off on the scope, but this integration's targeted dispatch of #511 returns Actions HTTP 403, so a live known-good label write remains pending — https://github.com/ryanmcafee/homelab/pull/533
 - **2026-09-25** - Envoy Gateway becomes the ingress (Gateways `envoy-internal`/`envoy-external`, wildcard TLS at the Gateway, every Ingress converted to an HTTPRoute, external-dns `gateway-httproute`, OIDC plugin dropped) and Istio gateways deployed for comparison (ADR-040, docs/runbooks/envoy-gateway.md) — PR #387 (https://github.com/ryanmcafee/homelab/pull/387)

@@ -544,7 +544,7 @@ func TestScanFileForPIIShapeHostnames(t *testing.T) {
 		{
 			name:     "the environment template's documented placeholders pass",
 			filename: "homelab.yaml.example",
-			content:  "DOMAIN: REPLACEME-domain.com\nGATEWAY_IP: \"192.168.1.1\"\nTRUENAS_IP: \"192.168.1.100\"\nCP_VIP: \"192.168.1.10\"\nNFS_MAPALL_USER: REPLACEME-username\nACME_EMAIL: admin@REPLACEME-domain.com\nEXTERNAL_DNS_DEFAULT_TARGET: REPLACEME-subdomain.duckdns.org\n",
+			content:  "DOMAIN: REPLACEME-domain.com\nGATEWAY_IP: \"198.51.100.1\"\nTRUENAS_IP: \"198.51.100.100\"\nCP_VIP: \"198.51.100.10\"\nNFS_MAPALL_USER: REPLACEME-username\nACME_EMAIL: admin@REPLACEME-domain.com\nEXTERNAL_DNS_DEFAULT_TARGET: REPLACEME-subdomain.duckdns.org\n",
 			want:     nil,
 		},
 		{
@@ -735,11 +735,13 @@ func TestIsExamplePlaceholder(t *testing.T) {
 		want  bool
 	}{
 		// Allowed: the documentation subnet used throughout the template.
-		{name: "documentation subnet gateway", value: "192.168.1.1", want: true},
-		{name: "documentation subnet host", value: "192.168.1.100", want: true},
-		{name: "documentation subnet edge", value: "192.168.1.255", want: true},
-		{name: "documentation subnet with a port", value: "192.168.1.100:3260", want: true},
-		{name: "documentation CIDR", value: "192.168.1.0/24", want: true},
+		{name: "documentation subnet gateway", value: "198.51.100.1", want: true},
+		{name: "documentation subnet host", value: "198.51.100.100", want: true},
+		{name: "documentation subnet edge", value: "198.51.100.255", want: true},
+		{name: "documentation subnet with a port", value: "198.51.100.100:3260", want: true},
+		{name: "documentation CIDR", value: "198.51.100.0/24", want: true},
+		// Allowed: TEST-NET-1, single-node.yaml.example's own range.
+		{name: "single-node documentation subnet", value: "192.0.2.1", want: true},
 		{name: "loopback", value: "127.0.0.1", want: true},
 		{name: "loopback CIDR", value: "127.0.0.0/8", want: true},
 		// Allowed: documented placeholder hostnames and mailboxes on them.
@@ -756,12 +758,21 @@ func TestIsExamplePlaceholder(t *testing.T) {
 		{name: "reserved local suffix", value: "truenas.local", want: true},
 		{name: "empty", value: "", want: true},
 		{name: "empty quoted", value: `""`, want: true},
-		{name: "named documentation CIDRs", value: "homelab=192.168.1.0/25,lan=192.168.1.128/25", want: true},
+		{name: "named documentation CIDRs", value: "homelab=198.51.100.0/25,lan=198.51.100.128/25", want: true},
+
+		// Rejected: 192.168.1.0/24 is the most common home LAN subnet, so a
+		// forker's real address is indistinguishable from a placeholder in it.
+		// It was allowed until the template moved to RFC 5737; keeping these
+		// cases is what stops it being re-listed.
+		{name: "common home LAN gateway is not a placeholder", value: "192.168.1.1", want: false},
+		{name: "common home LAN host is not a placeholder", value: "192.168.1.100", want: false},
+		{name: "common home LAN CIDR is not a placeholder", value: "192.168.1.0/24", want: false},
+		{name: "common home LAN named CIDRs are not placeholders", value: "homelab=192.168.1.0/25,lan=192.168.1.128/25", want: false},
 
 		// Rejected: anything a real environment would contain.
 		{name: "real private address", value: "172.16.100.10", want: false},
 		{name: "real private address in another range", value: "10.0.0.5", want: false},
-		{name: "adjacent documentation subnet is not allowed", value: "192.168.2.10", want: false},
+		{name: "adjacent documentation subnet is not allowed", value: "198.51.101.10", want: false},
 		{name: "real public address", value: "203.0.113.10", want: false},
 		{name: "real domain", value: "ryanmcafee.com", want: false},
 		{name: "real subdomain", value: "plex.ryanmcafee.com", want: false},
@@ -769,8 +780,8 @@ func TestIsExamplePlaceholder(t *testing.T) {
 		{name: "real username", value: "rmcafee", want: false},
 		{name: "real duckdns target", value: "homelab-dev.duckdns.org", want: false},
 		{name: "real CIDR", value: "172.16.100.0/24", want: false},
-		{name: "named real CIDR", value: "homelab=192.168.1.0/24,lan=172.16.10.0/24", want: false},
-		{name: "named list with a non-CIDR item", value: "homelab=192.168.1.0/24,lan", want: false},
+		{name: "named real CIDR", value: "homelab=198.51.100.0/24,lan=172.16.10.0/24", want: false},
+		{name: "named list with a non-CIDR item", value: "homelab=198.51.100.0/24,lan", want: false},
 	}
 
 	for _, tc := range tests {
@@ -797,7 +808,7 @@ func TestScanTemplateFileRequiresPlaceholders(t *testing.T) {
 		},
 		{
 			name:     "a real domain pasted into the template",
-			content:  "DOMAIN: ryanmcafee.com\nGATEWAY_IP: \"192.168.1.1\"\n",
+			content:  "DOMAIN: ryanmcafee.com\nGATEWAY_IP: \"198.51.100.1\"\n",
 			wantKeys: []string{"DOMAIN"},
 			wantVals: []string{"ryanmcafee.com"},
 		},
@@ -1652,7 +1663,7 @@ func TestScanTemplateFileHelmKeysRequirePlaceholders(t *testing.T) {
 	}{
 		{
 			name:    "documented placeholders on Helm keys pass",
-			content: "global:\n  domain: example.com\ndashboard:\n  host: gateway.REPLACEME-domain.com\n  staticIP: \"192.168.1.200\"\nletsencrypt:\n  email: admin@example.com\nvolumes:\n  - csi:\n      volumeAttributes:\n        portal: \"192.168.1.100:3260\"\ndnsZones:\n  - example.com\n  - homelab.local\n",
+			content: "global:\n  domain: example.com\ndashboard:\n  host: gateway.REPLACEME-domain.com\n  staticIP: \"198.51.100.200\"\nletsencrypt:\n  email: admin@example.com\nvolumes:\n  - csi:\n      volumeAttributes:\n        portal: \"198.51.100.100:3260\"\ndnsZones:\n  - example.com\n  - homelab.local\n",
 		},
 		{
 			name:     "a real hostname pasted into a template",

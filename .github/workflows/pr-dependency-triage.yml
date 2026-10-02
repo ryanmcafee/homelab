@@ -25,7 +25,9 @@ on:
         type: number
 
 concurrency:
-  group: pr-dependency-triage
+  # A newer event supersedes only its own PR. Scheduled and manual sweeps share
+  # a separate slot; fork PRs use the base repository's PR number as well.
+  group: pr-dependency-triage-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || 'sweep' }}
   cancel-in-progress: true
 
 permissions:

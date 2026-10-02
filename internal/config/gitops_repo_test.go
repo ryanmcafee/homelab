@@ -13,12 +13,15 @@ func TestDeriveGitOpsRepo(t *testing.T) {
 		value    string
 		absent   bool
 		wantErr  bool
+		errHas   string
+		errLacks string
 		wantNil  bool
 		url      string
 		cloneURL string
 		owner    string
 		repo     string
 		slug     string
+		imgOwner string
 	}{
 		{
 			name:     "https url",
@@ -76,6 +79,20 @@ func TestDeriveGitOpsRepo(t *testing.T) {
 			cloneURL: "https://git.example.com:8443/forker/homelab.git",
 			owner:    "forker", repo: "homelab", slug: "forker/homelab",
 		},
+		{
+			name:     "uppercase owner keeps its case but lowercases the image owner",
+			value:    "https://github.com/RyanMcAfee/homelab",
+			url:      "https://github.com/RyanMcAfee/homelab",
+			cloneURL: "https://github.com/RyanMcAfee/homelab.git",
+			owner:    "RyanMcAfee", repo: "homelab", slug: "RyanMcAfee/homelab", imgOwner: "ryanmcafee",
+		},
+		{
+			name:     "username without a password",
+			value:    "https://git@github.com/forker/homelab",
+			url:      "https://git@github.com/forker/homelab",
+			cloneURL: "https://git@github.com/forker/homelab.git",
+			owner:    "forker", repo: "homelab", slug: "forker/homelab",
+		},
 		{name: "key absent", absent: true, wantNil: true},
 		{name: "empty value", value: "", wantNil: true},
 		{name: "whitespace-only value", value: "   ", wantNil: true},
@@ -85,6 +102,14 @@ func TestDeriveGitOpsRepo(t *testing.T) {
 		// No scheme means the host is indistinguishable from a nested group:
 		// this would otherwise parse its owner as "github.com/forker".
 		{name: "no scheme", value: "github.com/forker/homelab", wantErr: true},
+		{name: "github web url of a branch", value: "https://github.com/forker/homelab/tree/main", wantErr: true, errHas: "github.com"},
+		{name: "github scp form with a nested path", value: "git@github.com:forker/homelab/extra.git", wantErr: true, errHas: "github.com"},
+		{name: "query string", value: "https://github.com/forker/homelab?x=1", wantErr: true, errHas: "query or fragment"},
+		{name: "fragment", value: "https://github.com/forker/homelab#readme", wantErr: true, errHas: "query or fragment"},
+		{name: "query on a self-hosted forge", value: "https://gitlab.example.com/platform/infra/homelab?ref=main", wantErr: true, errHas: "query or fragment"},
+		{name: "userinfo with a password", value: "https://user:tok@github.com/forker/homelab", wantErr: true, errHas: "password", errLacks: "tok"},
+		{name: "scp form with a password", value: "git:tok@github.com:forker/homelab.git", wantErr: true, errHas: "password", errLacks: "tok"},
+		{name: "userinfo with an empty password", value: "https://user:@github.com/forker/homelab", wantErr: true, errHas: "password"},
 	}
 
 	for _, c := range cases {
@@ -101,6 +126,12 @@ func TestDeriveGitOpsRepo(t *testing.T) {
 				}
 				if !strings.Contains(err.Error(), GitOpsRepoKey) {
 					t.Errorf("error %q does not name %s, so an operator cannot tell which key to fix", err, GitOpsRepoKey)
+				}
+				if c.errHas != "" && !strings.Contains(err.Error(), c.errHas) {
+					t.Errorf("error %q does not contain %q", err, c.errHas)
+				}
+				if c.errLacks != "" && strings.Contains(err.Error(), c.errLacks) {
+					t.Errorf("error %q leaks %q", err, c.errLacks)
 				}
 				return
 			}
@@ -131,6 +162,13 @@ func TestDeriveGitOpsRepo(t *testing.T) {
 			if got.Slug != c.slug {
 				t.Errorf("Slug = %q, want %q", got.Slug, c.slug)
 			}
+			wantImgOwner := c.imgOwner
+			if wantImgOwner == "" {
+				wantImgOwner = c.owner
+			}
+			if got.ImageOwner != wantImgOwner {
+				t.Errorf("ImageOwner = %q, want %q", got.ImageOwner, wantImgOwner)
+			}
 		})
 	}
 }
@@ -150,40 +188,7 @@ func TestHelmTemplatesTakeTheRepoFromConfig(t *testing.T) {
 		slug    = "forker/my-homelab"
 	)
 
-	projectRoot := findProjectRootForTest(t)
-	configRoot := filepath.Join(projectRoot, "configuration")
-
-	schema, err := LoadSchemaDir(filepath.Join(configRoot, "schema"))
-	if err != nil {
-		t.Fatalf("loading schemas: %v", err)
-	}
-	versions, err := LoadVersions(filepath.Join(configRoot, "versions.yaml"))
-	if err != nil {
-		t.Fatalf("loading versions: %v", err)
-	}
-	defaults, err := LoadEnvironment(filepath.Join(configRoot, "environments", "defaults.yaml"))
-	if err != nil {
-		t.Fatalf("loading defaults: %v", err)
-	}
-	env, err := LoadEnvironment(filepath.Join(configRoot, "environments", "homelab.yaml.example"))
-	if err != nil {
-		t.Fatalf("loading homelab.yaml.example: %v", err)
-	}
-	env[GitOpsRepoKey] = repoURL
-
-	rc, err := Eval(schema, versions, "homelab", defaults, env)
-	if err != nil {
-		t.Fatalf("eval: %v", err)
-	}
-
-	addons, err := Export(rc, filepath.Join(configRoot, "templates", "helm-addons.tmpl"))
-	if err != nil {
-		t.Fatalf("export helm-addons.tmpl: %v", err)
-	}
-	apps, err := Export(rc, filepath.Join(configRoot, "templates", "helm-apps.tmpl"))
-	if err != nil {
-		t.Fatalf("export helm-apps.tmpl: %v", err)
-	}
+	addons, apps := renderHelmTemplatesWithRepo(t, repoURL)
 
 	cases := []struct {
 		name   string
@@ -216,4 +221,57 @@ func TestHelmTemplatesTakeTheRepoFromConfig(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestTriageAgentImageOwnerIsLowercase pins the image reference for a GitHub
+// login with capitals: OCI repository paths must be lowercase.
+func TestTriageAgentImageOwnerIsLowercase(t *testing.T) {
+	addons, _ := renderHelmTemplatesWithRepo(t, "https://github.com/RyanMcAfee/homelab")
+	if !strings.Contains(addons, `image: "ghcr.io/ryanmcafee/homelab-triage-agent:`) {
+		t.Errorf("triage agent image does not use the lowercased owner")
+	}
+	if strings.Contains(addons, "ghcr.io/RyanMcAfee/") {
+		t.Errorf("triage agent image still renders the owner with capitals")
+	}
+}
+
+// renderHelmTemplatesWithRepo renders helm-addons.tmpl and helm-apps.tmpl from
+// homelab.yaml.example with GITOPS_REPO_URL replaced by repoURL.
+func renderHelmTemplatesWithRepo(t *testing.T, repoURL string) (addons, apps string) {
+	t.Helper()
+	projectRoot := findProjectRootForTest(t)
+	configRoot := filepath.Join(projectRoot, "configuration")
+
+	schema, err := LoadSchemaDir(filepath.Join(configRoot, "schema"))
+	if err != nil {
+		t.Fatalf("loading schemas: %v", err)
+	}
+	versions, err := LoadVersions(filepath.Join(configRoot, "versions.yaml"))
+	if err != nil {
+		t.Fatalf("loading versions: %v", err)
+	}
+	defaults, err := LoadEnvironment(filepath.Join(configRoot, "environments", "defaults.yaml"))
+	if err != nil {
+		t.Fatalf("loading defaults: %v", err)
+	}
+	env, err := LoadEnvironment(filepath.Join(configRoot, "environments", "homelab.yaml.example"))
+	if err != nil {
+		t.Fatalf("loading homelab.yaml.example: %v", err)
+	}
+	env[GitOpsRepoKey] = repoURL
+
+	rc, err := Eval(schema, versions, "homelab", defaults, env)
+	if err != nil {
+		t.Fatalf("eval: %v", err)
+	}
+
+	addons, err = Export(rc, filepath.Join(configRoot, "templates", "helm-addons.tmpl"))
+	if err != nil {
+		t.Fatalf("export helm-addons.tmpl: %v", err)
+	}
+	apps, err = Export(rc, filepath.Join(configRoot, "templates", "helm-apps.tmpl"))
+	if err != nil {
+		t.Fatalf("export helm-apps.tmpl: %v", err)
+	}
+	return addons, apps
 }

@@ -136,6 +136,13 @@ consumers:
     filterSubject: pf.*.workload.*.*.v1.ev
     description: Durable consumer the event-backbone e2e test publishes through
 
+  # workload-operator's work queue. NACK creates it because the principal holds no
+  # consumer-create grant (ADR-043 D6b); the operator binds it and fails if it is absent.
+  - name: workload-operator-deployment-promote-v1
+    streamName: PF_WORK
+    filterSubject: pf.*.workload.deployment.promote.v1.wq
+    description: Durable pull consumer workload-operator binds for promote work
+
 # Consumer defaults from the contract. A per-consumer value overrides them.
 consumerDefaults:
   ackPolicy: explicit
