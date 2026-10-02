@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-28T09:00:00Z",
+  "pollAfterSeconds": 30,
+  "page": {
+    "title": "Example Homelab Status",
+    "timeZone": "Etc/UTC",
+    "incidentWindowDays": 7
+  },
+  "features": {
+    "subscriptions": false
+  },
+  "overall": {
+    "state": "operational",
+    "summary": "All components operational."
+  },
+  "components": [
+    {
+      "id": "observability",
+      "name": "Observability",
+      "description": "Metrics, logs and the alerting that produces this page.",
+      "group": "platform",
+      "order": 4,
+      "state": "operational",
+      "stateReason": "no_firing_alerts",
+      "coverage": { "mappedAlertCount": 6, "hasSli": true },
+      "uptime": {
+        "windowDays": 7,
+        "ratio": 0.9997,
+        "unavailableReason": null,
+        "buckets": [
+          { "date": "2026-09-21", "ratio": 1 },
+          { "date": "2026-09-22", "ratio": 1 },
+          { "date": "2026-09-23", "ratio": 0.9986 },
+          { "date": "2026-09-24", "ratio": 1 },
+          { "date": "2026-09-25", "ratio": 1 },
+          { "date": "2026-09-26", "ratio": 1 },
+          { "date": "2026-09-27", "ratio": 0.9993 }
+        ]
+      },
+      "maintenance": null
+    },
+    {
+      "id": "media",
+      "name": "Media",
+      "description": "Streaming, the library and everything that fills it.",
+      "group": "applications",
+      "order": 6,
+      "state": "operational",
+      "stateReason": "no_firing_alerts",
+      "coverage": { "mappedAlertCount": 3, "hasSli": true },
+      "uptime": {
+        "windowDays": 7,
+        "ratio": 0.9821,
+        "unavailableReason": null,
+        "buckets": [
+          { "date": "2026-09-21", "ratio": 1 },
+          { "date": "2026-09-22", "ratio": 0.9139 },
+          { "date": "2026-09-23", "ratio": 1 },
+          { "date": "2026-09-24", "ratio": 1 },
+          { "date": "2026-09-25", "ratio": 0.9611 },
+          { "date": "2026-09-26", "ratio": 1 },
+          { "date": "2026-09-27", "ratio": 1 }
+        ]
+      },
+      "maintenance": null
+    }
+  ],
+  "incidents": [],
+  "signals": [
+    { "id": "prometheus", "state": "available", "observedAt": "2026-09-28T09:00:00Z" },
+    { "id": "alertmanager", "state": "available", "observedAt": "2026-09-28T09:00:00Z" }
+  ]
+}
