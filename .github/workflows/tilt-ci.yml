@@ -56,6 +56,11 @@ on:
       - 'tsconfig.json'
       - 'biome.json'
       - '.github/workflows/tilt-ci.yml'
+  # Merge-group candidates deliberately bypass the PR paths filter: once a
+  # change reaches the final merge path, level 2 is the authoritative
+  # integration verdict.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
     paths:
@@ -115,6 +120,7 @@ jobs:
         ${{ (github.event_name == 'pull_request'
              && github.event.pull_request.head.repo.full_name == github.repository
              && github.event.pull_request.head.sha)
+          || (github.event_name == 'merge_group' && github.event.merge_group.head_sha)
           || (github.event_name == 'push' && github.sha)
           || '' }}
     steps:
@@ -127,6 +133,7 @@ jobs:
             ${{ (github.event_name == 'pull_request'
                  && github.event.pull_request.head.repo.full_name == github.repository
                  && github.event.pull_request.head.sha)
+              || (github.event_name == 'merge_group' && github.event.merge_group.head_sha)
               || '' }}
 
       # level 2 includes level 0, so the level-0 tools come along.
@@ -163,7 +170,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/homelab-kind-registry
-          key: kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml') }}
+          key: kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml', 'localdev/values/argocd-values.yaml') }}
           restore-keys: |
             kind-registry-
 
@@ -234,11 +241,25 @@ jobs:
       - name: Diagnostics
         if: always()
         run: |
-          task localdev:diagnose || true
-          echo "=== Applications ==="
-          kubectl --context "$KIND_CONTEXT" -n argocd get applications.argoproj.io -o wide || true
-          echo "=== Pods ==="
-          kubectl --context "$KIND_CONTEXT" get pods -A || true
+          {
+            task localdev:diagnose || true
+            echo "=== Applications ==="
+            kubectl --context "$KIND_CONTEXT" -n argocd get applications.argoproj.io -o wide || true
+            echo "=== Pods ==="
+            kubectl --context "$KIND_CONTEXT" get pods -A || true
+            echo "=== ArgoCD pod descriptions (including image pull events) ==="
+            kubectl --context "$KIND_CONTEXT" -n argocd get pods -o name 2>/dev/null |
+              while IFS= read -r pod; do
+                echo "--- $pod ---"
+                kubectl --context "$KIND_CONTEXT" -n argocd describe "$pod" || true
+              done
+            echo "=== ArgoCD events ==="
+            kubectl --context "$KIND_CONTEXT" -n argocd get events --sort-by=.lastTimestamp || true
+            echo "=== ECR Public registry cache logs ==="
+            docker logs kind-registry-ecr 2>&1 || true
+            echo "=== Docker Hub registry cache logs ==="
+            docker logs kind-registry-docker 2>&1 || true
+          } | tee kind-bootstrap-diagnostics.txt
 
       # The registry containers write their blobs as root. actions/cache tars
       # the directory as the runner user in its post step, so hand it back.
@@ -258,6 +279,7 @@ jobs:
           path: |
             verify-level2.json
             kind-report.md
+            kind-bootstrap-diagnostics.txt
           retention-days: 14
           if-no-files-found: ignore
 

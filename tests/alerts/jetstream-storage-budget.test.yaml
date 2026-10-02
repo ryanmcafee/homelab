@@ -1,0 +1,363 @@
+# promtool unit tests for the JetStream storage-budget rules in the
+# homelab-nats-jetstream group of charts/addons/templates/kube-prometheus-stack.yaml
+# (docs/runbooks/jetstream-storage-budget.md).
+#
+# `task test:alerts` renders the addons chart, extracts every group of
+# additionalPrometheusRulesMap into rules.yaml in a temp directory, copies this
+# file next to it and runs `promtool test rules`, so the expressions under test
+# are the ones that deploy - the test cannot drift from the chart.
+#
+# ADR-042 bounds every stream with max_bytes and states the sum rule: the four
+# limits must total below the JetStream file store. No static gate can check
+# that sum, so these rules are its runtime half. Every threshold below is
+# bracketed from both sides, and the cases that must stay silent - an unbounded
+# stream, a store at 60 %, a full stream that is still accepting writes, a
+# full PF_AUDIT with nothing waiting to be written - are
+# asserted as explicitly as the ones that page.
+#
+# Byte values are exact fractions of the capacity so the rendered
+# humanizePercentage in each annotation is an exact figure: capacity is 10 GiB
+# (10737418240) for the store and 4 GiB (4294967296) for a stream.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 1. The shared file store fills through both thresholds. 60 % is silent,
+  #    80 % pages a warning after 15m, 95 % adds the critical after 5m. Both
+  #    severities share one alertname, so Alertmanager's inhibition drops the
+  #    warning notification once the critical fires (docs/runbooks/alerting.md).
+  #    The aggregation is asserted too: account and job are absent from the
+  #    alert labels because the rule sums per server, which is the scope of the
+  #    store and of the 10047 refusal.
+  - interval: 1m
+    name: the shared file store fills through both thresholds
+    input_series:
+      - series: 'nats_server_max_storage{server_name="nats-0",namespace="nats",job="nats"}'
+        values: '10737418240+0x120'
+      - series: 'nats_account_storage_used{server_name="nats-0",account="$G",namespace="nats",job="nats"}'
+        values: '6442450944+0x29 8589934592+0x29 10200547328+0x61'  # 60 %, then 80 % at t+30m, then 95 % at t+60m
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: JetStreamFileStoreFillingUp
+        exp_alerts: []
+      # 80 % since t+30m, so the warning is still inside its 15m `for`.
+      - eval_time: 40m
+        alertname: JetStreamFileStoreFillingUp
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: JetStreamFileStoreFillingUp
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nats
+              server_name: nats-0
+            exp_annotations:
+              summary: 'The JetStream file store on nats-0 is 80% full'
+              description: 'Above 75 % of max_file_store, which ADR-042 budgets as the sum of the streams max_bytes. Either one stream is overrunning its share or the four limits sum too high for this PVC. The per-stream alert says which; raising one max_bytes alone breaks the sum rule. docs/runbooks/jetstream-storage-budget.md.'
+      - eval_time: 70m
+        alertname: JetStreamFileStoreFillingUp
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: nats
+              server_name: nats-0
+            exp_annotations:
+              summary: 'The JetStream file store on nats-0 is 95% full'
+              description: 'At the store limit nats-server refuses writes for every stream on this peer with insufficient resources (10047), not just the stream that grew - one retention budget becomes a bus-wide outage. Act before 100 %. docs/runbooks/jetstream-storage-budget.md.'
+          - exp_labels:
+              severity: warning
+              namespace: nats
+              server_name: nats-0
+            exp_annotations:
+              summary: 'The JetStream file store on nats-0 is 95% full'
+              description: 'Above 75 % of max_file_store, which ADR-042 budgets as the sum of the streams max_bytes. Either one stream is overrunning its share or the four limits sum too high for this PVC. The per-stream alert says which; raising one max_bytes alone breaks the sum rule. docs/runbooks/jetstream-storage-budget.md.'
+
+  # 2. The sum rule itself. Two accounts hold 40 % of the store each: neither is
+  #    anywhere near the threshold and the store is 80 % gone. This is the shape
+  #    a mis-summed budget produces and the reason the rule sums before
+  #    comparing rather than alerting per account.
+  - interval: 1m
+    name: two accounts sum against one store
+    input_series:
+      - series: 'nats_server_max_storage{server_name="nats-0",namespace="nats",job="nats"}'
+        values: '10737418240+0x40'
+      - series: 'nats_account_storage_used{server_name="nats-0",account="$G",namespace="nats",job="nats"}'
+        values: '4294967296+0x40'
+      - series: 'nats_account_storage_used{server_name="nats-0",account="PLATFORM",namespace="nats",job="nats"}'
+        values: '4294967296+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: JetStreamFileStoreFillingUp
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: nats
+              server_name: nats-0
+            exp_annotations:
+              summary: 'The JetStream file store on nats-0 is 80% full'
+              description: 'Above 75 % of max_file_store, which ADR-042 budgets as the sum of the streams max_bytes. Either one stream is overrunning its share or the four limits sum too high for this PVC. The per-stream alert says which; raising one max_bytes alone breaks the sum rule. docs/runbooks/jetstream-storage-budget.md.'
+
+  # 3. A store that sits at 60 % forever pages nobody, including past the point
+  #    where the aging alerts' coverage guards would be satisfied.
+  - interval: 1m
+    name: a store at 60 per cent never pages
+    input_series:
+      - series: 'nats_server_max_storage{server_name="nats-0",namespace="nats",job="nats"}'
+        values: '10737418240+0x180'
+      - series: 'nats_account_storage_used{server_name="nats-0",account="$G",namespace="nats",job="nats"}'
+        values: '6442450944+0x180'
+    alert_rule_test:
+      - eval_time: 180m
+        alertname: JetStreamFileStoreFillingUp
+        exp_alerts: []
+
+  # 4. The utilisation monitor goes blind. The series exists for 2h and then
+  #    stops - the exporter dying, or losing its -jsz=all argument, which drops
+  #    the account block while the server metrics keep arriving. The alert has no
+  #    labels of its own because the rule aggregates the whole vector away: it is
+  #    one signal about whether anything is being measured at all. It also
+  #    self-resolves once the 6h memory of the series expires, so a cluster that
+  #    genuinely removed NATS stops being paged about it.
+  - interval: 1m
+    name: storage metrics stop arriving
+    input_series:
+      - series: 'nats_account_storage_used{server_name="nats-0",account="$G",namespace="nats",job="nats"}'
+        values: '6442450944+0x120'
+    alert_rule_test:
+      - eval_time: 100m
+        alertname: JetStreamFileStoreMetricsAbsent
+        exp_alerts: []
+      - eval_time: 170m
+        alertname: JetStreamFileStoreMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: 'JetStream storage metrics stopped arriving, so the file-store budget is unwatched'
+              description: 'prometheus-nats-exporter reported account storage within the last 6h and no longer does. While this is firing nothing sees the store approach its limit, and the first symptom is 10047 on every publish. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/jetstream-storage-budget.md.'
+      - eval_time: 500m
+        alertname: JetStreamFileStoreMetricsAbsent
+        exp_alerts: []
+
+  # 5. One stream approaches its own ceiling while the store is untouched - the
+  #    boundary the file-store alert cannot see. PF_AUDIT crosses 75 % (silent at
+  #    exactly 75 %, which is the threshold from below), 87.5 % and 93.75 %.
+  #    Two streams share the fixture and never appear in any expectation.
+  #    PF_EVENTS is unbounded at limit_bytes -1, the exporter's encoding, holding
+  #    twice PF_AUDIT's whole limit: a negative limit ratios negative and cannot
+  #    cross a positive threshold, so the > 0 is intent rather than protection
+  #    there - an unbounded stream is ADR-042's defect and belongs to the
+  #    contract gate. FORK_LOCAL is the case the guard does protect: a limit of 0
+  #    divides to +Inf, which exceeds every threshold and would page on every
+  #    scrape. JetStream normalises max_bytes 0 to -1 today, so this asserts the
+  #    rule does not depend on that normalisation holding.
+  - interval: 1m
+    name: a single stream approaches its own max_bytes
+    input_series:
+      - series: 'nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '3221225472+0x29 3758096384+0x39 4026531840+0x51'  # exactly 75 %, then 87.5 % at t+30m, then 93.75 % at t+70m
+      - series: 'nats_stream_limit_bytes{stream_name="PF_EVENTS",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '-1+0x120'
+      - series: 'nats_stream_total_bytes{stream_name="PF_EVENTS",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '8589934592+0x120'
+      - series: 'nats_stream_limit_bytes{stream_name="FORK_LOCAL",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '0+0x120'
+      - series: 'nats_stream_total_bytes{stream_name="FORK_LOCAL",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1073741824+0x120'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: JetStreamStreamApproachingMaxBytes
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: JetStreamStreamApproachingMaxBytes
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stream_name: PF_AUDIT
+              is_stream_leader: 'true'
+              namespace: nats
+              job: nats
+              server_name: nats-0
+            exp_annotations:
+              summary: 'PF_AUDIT is 87.5% of its max_bytes'
+              description: 'The stream is approaching its own limit, which the file-store alert cannot see. At the ceiling its discard policy takes effect: discard new refuses publishes, discard old deletes the oldest messages. docs/runbooks/jetstream-storage-budget.md.'
+      - eval_time: 80m
+        alertname: JetStreamStreamApproachingMaxBytes
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              stream_name: PF_AUDIT
+              is_stream_leader: 'true'
+              namespace: nats
+              job: nats
+              server_name: nats-0
+            exp_annotations:
+              summary: 'PF_AUDIT is 93.75% of its max_bytes'
+              description: 'The discard policy is about to act on this stream. Check the retention the contract declares for it before changing anything; the sum rule means a bigger max_bytes here needs a smaller one elsewhere or a bigger store. docs/runbooks/jetstream-storage-budget.md.'
+          - exp_labels:
+              severity: warning
+              stream_name: PF_AUDIT
+              is_stream_leader: 'true'
+              namespace: nats
+              job: nats
+              server_name: nats-0
+            exp_annotations:
+              summary: 'PF_AUDIT is 93.75% of its max_bytes'
+              description: 'The stream is approaching its own limit, which the file-store alert cannot see. At the ceiling its discard policy takes effect: discard new refuses publishes, discard old deletes the oldest messages. docs/runbooks/jetstream-storage-budget.md.'
+
+  # 6. PF_AUDIT refusing its own writes. Nothing counts a refused write, so the
+  #    signal is derived: the stream is pinned at its limit, last_seq has
+  #    stopped moving, and source lag stays above zero - audit events are
+  #    waiting in PF_EVENTS and each retry is refused. The fixture writes
+  #    normally for 30m, fills, and then freezes while the lag grows.
+  - interval: 1m
+    name: PF_AUDIT pinned at its ceiling with no new sequences
+    input_series:
+      - series: 'nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '2147483648+0x29 4294967296+0x91'
+      - series: 'nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1000+10x29 1290+0x91'  # accepting until t+29m, then frozen
+      - series: 'nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '0+0x29 1+1x91'  # events keep arriving and are refused
+    alert_rule_test:
+      # The 15m window still contains real writes, so the conjunction is false.
+      - eval_time: 40m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: PFAuditRefusingWrites
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              stream_name: PF_AUDIT
+              is_stream_leader: 'true'
+              namespace: nats
+              job: nats
+              server_name: nats-0
+            exp_annotations:
+              summary: 'PF_AUDIT is at its max_bytes ceiling and is refusing audit events sourced from PF_EVENTS'
+              description: 'PF_AUDIT is discard: new, so at the ceiling it refuses its own writes rather than stopping the bus (ADR-042). Refused events wait in PF_EVENTS and are lost from the audit trail once PF_EVENTS ages them out. docs/runbooks/jetstream-storage-budget.md.'
+
+  # 7. A stream at its ceiling that is still accepting writes is not refusing
+  #    them - that is discard: old, where the oldest messages leave to make room.
+  #    Bytes pinned at the limit is therefore not enough on its own, and this is
+  #    the case that proves the last_seq half of the conjunction carries weight.
+  #    JetStreamStreamApproachingMaxBytes still covers it.
+  - interval: 1m
+    name: at the ceiling but still accepting writes
+    input_series:
+      - series: 'nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1000+10x120'
+      - series: 'nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '5+0x120'  # a steady backlog, so only last_seq keeps this silent
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+      - eval_time: 120m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+
+  # 8. Full and idle is not refusing. PF_AUDIT at 99.5 % with no audit event
+  #    published has nothing to refuse, so last_seq freezes with no loss. The
+  #    source lag is what separates this from case 6: zero means PF_EVENTS holds
+  #    no matching event that PF_AUDIT has not stored.
+  - interval: 1m
+    name: at the ceiling but no audit event waiting
+    input_series:
+      - series: 'nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4273492460+0x120'  # 99.5 %
+      - series: 'nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1290+0x120'
+      - series: 'nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '0+0x120'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+      - eval_time: 120m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+
+  # 9. PF_AUDIT exists once per tenant account (ADR-043), and the exporter
+  #    labels every stream series with `account`. tenant-a is full and frozen
+  #    with nothing waiting; tenant-b has a backlog but room to spare. Neither
+  #    is refusing, so a source-lag join that drops `account` would page
+  #    tenant-a on tenant-b's lag.
+  - interval: 1m
+    name: one account's source lag does not page another account's full PF_AUDIT
+    input_series:
+      - series: 'nats_stream_limit_bytes{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_last_seq{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1290+0x120'
+      - series: 'nats_stream_source_lag{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '0+0x120'
+      - series: 'nats_stream_limit_bytes{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '2147483648+0x120'
+      - series: 'nats_stream_last_seq{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1000+10x120'
+      - series: 'nats_stream_source_lag{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '5+0x120'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+      - eval_time: 120m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+
+  # 10. The positive half of case 9, so it cannot pass with the alert broken:
+  #     tenant-a is full, frozen and lagging, and pages under its own account.
+  #     tenant-b is full and frozen with no lag, so it must stay silent rather
+  #     than borrow tenant-a's lag.
+  - interval: 1m
+    name: a refusing PF_AUDIT pages under its own account only
+    input_series:
+      - series: 'nats_stream_limit_bytes{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_last_seq{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1290+0x120'
+      - series: 'nats_stream_source_lag{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '5+1x120'
+      - series: 'nats_stream_limit_bytes{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_last_seq{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '2000+0x120'
+      - series: 'nats_stream_source_lag{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '0+0x120'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: PFAuditRefusingWrites
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              account: tenant-a
+              stream_name: PF_AUDIT
+              is_stream_leader: 'true'
+              namespace: nats
+              job: nats
+              server_name: nats-0
+            exp_annotations:
+              summary: 'PF_AUDIT is at its max_bytes ceiling and is refusing audit events sourced from PF_EVENTS'
+              description: 'PF_AUDIT is discard: new, so at the ceiling it refuses its own writes rather than stopping the bus (ADR-042). Refused events wait in PF_EVENTS and are lost from the audit trail once PF_EVENTS ages them out. docs/runbooks/jetstream-storage-budget.md.'
