@@ -31,9 +31,6 @@ spec:
               secretKeyRef:
                 name: cloudflare-api-token
                 key: api_token
-
-        cloudflare:
-          proxied: {{ index .Values "external-dns" "cloudflare" "proxied" }}
         {{- end }}
 
         # HTTPRoutes only (the CRD source has its own deployment)
@@ -99,6 +96,14 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      # Both 1Password item paths come from this parent's values (configuration/
+      # EXTERNAL_DNS_1P_PATH and EXTERNAL_DNS_UNIFI_1P_PATH via the CMP), so a
+      # fork's keys reach the OnePasswordItems. valuesObject overrides valueFiles.
+      valuesObject:
+        cloudflare:
+          onePasswordItemPath: {{ (index .Values "external-dns" "cloudflare" "onePasswordItemPath") | quote }}
+        unifi:
+          onePasswordItemPath: {{ (index .Values "external-dns-unifi" "onePasswordItemPath") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: external-dns

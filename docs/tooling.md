@@ -20,7 +20,7 @@ task validate                                    # per-tier prerequisite table (
 | `mise doctor` / `task mise:doctor` | diagnose PATH/shim problems |
 | `task cli:build` | build `bin/homelab`, which the `render:*`, `talos:recreate:*` and `gpu:*` tasks run (they depend on it, so it is never stale). `task setup`, `validate`, `verify` and `config:*` use `go run` instead and always compile the checkout |
 
-Gotchas that cost time before (also in `CLAUDE.md`):
+Gotchas that cost time before (also in `Claude.md`):
 
 - A fresh git worktree needs `mise trust && mise install` before pre-commit's `terraform_fmt` /
   `terragrunt_fmt` hooks find their binaries.

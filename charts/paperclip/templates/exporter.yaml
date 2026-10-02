@@ -13,8 +13,11 @@ data:
   paperclip-exporter.ts: |-
     {{- $script | nindent 4 }}
 ---
-apiVersion: apps/v1
-kind: Deployment
+# Progressive delivery: a new exporter image reaches half the traffic, the
+# canary-http-health ClusterAnalysisTemplate probes {{ $name }}-canary, and a
+# failed probe aborts back to the stable ReplicaSet without an operator.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
 metadata:
   name: {{ $name }}
   namespace: {{ .Values.namespace }}
@@ -25,6 +28,26 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ $name }}
+  strategy:
+    canary:
+      canaryService: {{ $name }}-canary
+      stableService: {{ $name }}
+      steps:
+        - setWeight: 50
+        - analysis:
+            templates:
+              - templateName: canary-http-health
+                clusterScope: true
+            args:
+              - name: service
+                value: {{ $name }}-canary
+              - name: namespace
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
+              - name: port
+                value: "9464"
+        - setWeight: 100
   template:
     metadata:
       labels:
@@ -99,6 +122,25 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     app.kubernetes.io/name: {{ $name }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+---
+# Canary Service: the Rollout controller pins its selector to the canary
+# pod-template-hash. Its app.kubernetes.io/name value is deliberately not the
+# one the ServiceMonitor below selects, which would otherwise scrape the canary
+# pods as a second source of the same series.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-canary
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}-canary
 spec:
   selector:
     app.kubernetes.io/name: {{ $name }}

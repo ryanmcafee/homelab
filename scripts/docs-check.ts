@@ -15,6 +15,7 @@
  *   tests/snapshots/homelab/*.yaml         ArgoCD Applications, route inventory
  *                                          (Gateway + host per Application), chart
  *                                          versions, PostSync smoke Jobs
+ *   tests/snapshots/localdev/*.yaml        Applications the Kind loop syncs
  *   tests/e2e/<suite>/chainsaw-test.yaml   chainsaw suite count and names
  *
  * Generated regions are fenced in Markdown with
@@ -23,14 +24,21 @@
  * docs/applications.md `addons-table`, `applications-table`.
  *
  * Literal checks (no region, the sentence around them is hand-written):
- *   readme.md            "<N> addons", "<N> applications", "<N> Applications",
- *                        "<N> chainsaw suites"
+ *   readme.md            "<N> addons", "<N> applications", "<N> chainsaw
+ *                        suites", "<N> ArgoCD Applications" (production) and
+ *                        "<N> Applications synced from your working tree"
+ *                        (the Kind loop — a different, smaller count)
  *   .github/homelab.svg  "addons · <N>", "applications · <N>",
  *                        "<N> apps synced", "<N>/<N> suites", and one
  *                        "<host>.&lt;DOMAIN&gt;" per envoy-internal route host
  *                        (the echo comparison route is deliberately not
  *                        drawn). Counter steps in the SVG cannot be regenerated
  *                        by --fix; the check says so when the suite count moves.
+ *
+ * Suite checks (not fixable):
+ *   tests/e2e/README.md  the Layout table names every suite directory exactly
+ *                        once and names nothing that is not a suite
+ *   chainsaw-test.yaml   parses, and every Test step has a unique, non-empty name
  *
  * Usage:
  *   task docs:check              report drift, exit 1 on any
@@ -41,7 +49,7 @@
  */
 
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { parse as parseYaml } from "./lib/yaml.ts";
+import { parseAll, parse as parseYaml } from "./lib/yaml.ts";
 
 // ---------------------------------------------------------------------------
 // Facts
@@ -68,6 +76,7 @@ export interface Facts {
   addons: number;
   applications: number;
   argoApplications: number;
+  localdevApplications: number;
   e2eSuites: string[];
   smokeJobs: string[];
   routes: RouteRow[];
@@ -361,9 +370,14 @@ export function expectedLiterals(f: Facts): Literal[] {
       fix: [/\b\d+ applications\b/g, `${f.applications} applications`],
     },
     {
+      // The `task localdev:up` line: Kind syncs the smaller localdev overlay,
+      // and both halves anchor to the sentence so no other count satisfies it.
       file: "readme.md",
-      expect: `${f.argoApplications} Applications`,
-      fix: [/\b\d+ Applications\b/g, `${f.argoApplications} Applications`],
+      expect: `${f.localdevApplications} Applications synced from your working tree`,
+      fix: [
+        /\b\d+ Applications synced from your working tree\b/g,
+        `${f.localdevApplications} Applications synced from your working tree`,
+      ],
     },
     {
       // "<N> ArgoCD Applications in all" is a separate phrase: the generic
@@ -401,6 +415,109 @@ export function expectedLiterals(f: Facts): Literal[] {
       expect: `${h}.&lt;DOMAIN&gt;`,
     })),
   ];
+}
+
+export const E2E_README = "tests/e2e/README.md";
+
+export const suiteFile = (suite: string) =>
+  `tests/e2e/${suite}/chainsaw-test.yaml`;
+
+/** Every `<suite>/` token in the first column of the README's Layout table, in order. */
+export function readmeSuiteMentions(readme: string): string[] | undefined {
+  const section = readme.split(/^## Layout\s*$/m)[1]?.split(/^## /m)[0];
+  const rows = section?.split("\n").filter((l) => l.startsWith("|"));
+  if (!rows?.length) return undefined;
+  return rows.flatMap((row) =>
+    [...(row.split("|")[1] ?? "").matchAll(/`([^`/]+)\/`/g)].map((m) => m[1]),
+  );
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Every chainsaw Test step has a non-empty name no other step in the file uses. */
+export function stepNameDrift(file: string, text: string): Drift[] {
+  const fail = (what: string): Drift => ({ file, what, fixable: false });
+  let docs: unknown[];
+  try {
+    docs = parseAll(text);
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    return [fail(`does not parse: ${reason.split("\n")[0]}`)];
+  }
+  const tests = docs.filter(isRecord).filter((d) => d.kind === "Test");
+  if (tests.length === 0) return [fail("no kind: Test document")];
+  const drift: Drift[] = [];
+  for (const t of tests) {
+    const steps = isRecord(t.spec) ? t.spec.steps : undefined;
+    if (!Array.isArray(steps) || steps.length === 0) {
+      drift.push(fail("Test has no steps"));
+      continue;
+    }
+    const uses = new Map<string, number>();
+    steps.forEach((s, i) => {
+      const name = isRecord(s) ? s.name : undefined;
+      if (typeof name !== "string" || name.trim() === "") {
+        drift.push(fail(`step ${i + 1} has no name`));
+      } else {
+        uses.set(name, (uses.get(name) ?? 0) + 1);
+      }
+    });
+    for (const [name, n] of uses) {
+      if (n > 1) {
+        drift.push(
+          fail(
+            `step name "${name}" is used ${n} times (step names must be unique)`,
+          ),
+        );
+      }
+    }
+  }
+  return drift;
+}
+
+/** Each suite has exactly one README row, each row a suite, and each suite file sound step names. */
+export function e2eSuiteDrift(
+  suites: string[],
+  files: Map<string, string>,
+): Drift[] {
+  const fail = (what: string): Drift => ({
+    file: E2E_README,
+    what,
+    fixable: false,
+  });
+  const drift: Drift[] = [];
+  const readme = files.get(E2E_README);
+  const mentions =
+    readme === undefined ? undefined : readmeSuiteMentions(readme);
+  if (readme === undefined) drift.push(fail("file missing (suite table)"));
+  else if (mentions === undefined) drift.push(fail("Layout table missing"));
+  else {
+    for (const s of suites) {
+      const n = mentions.filter((m) => m === s).length;
+      if (n !== 1) {
+        drift.push(
+          fail(
+            `suite ${s}/ has ${n === 0 ? "no row" : `${n} rows`} in the Layout table (expected exactly 1)`,
+          ),
+        );
+      }
+    }
+    for (const m of new Set(mentions)) {
+      if (!suites.includes(m)) {
+        drift.push(fail(`row ${m}/ names no ${suiteFile(m)}`));
+      }
+    }
+  }
+  for (const s of suites) {
+    const text = files.get(suiteFile(s));
+    drift.push(
+      ...(text === undefined
+        ? [{ file: suiteFile(s), what: "file missing", fixable: false }]
+        : stepNameDrift(suiteFile(s), text)),
+    );
+  }
+  return drift;
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +562,13 @@ export async function collectFacts(root: string): Promise<Facts> {
   }
   const allDocs = [...byFile.values()].flat();
 
+  const localdevDocs: string[] = [];
+  for (const f of await listFiles(`${root}/tests/snapshots/localdev`, (n) =>
+    n.endsWith(".yaml"),
+  )) {
+    localdevDocs.push(...splitDocs(await readFile(f, "utf8")));
+  }
+
   const e2eSuites: string[] = [];
   for (const d of await listDirs(`${root}/tests/e2e`)) {
     try {
@@ -469,6 +593,7 @@ export async function collectFacts(root: string): Promise<Facts> {
     addons,
     applications,
     argoApplications: countApplications(allDocs),
+    localdevApplications: countApplications(localdevDocs),
     e2eSuites,
     smokeJobs: smoke,
     routes,
@@ -598,6 +723,7 @@ const FILES = [
   "docs/networking.md",
   "docs/applications.md",
   ".github/homelab.svg",
+  E2E_README,
 ];
 
 async function main(): Promise<number> {
@@ -614,7 +740,7 @@ async function main(): Promise<number> {
   }
   const facts = await collectFacts(args.root);
   const files = new Map<string, string>();
-  for (const f of FILES) {
+  for (const f of [...FILES, ...facts.e2eSuites.map(suiteFile)]) {
     try {
       files.set(f, await readFile(`${args.root}/${f}`, "utf8"));
     } catch {
@@ -622,6 +748,7 @@ async function main(): Promise<number> {
     }
   }
   const { drift, fixed } = check(files, facts);
+  drift.push(...e2eSuiteDrift(facts.e2eSuites, files));
   if (args.fix) {
     for (const [f, text] of fixed) {
       if (files.get(f) !== text) {
@@ -644,7 +771,7 @@ async function main(): Promise<number> {
     );
   } else if (remaining.length === 0) {
     console.log(
-      `docs-check: in sync (${facts.addons} addons, ${facts.applications} applications, ${facts.argoApplications} Applications, ${facts.e2eSuites.length} suites, ${facts.routes.length} route hosts)`,
+      `docs-check: in sync (${facts.addons} addons, ${facts.applications} applications, ${facts.argoApplications} Applications, ${facts.localdevApplications} in the Kind loop, ${facts.e2eSuites.length} suites, ${facts.routes.length} route hosts)`,
     );
   } else {
     for (const d of remaining) {

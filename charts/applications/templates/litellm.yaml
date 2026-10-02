@@ -1,0 +1,130 @@
+{{- /*
+LiteLLM (issue #424): OpenAI-compatible LLM gateway with its database on the
+existing CloudNativePG operator. This file carries the foundation waves only:
+  wave 10  Namespace litellm
+  wave 11  litellm-dependencies  charts/litellm-dependencies (OnePasswordItems -> Secrets litellm-master-key-secret, litellm-salt-key, litellm-api-keys; secret store only)
+  wave 12  litellm-database      charts/litellm-database (postgresql.cnpg.io Cluster litellm-db -> Secret litellm-db-app)
+Waves 13 (the OCI chart) and 14 (HTTPRoutes + smoke) follow in the next change.
+Every value comes from the `litellm:` block of configuration/templates/helm-apps.tmpl;
+charts/applications/values.yaml only holds placeholders. Derived values reach the
+child charts through helm.valuesObject (ADR-010), so their committed values files
+carry no hostname or 1Password address.
+Never part of a preview (ADR-013, docs/runbooks/previews.md): 1Password items and
+a database cluster are cluster-level concerns.
+*/}}
+{{- $ll := .Values.litellm }}
+{{- $ambient := has $ll.namespace (splitList "," (include "homelab.meshNamespaces" .)) }}
+{{- if and $ll.enabled (not (include "homelab.preview.enabled" .)) }}
+---
+# Namespace for the LiteLLM proxy and its CloudNativePG Cluster. Both run
+# non-root, so baseline is enough.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ll.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+    {{- include "homelab.meshLabels" (dict "namespace" $ll.namespace "root" $) }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+# Dependencies Application: the 1Password items the proxy reads (master key,
+# salt key, provider API keys). Only where a secret store exists
+# (SECRETS_PROVIDER): without one the chart would render nothing, and localdev
+# seeds the same Secrets in localdev/fakes/secrets.yaml instead.
+{{- if $ll.dependencies.onePassword.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/litellm-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # 1Password paths come from configuration/ (secrets.schema.yaml) through
+      # this parent, so the child's committed values stay environment-free.
+      valuesObject:
+        namespace: {{ $ll.namespace }}
+        onePassword:
+          {{- toYaml $ll.dependencies.onePassword | nindent 10 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $ll.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+{{- end }}
+---
+# Database Application: a CloudNativePG Cluster (the operator is the
+# cloudnative-pg addon). CNPG generates Secret litellm-db-app whose username
+# and password keys become the chart's database.writer.passwordSecret, so no
+# credential is ever written by us. ArgoCD's built-in Cluster health check
+# makes the proxy's wave wait for a ready database.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm-database
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/litellm-database
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # Storage class, size, image pin and sizing are environment facts
+      # (configuration/) and reach the child through this parent (ADR-010).
+      valuesObject:
+        namespace: {{ $ll.namespace }}
+        ambientOptOut: {{ $ambient }}
+        {{- toYaml $ll.database | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $ll.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The Cluster CRD comes from the cloudnative-pg addon; if a sync lands before
+    # the CRD is served the apply fails with "no matches for kind Cluster" and
+    # this retries until the operator is up.
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}
