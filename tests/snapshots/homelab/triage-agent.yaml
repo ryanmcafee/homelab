@@ -442,7 +442,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: intake
-          image: ghcr.io/ryanmcafee/homelab-triage-agent:0.1.1
+          image: ghcr.io/replaceme-user/homelab-triage-agent:0.1.1
           args: ["serve"]
           env:
             - name: ALERTMANAGER_URL
@@ -907,15 +907,15 @@ spec:
               path: /workspaces/{{workflow.name}}/out/ci-state
               default: ""
       container:
-        image: ghcr.io/ryanmcafee/homelab-triage-agent:0.1.1
+        image: ghcr.io/replaceme-user/homelab-triage-agent:0.1.1
         args: ["run", "{{inputs.parameters.stage}}"]
         env:
           - name: WORK_DIR
             value: /workspaces/{{workflow.name}}
           - name: REPO_URL
-            value: "https://github.com/ryanmcafee/homelab.git"
+            value: "https://github.com/REPLACEME-user/homelab.git"
           - name: REPO_SLUG
-            value: "ryanmcafee/homelab"
+            value: "REPLACEME-user/homelab"
           - name: BASE_BRANCH
             value: "main"
           - name: BRANCH

@@ -9,7 +9,7 @@ production (ADR-009). The production feedback loop is tracked in
 
 | Level | Command | Needs | Adds |
 |---|---|---|---|
-| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy, ADR record |
+| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy, ADR record, event contract |
 | 1 | `task verify LEVEL=1` | a Kind cluster (`task localdev:kind` is enough) | server-side dry run of every localdev chart |
 | 2 | `task verify LEVEL=2` | the synced loop (`task localdev:up` or `localdev:ci`) | ArgoCD Application state, chainsaw e2e suite |
 
@@ -72,6 +72,7 @@ required workflow is path-filtered or its required job gains a skip condition.
 | `decisions/adr-format` | Every ADR heading in `docs/project_notes/decisions.md` is `### ADR-NNN: <title>` — three digits, heading depth three, at most three spaces of indent (four is a code block and is not read). A heading that names *no* number (`## ADR numbering conventions`) is prose and is not checked; one that names a number at any other depth (`#### ADR-034 rollout notes`) **is** a failure, because it is byte-adjacent to the placeholder shape below and the two cannot be told apart. | Fix the heading — a sub-heading inside an ADR body must not repeat the number. A number you intend to use goes in a blockquote above the next real ADR, never in a heading: a placeholder heading merges cleanly over the real ADR of that number and deletes it (ADR-039). |
 | `decisions/adr-numbers` | No ADR number is defined twice. Branches that each appended "the next number" merge without a conflict, so this is the only thing that sees the duplicate. | `findings` names every line. The number belongs to whichever ADR merged first: renumber the one this branch adds to the next free number, keep its body byte-identical, and update the citations that name the old number (ADR-039). |
 | `verify/required-contexts` | Each context in `docs/contracts/required-status-checks.yaml` names an existing workflow job whose `pull_request` trigger has no path filter. Required jobs have no job-level `if:`, except the exact draft and Renovate exemption on the author-claim job. | Remove the filter or unexpected condition; keep the documented list aligned with live branch protection. |
+| `contracts/events` | `bun scripts/contract-check.ts check` passes: `contracts/events/` is internally consistent and compatible with its baseline. Includes `stream-source-same-origin` -- two `sources` entries from one origin stream collide on the NATS exporter's `source_name` label and make `/metrics` return HTTP 500 (ADR-044). `bun` missing fails the check rather than skipping it. | Fix the rule each finding names (`task contracts:check` reproduces it); after a deliberate additive change, `task contracts:baseline`. |
 
 **When a duplicate ADR number reaches `main`.** The `decisions/*` checks read the
 repository, not the branch, so a duplicate that lands turns the required check red on
@@ -176,8 +177,35 @@ same report (`--no-diff`, `--max-diff-bytes 0` for full diffs); it only reads.
 | `task test:config` | Template ↔ schema ↔ `versions.yaml` contract tests (`internal/config/contract_test.go`). |
 | `task test:cmp-parity` | Runs the pinned `ghcr.io/ryanmcafee/homelab-cmp:<tag>` image with Docker and diffs its `config export` against source. Fails when the image tag lags the Go source. A tag bumped in the change under test is not a failure: `cmp-image.yml` pushes the image only on a merge to `main`, so when the pull reports the tag is unknown the script compares it with `--base-ref` (default `origin/main`) and passes if this change bumped it, failing if the tag is unchanged and the image is genuinely absent. The image is published for `linux/amd64` and `linux/arm64`, so it runs natively on an Apple Silicon workstation; `--platform` stays available for testing a tag published before multi-arch (anything at or below `0.1.12`), which is amd64 only. |
 | `task schemas:vendor` / `task schemas:check` | Regenerate or verify `tests/schemas/` from the chart versions in `configuration/versions.yaml`. |
+| `task docs:embedme` / `task docs:embedme:verify` | Regenerate or verify the snippets embedded in `Claude.md` (today only the `configuration/versions.yaml` block). Verify runs in the `policy` CI job, so a bump that moves `versions.yaml` without regenerating turns it red. |
 | `task gpu:toggle-test` | GPU vendor toggle harness (`scripts/toggle-test.ts`); uses the same Kubernetes version and vendored schemas. |
 | `task ci:test` | Everything above that needs no cluster: the local equivalent of the `verify.yml` jobs. |
+| `task pr:refresh` | Bring a stale PR branch up to date with its base without hand-merging the files every PR touches. See [Bringing a stale PR up to date](#bringing-a-stale-pr-up-to-date). |
+
+## Bringing a stale PR up to date
+
+Most PR conflicts here are not disagreements. On 2026-10-02, 29 of 86 open PRs conflicted
+with their base, and the files behind it were this runbook (7 PRs), `readme.md` and
+`.github/homelab.svg` (6 each), `docs/project_notes/bugs.md`, `issues.md` and the golden
+snapshots (4 each): concurrent PRs appending at the same spot, or both moving a count
+`docs:check` computes anyway. `task pr:refresh` merges the base into the checked-out PR
+branch and resolves exactly those:
+
+| Conflict | Resolution |
+|---|---|
+| `bugs.md`, `issues.md`, this runbook | `.gitattributes` `merge=union` keeps both sides' lines. The merge runs with the **base** branch's attributes (`git --attr-source`), so a branch cut before `.gitattributes` existed gets them too. The run lists every file union resolved: two edits to the same line come out as two lines, not a conflict, so read them. |
+| `tests/snapshots/`, `tests/schemas/`, `values-localdev.yaml` | Take the base side, then regenerate (renovate-regen's steps). |
+| `readme.md`, `.github/homelab.svg`, `docs/applications.md`, `docs/networking.md` | A hunk whose sides differ only in numbers `docs:check` owns (or that sits in a `docs-check` region) takes the base side and `docs:check --fix` rewrites it. The SVG suite counter is not fixable, so a file still drifting is retried with the PR side; when neither is true (both sides added a suite) the run stops for a hand fix. |
+| Anything else | Left conflicted. Resolve, `git add`, then `task pr:refresh -- --continue`. |
+
+It then runs level 0 and commits the merge only when it passes (`--no-verify` when the
+failure predates the merge). A stacked PR merges its own base:
+`task pr:refresh -- --base origin/<base-branch>`; `--dry-run` classifies the conflicts and
+writes nothing; `--push` pushes after the commit. It refuses `renovate/*` branches: a merge
+commit there stops Renovate rebasing the branch for good, so tick the PR's rebase checkbox.
+
+GitHub's merge button and "Update branch" ignore `.gitattributes` merge drivers, so a PR
+can still show "conflicts" on github.com that `task pr:refresh` resolves locally.
 
 ## Tooling
 
@@ -279,9 +307,32 @@ homelab,localdev`: kubeconform validates every custom resource this repository r
 against the new CRD schemas. The result and the list of files the bump needs regenerated
 are appended to the report. Nothing is committed.
 
+**Undeclared helm values.** `task upstream:values` fails when an Application sets a
+`spec.source.helm` key path that its pinned chart does not declare. Almost no chart ships
+a `values.schema.json`, so helm accepts an unknown key in silence: the render succeeds,
+kubeconform passes, the snapshot records the dead key as expected output and ArgoCD
+reports Synced. A version bump that renames a key is exactly this shape, which is why the
+check runs here and not in `pr-contract.yml` (which skips `renovate/*` heads); it pulls
+every pinned chart, so it cannot be level 0, which is network-free by contract.
+`task renovate:regen` runs it too, after regenerating the snapshots.
+
+The check pulls each chart with `helm pull --untar` and collects the key paths the chart
+*and its vendored dependencies* declare. Three rules keep it usable without blunting it:
+a dependency's values count at the root when it is a `type: library` chart (that is where
+TrueCharts' `common` declares `TZ`, `workload` and `persistence`) and under its alias or
+name otherwise (kube-prometheus-stack's `grafana`); a values.yaml whose only top-level key
+is underscore-prefixed is unwrapped (istio's `_internal_defaults_do_not_set`); and an
+upstream default of `{}` or null declares everything below it, so `resources: {}` accepts
+`resources.limits.cpu`. What those cannot settle goes in
+`tests/gitops/upstream-values-allowlist.yaml`, keyed by chart and path prefix, with a
+reason — and an entry that stops matching anything fails the gate, so a key upstream has
+since declared cannot sit there forever. An allowlist entry is never the place for a key
+the chart does not read: that is the defect the gate exists to find.
+
 **Automerge gate.** On `renovate/*` branches the job sets the commit status
 `upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
-only when every `upgrade/*` check is `unchanged` and revalidation passed, otherwise
+only when every `upgrade/*` check is `unchanged`, revalidation passed and no Application
+sets a helm value its chart does not declare, otherwise
 `failure` ("rendered manifests changed — human review required, automerge blocked").
 `renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
 (`kindest/node`, majors, infrastructure tools and ksops stay manual) and patch bumps
@@ -292,10 +343,12 @@ a bump whose upstream render changes anything (an image tag, a CRD) waits for a 
 reads the `upgrade-diff` comment.
 
 **Regeneration bot (optional).** A chart bump also needs the committed localdev values,
-`tests/schemas` and `tests/snapshots` regenerated; until then the `level-0`, `schemas` and
-`snapshot` jobs in `verify.yml` stay red. The `regenerate` job in `upgrade.yml` does that
+`tests/schemas`, `tests/snapshots` and the `configuration/versions.yaml` block embedded in
+`Claude.md` regenerated; until then the `level-0`, `schemas`, `snapshot` and `policy` jobs
+in `verify.yml` stay red. `task docs:embedme` is the fix for the `policy` one, which fails
+as `docs:embedme:verify`. The `regenerate` job in `upgrade.yml` does all of it
 on `renovate/*` branches and pushes one commit, `chore(deps): regenerate snapshots,
-schemas and localdev values`, authored by `homelab-regen-bot
+schemas, localdev values and embedded snippets`, authored by `homelab-regen-bot
 <homelab-regen-bot@users.noreply.github.com>`, with a GitHub App token. This supersedes
 the "no auto-commit" stance of the `snapshot` job for this bot only, and it answers that
 stance's three reasons: an App-token push triggers the other workflows (a `GITHUB_TOKEN`
@@ -319,8 +372,9 @@ three carrying a regeneration commit pushed under a personal address had been st
 to two days, 19, 19 and 10 commits behind.
 
 `task renovate:regen` runs `config:export:localdev`, `schemas:vendor`, `test:snapshot --
---update` and `docs:check -- --fix` (a chart bump also moves the readme version badges and
-the addons table), then commits the result with both the author and the committer set to
+--update`, `docs:check -- --fix` (a chart bump also moves the readme version badges and
+the addons table) and `docs:embedme` (it moves the `versions.yaml` block embedded in
+`Claude.md`), then commits the result with both the author and the committer set to
 `REGEN_BOT_NAME <REGEN_BOT_EMAIL>` from `upgrade.yml` — the same identity CI would have used —
 and verifies both on the commit it just made. It refuses to run when:
 
@@ -398,7 +452,7 @@ On an ordinary machine, then, set both and read them back — never one without 
 git -c user.name=homelab-regen-bot \
     -c user.email=homelab-regen-bot@users.noreply.github.com \
     commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>" \
-    -m 'chore(deps): regenerate snapshots, schemas and localdev values'
+    -m 'chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets'
 git log -1 --format='%ae %ce'   # both must be homelab-regen-bot@users.noreply.github.com
 ```
 
@@ -421,7 +475,7 @@ only path that takes both as explicit fields:
 
 ```sh
 gh api -X PUT "repos/$OWNER/$REPO/contents/$PATH" -f branch="$BRANCH" \
-  -f message='chore(deps): regenerate snapshots, schemas and localdev values' \
+  -f message='chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets' \
   -f content="$(base64 -w0 "$PATH")" -f sha="$BLOB_SHA" \
   -f 'author[name]=homelab-regen-bot' \
   -f 'author[email]=homelab-regen-bot@users.noreply.github.com' \
@@ -559,6 +613,12 @@ characters long becomes a literal pattern); without it the guard still applies s
 
 Keys that legitimately carry public hosts (`repoUrl`, `server`, `providerURL`, `url`) are
 not checked. Example/template files are held to a closed placeholder allowlist
-(`192.168.1.0/24`, `REPLACEME` / `REPLACEME-*` labels, `example.com`, loopback, `.local`):
-any other value on a PII-shaped key fails. A new placeholder convention must be added to
-the allowlist in `internal/config/guard.go`. Widen or narrow the scope with `--paths`.
+(RFC 5737 `198.51.100.0/24` and `192.0.2.0/24`, `REPLACEME` / `REPLACEME-*` labels,
+`example.com`, loopback, `.local`): any other value on a PII-shaped key fails. A new placeholder
+convention must be added to the allowlist in `internal/config/guard.go`. Widen or narrow the
+scope with `--paths`.
+
+The allowlist is deliberately all documentation-reserved space. The `192.168.1.x` range was listed until
+MCAA-79 and is now excluded on purpose: it is the most common home LAN subnet, so for a forker
+running on it the guard could not tell their real `GATEWAY_IP` from the template's placeholder.
+Re-adding it would restore that collision for exactly the users the check protects.

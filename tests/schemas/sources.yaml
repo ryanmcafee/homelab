@@ -89,6 +89,13 @@ sources:
         - config/crd/standard
     kinds: [Gateway, GatewayClass, HTTPRoute, ReferenceGrant]
 
+  - name: nack
+    versionKey: nack
+    chart:
+      repo: https://nats-io.github.io/k8s/helm/charts/
+      name: nack
+    kinds: [Stream, Consumer]
+
   - name: onepassword-connect
     versionKey: onepassword-connect
     chart:
