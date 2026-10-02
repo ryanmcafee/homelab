@@ -45,17 +45,27 @@ providers:
   # external-dns-cloudflare-crd is the DNSEndpoint consumer (sources: [crd]),
   # so it is named here; it and external-dns-cloudflare share wave 4.
   externaldns.k8s.io: external-dns-cloudflare-crd
+  # NACK (wave 11) ships the Stream/Consumer CRDs in its chart's crds/ directory;
+  # nats-config (wave 12) renders the stream set strictly after it.
+  jetstream.nats.io: nack
   deviceplugin.intel.com: intel-device-plugins-operator
   nvidia.com: nvidia-gpu-operator
   snapshot.storage.k8s.io: democratic-csi
 
-  # argoproj.io carries both the app-of-apps control plane and Argo Workflows
-  # custom resources. Application/AppProject/ApplicationSet CRDs come from the
-  # ArgoCD install that is already running when these manifests are applied,
-  # so they are exempt; Workflow-family resources are provided by the
-  # argo-workflows Application and are ordered normally.
+  # argoproj.io carries the app-of-apps control plane, Argo Workflows and Argo
+  # Rollouts custom resources. Application/AppProject/ApplicationSet CRDs come
+  # from the ArgoCD install that is already running when these manifests are
+  # applied, so they are exempt; Workflow-family resources are provided by the
+  # argo-workflows Application and the progressive-delivery kinds by
+  # argo-rollouts (wave 2), both ordered normally.
   argoproj.io:
     app: argo-workflows
+    kinds:
+      Rollout: argo-rollouts
+      AnalysisTemplate: argo-rollouts
+      ClusterAnalysisTemplate: argo-rollouts
+      AnalysisRun: argo-rollouts
+      Experiment: argo-rollouts
     skipKinds:
       - Application
       - AppProject

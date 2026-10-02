@@ -71,11 +71,6 @@ spec:
           {{- toYaml .Values.mosquitto.service | nindent 10 }}
         {{- end }}
 
-        {{- if .Values.mosquitto.mosquitto }}
-        mosquitto:
-          {{- toYaml .Values.mosquitto.mosquitto | nindent 10 }}
-        {{- end }}
-
         {{- if .Values.mosquitto.TZ }}
         TZ: {{ .Values.mosquitto.TZ | quote }}
         {{- end }}

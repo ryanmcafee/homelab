@@ -1045,6 +1045,11 @@ data:
      * `running` without a live run ("phantom"), and the latest week of
      * recovery-observability. paperclip_up is 0 when any request fails.
      *
+     * Live runs come from /live-runs together with the queued, running and
+     * scheduled_retry runs among the newest RUN_LIMIT heartbeat runs: /live-runs
+     * returns at most 50 entries, so on its own it would undercount live runs and
+     * report agents whose run is past the cap as phantom.
+     *
      * Runs from a ConfigMap in the stock oven/bun image (charts/paperclip
      * templates/exporter.yaml), so it has no dependencies beyond Bun itself.
      *
@@ -1072,6 +1077,7 @@ data:
       status: string;
     }
     export interface Run {
+      agentId: string | null;
       status: string;
       finishedAt: string | null;
       errorCode: string | null;
@@ -1158,6 +1164,7 @@ data:
     
     export function parseRuns(json: unknown): Run[] {
       return records(json, "heartbeat-runs").map((r) => ({
+        agentId: str(r["agentId"]),
         status: requireString(r, "status", "heartbeat-runs"),
         finishedAt: str(r["finishedAt"]),
         errorCode: str(r["errorCode"]),
@@ -1222,13 +1229,19 @@ data:
           finishedByStatus[run.status] = (finishedByStatus[run.status] ?? 0) + 1;
         }
       }
+      // /live-runs caps its response (flat at 50), so a running agent whose run
+      // is past the cap would look phantom. The newest heartbeat runs fill the gap.
       const live = data.liveRuns.filter((r) => LIVE_STATUSES.has(r.status));
+      const liveHeartbeat = data.runs.filter((r) => LIVE_STATUSES.has(r.status));
       const agentsWithLiveRun = new Set(live.map((r) => r.agentId));
+      for (const run of liveHeartbeat) {
+        if (run.agentId !== null) agentsWithLiveRun.add(run.agentId);
+      }
       return {
         finishedByStatus,
         errorsByCode: countBy(finished, (r) => r.errorCode),
         agentsByStatus: countBy(data.agents, (a) => a.status),
-        liveRuns: live.length,
+        liveRuns: Math.max(live.length, liveHeartbeat.length),
         phantomRunning: data.agents.filter(
           (a) => a.status === "running" && !agentsWithLiveRun.has(a.id),
         ).length,
@@ -1529,89 +1542,24 @@ spec:
 
 ---
 # Source: paperclip/templates/exporter.yaml
-apiVersion: apps/v1
-kind: Deployment
+# Canary Service: the Rollout controller pins its selector to the canary
+# pod-template-hash. Its app.kubernetes.io/name value is deliberately not the
+# one the ServiceMonitor below selects, which would otherwise scrape the canary
+# pods as a second source of the same series.
+apiVersion: v1
+kind: Service
 metadata:
-  name: paperclip-exporter
+  name: paperclip-exporter-canary
   namespace: paperclip
   labels:
-    app.kubernetes.io/name: paperclip-exporter
+    app.kubernetes.io/name: paperclip-exporter-canary
 spec:
-  replicas: 1
   selector:
-    matchLabels:
-      app.kubernetes.io/name: paperclip-exporter
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: paperclip-exporter
-      annotations:
-        checksum/script: 4d7f6809fd40324135eb36b31b6e0902a2e29f734c03a51558e4f84759de2e32
-    spec:
-      automountServiceAccountToken: false
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: exporter
-          image: oven/bun:1.4.2-alpine
-          command: ["bun", "/app/paperclip-exporter.ts"]
-          env:
-            - name: PAPERCLIP_API_URL
-              value: "http://paperclip.paperclip.svc.cluster.local:3100/api"
-            - name: PAPERCLIP_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: paperclip-exporter
-                  key: PAPERCLIP_API_KEY
-                  optional: true
-            - name: RUN_WINDOW_SECONDS
-              value: "3600"
-            - name: PORT
-              value: "9464"
-            - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
-              value: "0"
-          ports:
-            - name: metrics
-              containerPort: 9464
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: metrics
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: metrics
-            periodSeconds: 30
-          resources:
-            limits:
-              cpu: 200m
-              memory: 192Mi
-            requests:
-              cpu: 10m
-              memory: 64Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          volumeMounts:
-            - name: script
-              mountPath: /app
-              readOnly: true
-            - name: tmp
-              mountPath: /tmp
-      volumes:
-        - name: script
-          configMap:
-            name: paperclip-exporter
-        - name: tmp
-          emptyDir:
-            sizeLimit: 16Mi
+    app.kubernetes.io/name: paperclip-exporter
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
 
 ---
 # Source: paperclip/templates/agent-policy.yaml
@@ -1730,12 +1678,6 @@ spec:
       name: paperclip-auth
       key: BETTER_AUTH_SECRET
     disableSignUp: false
-    adminUser:
-      email: admin@REPLACEME-domain.com
-      name: "Admin"
-      passwordSecretRef:
-        name: paperclip-auth
-        key: ADMIN_PASSWORD
   availability:
     nodeSelector:
       paperclip.homelab/pin: "true"
@@ -1772,12 +1714,121 @@ spec:
       cpu: "2"
       memory: 16Gi
     requests:
-      cpu: 500m
+      cpu: "1"
       memory: 16Gi
   probes:
     startup:
       failureThreshold: 120
       periodSeconds: 5
+
+---
+# Source: paperclip/templates/exporter.yaml
+# Progressive delivery: a new exporter image reaches half the traffic, the
+# canary-http-health ClusterAnalysisTemplate probes paperclip-exporter-canary, and a
+# failed probe aborts back to the stable ReplicaSet without an operator.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: paperclip-exporter
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/name: paperclip-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: paperclip-exporter
+  strategy:
+    canary:
+      canaryService: paperclip-exporter-canary
+      stableService: paperclip-exporter
+      steps:
+        - setWeight: 50
+        - analysis:
+            templates:
+              - templateName: canary-http-health
+                clusterScope: true
+            args:
+              - name: service
+                value: paperclip-exporter-canary
+              - name: namespace
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
+              - name: port
+                value: "9464"
+        - setWeight: 100
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: paperclip-exporter
+      annotations:
+        checksum/script: 1dd5bb916ff5114e68cb4da8becefe24bedff084e6605e83de09a72aecc4be03
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: exporter
+          image: oven/bun:1.4.2-alpine
+          command: ["bun", "/app/paperclip-exporter.ts"]
+          env:
+            - name: PAPERCLIP_API_URL
+              value: "http://paperclip.paperclip.svc.cluster.local:3100/api"
+            - name: PAPERCLIP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paperclip-exporter
+                  key: PAPERCLIP_API_KEY
+                  optional: true
+            - name: RUN_WINDOW_SECONDS
+              value: "3600"
+            - name: PORT
+              value: "9464"
+            - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+              value: "0"
+          ports:
+            - name: metrics
+              containerPort: 9464
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 30
+          resources:
+            limits:
+              cpu: 200m
+              memory: 192Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: script
+          configMap:
+            name: paperclip-exporter
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
 
 ---
 # Source: paperclip/templates/exporter.yaml

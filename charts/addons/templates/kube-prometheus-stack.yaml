@@ -992,18 +992,38 @@ spec:
           # The SLI is the head of the stream, not its depth: a queue full of
           # work nobody takes and a busy queue have the same depth, and
           # prometheus-nats-exporter exports no message age at all - pinned
-          # against 0.18.0 (the nats chart pin) and against its main branch,
-          # neither of which has a state.first_ts metric. Every window is
+          # against 0.20.1 (the nats chart pin), 0.18.0 and its main branch,
+          # none of which has a state.first_ts metric. Every window is
           # therefore derived from nats_stream_first_seq, which only moves when
           # a message leaves the head. No series exists until the NATS
           # Application ships an exporter with -jsz=all, and the rules are
           # silent (not firing, not absent) until then.
+          #
+          # Every rule below reads a recorded series, not the exporter metric:
+          # the exporter reports one series per server and only the stream
+          # leader's is authoritative, so is_stream_leader="true" dedupes a
+          # cluster. A standalone server reports itself leader too - nats-server
+          # synthesizes a cluster block naming itself, and the exporter defaults
+          # the label to "true" when that block is absent - so the filter picks
+          # the only server rather than nothing, but only by upstream behaviour
+          # in two projects. subjects.v1.yaml sets replicas_defaults.homelab: 1
+          # deliberately, making single-node the Kind path and every fork
+          # (MCAA-285), so the records prefer the leader and fall back to the
+          # only server: one expression correct on both topologies and immune to
+          # that labelling changing, aggregated once per interval rather than
+          # once per alert term as a 12h subquery would be.
           homelab-nats-jetstream:
             groups:
               - name: homelab-nats-jetstream
                 rules:
+                  - record: homelab:nats_stream_first_seq:authoritative
+                    expr: 'max by (account, stream_name, namespace, job) (nats_stream_first_seq{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_first_seq)'
+                  - record: homelab:nats_stream_total_messages:authoritative
+                    expr: 'max by (account, stream_name, namespace, job) (nats_stream_total_messages{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_total_messages)'
+                  - record: homelab:nats_consumer_ack_floor_stream_seq:authoritative
+                    expr: 'max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq{is_consumer_leader="true"}) or max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq)'
                   - alert: PFWorkOldestUnackedAging
-                    expr: 'changes(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[12h]) == 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[5m]) > 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[12h]) > 0 and count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[12h]) >= 11 * count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[1h])'
+                    expr: 'changes(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) == 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[5m]) > 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[12h]) > 0 and count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) >= 11 * count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[1h])'
                     for: 15m
                     labels:
                       severity: warning
@@ -1011,28 +1031,115 @@ spec:
                       summary: 'The oldest unacked PF_WORK message has been queued for more than 12h'
                       description: 'nats_stream_first_seq has not moved for 12h while the stream was never empty, so the head message is at least 12h old and PF_WORK max_age is 24h. Age expiry deletes it with no advisory and no per-message signal. docs/runbooks/pf-work-age-expiry.md.'
                   - alert: PFWorkOldestUnackedAging
-                    expr: 'changes(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[18h]) == 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[5m]) > 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[18h]) > 0 and count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[18h]) >= 16 * count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[1h])'
+                    expr: 'changes(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[18h]) == 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[5m]) > 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[18h]) > 0 and count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[18h]) >= 16 * count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[1h])'
                     for: 15m
                     labels:
                       severity: critical
                     annotations:
                       summary: 'PF_WORK work is 18h old and max_age deletes it silently in under 6h'
                       description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Get a consumer taking work, or copy the queue out now. docs/runbooks/pf-work-age-expiry.md.'
+                  # Grouped by (account, stream_name, namespace, job): PF_WORK
+                  # exists once per NATS account (ADR-043) and per install, and
+                  # dropping either label nets one stream's head against another's.
                   - alert: PFWorkMessagesExpiredUnacked
-                    expr: '(max by (stream_name) (max_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m])) - max by (stream_name) (min_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m]))) - (sum by (stream_name) (max_over_time(nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",is_consumer_leader="true"}[15m]) - min_over_time(nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",is_consumer_leader="true"}[15m])) or (max by (stream_name) (max_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m])) * 0)) > 0'
+                    expr: '(max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) - max by (account, stream_name, namespace, job) (min_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (account, stream_name, namespace, job) (max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m])) or (max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
                     labels:
                       severity: critical
                     annotations:
                       summary: '{{`{{ $value }}`}} PF_WORK messages left the stream without being acked'
                       description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+                  # `unless`, not absent(): absent() emits no namespace or job,
+                  # so it cannot be joined on them and it reads the whole
+                  # selector - one install still reporting hid a blind one.
                   - alert: PFWorkStreamMetricsAbsent
-                    expr: 'absent(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}) and on (stream_name) max by (stream_name) (count_over_time(nats_stream_first_seq{stream_name="PF_WORK"}[6h])) > 0'
+                    expr: 'max by (account, stream_name, namespace, job) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0 unless on (account, stream_name, namespace, job) homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}'
                     for: 30m
                     labels:
                       severity: warning
                     annotations:
                       summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
                       description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+                  # Storage budget (docs/runbooks/jetstream-storage-budget.md).
+                  # ADR-042 bounds every stream with max_bytes and states the sum
+                  # rule: the four limits must total below the file store. That
+                  # sum is arithmetic an operator does at sizing time - the store
+                  # size is a cluster fact, not a contract value - so the runtime
+                  # half of the rule is these alerts. max_bytes bounds a stream
+                  # against itself and reserves nothing, so four correctly
+                  # bounded streams can still exhaust the shared store and the
+                  # peer then refuses writes for all of them (10047).
+                  # Denominator: the nats chart writes max_file_store from
+                  # jetstream.fileStore.pvc.size, so nats_server_max_storage is
+                  # the PVC capacity and is the same number nats-server compares
+                  # against before refusing. Numerator: the sum of
+                  # nats_account_storage_used is what that comparison reads,
+                  # including the index and metadata bytes the stream totals omit.
+                  # ADR-042 named nats_server_jetstream_storage_used_bytes, which
+                  # the exporter does not export; these names are pinned against
+                  # 0.18.0 and the deployed 0.20.1 (collector/jsz.go).
+                  - alert: JetStreamFileStoreFillingUp
+                    expr: 'sum by (namespace, server_name) (nats_account_storage_used) / on (namespace, server_name) max by (namespace, server_name) (nats_server_max_storage > 0) > 0.75'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The JetStream file store on {{`{{ $labels.server_name }}`}} is {{`{{ $value | humanizePercentage }}`}} full'
+                      description: 'Above 75 % of max_file_store, which ADR-042 budgets as the sum of the streams max_bytes. Either one stream is overrunning its share or the four limits sum too high for this PVC. The per-stream alert says which; raising one max_bytes alone breaks the sum rule. docs/runbooks/jetstream-storage-budget.md.'
+                  - alert: JetStreamFileStoreFillingUp
+                    expr: 'sum by (namespace, server_name) (nats_account_storage_used) / on (namespace, server_name) max by (namespace, server_name) (nats_server_max_storage > 0) > 0.90'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'The JetStream file store on {{`{{ $labels.server_name }}`}} is {{`{{ $value | humanizePercentage }}`}} full'
+                      description: 'At the store limit nats-server refuses writes for every stream on this peer with insufficient resources (10047), not just the stream that grew - one retention budget becomes a bus-wide outage. Act before 100 %. docs/runbooks/jetstream-storage-budget.md.'
+                  # Without -jsz=all the exporter serves /jsz with no accounts, so
+                  # nats_account_storage_used disappears while nats_server_max_storage
+                  # keeps arriving: watch the numerator, which also goes with the
+                  # whole exporter. Per-target failure is TargetDown's job.
+                  - alert: JetStreamFileStoreMetricsAbsent
+                    expr: 'absent(nats_account_storage_used) and max (count_over_time(nats_account_storage_used[6h])) > 0'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'JetStream storage metrics stopped arriving, so the file-store budget is unwatched'
+                      description: 'prometheus-nats-exporter reported account storage within the last 6h and no longer does. While this is firing nothing sees the store approach its limit, and the first symptom is 10047 on every publish. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/jetstream-storage-budget.md.'
+                  # A stream can hit its own ceiling while the store is half
+                  # empty, so this is a separate boundary from the two above. The
+                  # limit comes from nats_stream_limit_bytes - what the server
+                  # actually enforces - rather than from a copy of the chart
+                  # value, and -1 there means unbounded, which the > 0 drops.
+                  - alert: JetStreamStreamApproachingMaxBytes
+                    expr: 'nats_stream_total_bytes{is_stream_leader="true"} / (nats_stream_limit_bytes{is_stream_leader="true"} > 0) > 0.75'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $labels.stream_name }}`}} is {{`{{ $value | humanizePercentage }}`}} of its max_bytes'
+                      description: 'The stream is approaching its own limit, which the file-store alert cannot see. At the ceiling its discard policy takes effect: discard new refuses publishes, discard old deletes the oldest messages. docs/runbooks/jetstream-storage-budget.md.'
+                  - alert: JetStreamStreamApproachingMaxBytes
+                    expr: 'nats_stream_total_bytes{is_stream_leader="true"} / (nats_stream_limit_bytes{is_stream_leader="true"} > 0) > 0.90'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: '{{`{{ $labels.stream_name }}`}} is {{`{{ $value | humanizePercentage }}`}} of its max_bytes'
+                      description: 'The discard policy is about to act on this stream. Check the retention the contract declares for it before changing anything; the sum rule means a bigger max_bytes here needs a smaller one elsewhere or a bigger store. docs/runbooks/jetstream-storage-budget.md.'
+                  # PF_AUDIT is discard: new and ingests only by sourcing PF_EVENTS
+                  # (ADR-042, ADR-044). No metric counts a refused write, so the
+                  # signal is derived: at the ceiling, last_seq frozen, and source
+                  # lag held above zero, meaning audit events are waiting that
+                  # PF_AUDIT keeps refusing. Without the lag term an idle full
+                  # stream pages.
+                  - alert: PFAuditRefusingWrites
+                    expr: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} / (nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} > 0) >= 0.99 and changes(nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) == 0 and on (namespace, server_name, account, stream_name) min_over_time(nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) > 0'
+                    for: 10m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'PF_AUDIT is at its max_bytes ceiling and is refusing audit events sourced from PF_EVENTS'
+                      description: 'PF_AUDIT is discard: new, so at the ceiling it refuses its own writes rather than stopping the bus (ADR-042). Refused events wait in PF_EVENTS and are lost from the audit trail once PF_EVENTS ages them out. docs/runbooks/jetstream-storage-budget.md.'
           {{- if (index .Values "github-pr-exporter" "enabled") }}
           # Pull requests that need review (docs/runbooks/alerting.md). Metrics:
           # the github-pr-exporter Application, one series per PR and query.

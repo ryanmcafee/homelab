@@ -447,6 +447,16 @@ func TestIsRealHostname(t *testing.T) {
 
 		// Allowlisted committed value.
 		{name: "localdev duckdns target", value: "homelab-dev.duckdns.org", want: false},
+		// Public registries the localdev pull-through caches must spell out.
+		{name: "aws public registry", value: "ecr-public.aws.com", want: false},
+		{name: "aws public registry image ref", value: "ecr-public.aws.com/docker/library/redis", want: false},
+		// An allowlist entry covers the host and its subdomains, so a regional
+		// registry endpoint is excused too.
+		{name: "subdomain of the allowed registry", value: "us-east-1.ecr-public.aws.com", want: false},
+		// But only as a true suffix: a domain that merely embeds the allowed
+		// host is still caught, which is the look-alike that matters.
+		{name: "look-alike aws registry", value: "ecr-public.aws.com.evil.net", want: true},
+		{name: "allowed host as a bare prefix", value: "ecr-public.aws.community.net", want: true},
 
 		// Not hostnames at all.
 		{name: "empty", value: "", want: false},
@@ -534,7 +544,7 @@ func TestScanFileForPIIShapeHostnames(t *testing.T) {
 		{
 			name:     "the environment template's documented placeholders pass",
 			filename: "homelab.yaml.example",
-			content:  "DOMAIN: REPLACEME-domain.com\nGATEWAY_IP: \"192.168.1.1\"\nTRUENAS_IP: \"192.168.1.100\"\nCP_VIP: \"192.168.1.10\"\nNFS_MAPALL_USER: REPLACEME-username\nACME_EMAIL: admin@REPLACEME-domain.com\nEXTERNAL_DNS_DEFAULT_TARGET: REPLACEME-subdomain.duckdns.org\n",
+			content:  "DOMAIN: REPLACEME-domain.com\nGATEWAY_IP: \"198.51.100.1\"\nTRUENAS_IP: \"198.51.100.100\"\nCP_VIP: \"198.51.100.10\"\nNFS_MAPALL_USER: REPLACEME-username\nACME_EMAIL: admin@REPLACEME-domain.com\nEXTERNAL_DNS_DEFAULT_TARGET: REPLACEME-subdomain.duckdns.org\n",
 			want:     nil,
 		},
 		{
@@ -701,6 +711,12 @@ func TestHasScannableExtension(t *testing.T) {
 		{path: ".github/workflows/verify.yml", want: true},
 		{path: ".github/CODEOWNERS", want: false},
 		{path: "binary.example", want: false},
+		// Runtime templates rendered by Terraform templatefile() are real
+		// bootstrap inputs, so .tpl is looked through and .tftpl is read.
+		{path: "terragrunt/modules/gitops-bootstrap/templates/argocd-values.yaml.tpl", want: true},
+		{path: "talos/machine-config/controlplane.yaml.tpl", want: true},
+		{path: "terragrunt/modules/unifi-gateway/templates/frr-bgp.conf.tftpl", want: true},
+		{path: "binary.tpl", want: false},
 	}
 
 	for _, tc := range tests {
@@ -719,11 +735,13 @@ func TestIsExamplePlaceholder(t *testing.T) {
 		want  bool
 	}{
 		// Allowed: the documentation subnet used throughout the template.
-		{name: "documentation subnet gateway", value: "192.168.1.1", want: true},
-		{name: "documentation subnet host", value: "192.168.1.100", want: true},
-		{name: "documentation subnet edge", value: "192.168.1.255", want: true},
-		{name: "documentation subnet with a port", value: "192.168.1.100:3260", want: true},
-		{name: "documentation CIDR", value: "192.168.1.0/24", want: true},
+		{name: "documentation subnet gateway", value: "198.51.100.1", want: true},
+		{name: "documentation subnet host", value: "198.51.100.100", want: true},
+		{name: "documentation subnet edge", value: "198.51.100.255", want: true},
+		{name: "documentation subnet with a port", value: "198.51.100.100:3260", want: true},
+		{name: "documentation CIDR", value: "198.51.100.0/24", want: true},
+		// Allowed: TEST-NET-1, single-node.yaml.example's own range.
+		{name: "single-node documentation subnet", value: "192.0.2.1", want: true},
 		{name: "loopback", value: "127.0.0.1", want: true},
 		{name: "loopback CIDR", value: "127.0.0.0/8", want: true},
 		// Allowed: documented placeholder hostnames and mailboxes on them.
@@ -740,12 +758,21 @@ func TestIsExamplePlaceholder(t *testing.T) {
 		{name: "reserved local suffix", value: "truenas.local", want: true},
 		{name: "empty", value: "", want: true},
 		{name: "empty quoted", value: `""`, want: true},
-		{name: "named documentation CIDRs", value: "homelab=192.168.1.0/25,lan=192.168.1.128/25", want: true},
+		{name: "named documentation CIDRs", value: "homelab=198.51.100.0/25,lan=198.51.100.128/25", want: true},
+
+		// Rejected: 192.168.1.0/24 is the most common home LAN subnet, so a
+		// forker's real address is indistinguishable from a placeholder in it.
+		// It was allowed until the template moved to RFC 5737; keeping these
+		// cases is what stops it being re-listed.
+		{name: "common home LAN gateway is not a placeholder", value: "192.168.1.1", want: false},
+		{name: "common home LAN host is not a placeholder", value: "192.168.1.100", want: false},
+		{name: "common home LAN CIDR is not a placeholder", value: "192.168.1.0/24", want: false},
+		{name: "common home LAN named CIDRs are not placeholders", value: "homelab=192.168.1.0/25,lan=192.168.1.128/25", want: false},
 
 		// Rejected: anything a real environment would contain.
 		{name: "real private address", value: "172.16.100.10", want: false},
 		{name: "real private address in another range", value: "10.0.0.5", want: false},
-		{name: "adjacent documentation subnet is not allowed", value: "192.168.2.10", want: false},
+		{name: "adjacent documentation subnet is not allowed", value: "198.51.101.10", want: false},
 		{name: "real public address", value: "203.0.113.10", want: false},
 		{name: "real domain", value: "ryanmcafee.com", want: false},
 		{name: "real subdomain", value: "plex.ryanmcafee.com", want: false},
@@ -753,8 +780,8 @@ func TestIsExamplePlaceholder(t *testing.T) {
 		{name: "real username", value: "rmcafee", want: false},
 		{name: "real duckdns target", value: "homelab-dev.duckdns.org", want: false},
 		{name: "real CIDR", value: "172.16.100.0/24", want: false},
-		{name: "named real CIDR", value: "homelab=192.168.1.0/24,lan=172.16.10.0/24", want: false},
-		{name: "named list with a non-CIDR item", value: "homelab=192.168.1.0/24,lan", want: false},
+		{name: "named real CIDR", value: "homelab=198.51.100.0/24,lan=172.16.10.0/24", want: false},
+		{name: "named list with a non-CIDR item", value: "homelab=198.51.100.0/24,lan", want: false},
 	}
 
 	for _, tc := range tests {
@@ -781,7 +808,7 @@ func TestScanTemplateFileRequiresPlaceholders(t *testing.T) {
 		},
 		{
 			name:     "a real domain pasted into the template",
-			content:  "DOMAIN: ryanmcafee.com\nGATEWAY_IP: \"192.168.1.1\"\n",
+			content:  "DOMAIN: ryanmcafee.com\nGATEWAY_IP: \"198.51.100.1\"\n",
 			wantKeys: []string{"DOMAIN"},
 			wantVals: []string{"ryanmcafee.com"},
 		},
@@ -1636,7 +1663,7 @@ func TestScanTemplateFileHelmKeysRequirePlaceholders(t *testing.T) {
 	}{
 		{
 			name:    "documented placeholders on Helm keys pass",
-			content: "global:\n  domain: example.com\ndashboard:\n  host: gateway.REPLACEME-domain.com\n  staticIP: \"192.168.1.200\"\nletsencrypt:\n  email: admin@example.com\nvolumes:\n  - csi:\n      volumeAttributes:\n        portal: \"192.168.1.100:3260\"\ndnsZones:\n  - example.com\n  - homelab.local\n",
+			content: "global:\n  domain: example.com\ndashboard:\n  host: gateway.REPLACEME-domain.com\n  staticIP: \"198.51.100.200\"\nletsencrypt:\n  email: admin@example.com\nvolumes:\n  - csi:\n      volumeAttributes:\n        portal: \"198.51.100.100:3260\"\ndnsZones:\n  - example.com\n  - homelab.local\n",
 		},
 		{
 			name:     "a real hostname pasted into a template",
@@ -1755,6 +1782,9 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 		".github/**",
 		"Taskfile.yml",
 		"ansible/**",
+		"terragrunt/**",
+		"talos/**",
+		"packer/**",
 	}
 	if strings.Join(DefaultGuardPathspecs, " ") != strings.Join(want, " ") {
 		t.Fatalf("DefaultGuardPathspecs = %v, want %v", DefaultGuardPathspecs, want)
@@ -2078,5 +2108,124 @@ func TestShapeRulesNeedALiteralInCodeFiles(t *testing.T) {
 				t.Fatalf("matches = %d, want %d (%v)", len(res.Matches), tc.want, res.Matches)
 			}
 		})
+	}
+}
+
+// trackedUnderPathspecs is a lister that honours the pathspecs it is handed,
+// so a test that removes a pathspec really does lose the files under it. The
+// stub in withTrackedFiles deliberately ignores them, which is right for tests
+// about ordering and exclusion but useless for a test about scope.
+func trackedUnderPathspecs(t *testing.T, files []string) {
+	t.Helper()
+	prev := TrackedFiles
+	TrackedFiles = func(_ string, pathspecs []string) ([]string, error) {
+		var out []string
+		for _, f := range files {
+			for _, spec := range pathspecs {
+				prefix := strings.TrimSuffix(spec, "**")
+				if f == spec || (prefix != spec && strings.HasPrefix(f, prefix)) {
+					out = append(out, f)
+					break
+				}
+			}
+		}
+		return out, nil
+	}
+	t.Cleanup(func() { TrackedFiles = prev })
+}
+
+// TestGuardReadsTheBootstrapTrees is the negative fixture for the scan-scope
+// widening. It reproduces the defect class #393 had to remove by hand - an
+// operator-specific value written into a .hcl under terragrunt/, which the
+// guard could not report because that tree was outside the scan on both axes
+// at once - and requires the default scope to catch it with no --paths
+// argument.
+//
+// It is built to fail if either axis is reverted, which is the whole point of
+// the fixture: a pathspec without .hcl in guardScanExtensions admits a file
+// the guard then refuses to read, and .hcl without the pathspec has nothing to
+// read. Both reversions were exercised before this was committed.
+//
+// The planted value is 198.51.100.24, TEST-NET-2 from RFC 5737. The guard is
+// bound by the fork-ability contract it enforces, so its own fixtures may not
+// carry a real address or domain; a reserved-suffix domain is not usable here
+// because buildGuardPatterns drops it as non-identifying, which is what makes
+// the documentation address the only honest choice for a value-mode fixture.
+func TestGuardReadsTheBootstrapTrees(t *testing.T) {
+	const planted = "198.51.100.24"
+
+	repo := t.TempDir()
+	writeFixture := func(rel, body string) string {
+		t.Helper()
+		full := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return rel
+	}
+
+	env := filepath.Join(repo, "environment.yaml")
+	if err := os.WriteFile(env, []byte("TRUENAS_IP: "+planted+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The #393 shape: the root unit pinned the value and merged it after the
+	// environment's own locals, so every unit inherited it.
+	leak := writeFixture("terragrunt/terragrunt.hcl", "locals {\n  truenas_ip = \""+planted+"\"\n}\n")
+	// One file per tree added with it, in the language that tree is written in.
+	moduleLeak := writeFixture("terragrunt/modules/truenas/variables.tf",
+		"variable \"truenas_host\" {\n  default = \""+planted+"\"\n}\n")
+	talosLeak := writeFixture("talos/patches/csi-nfs.yaml", "TRUENAS_IP: "+planted+"\n")
+	packerLeak := writeFixture("packer/truenas/truenas.pkr.hcl", "variable \"host\" {\n  default = \""+planted+"\"\n}\n")
+	// The post-#393 shape resolves from the ConfigSet and must stay clean, or
+	// the widening would just trade a silent hole for noise on every unit.
+	clean := writeFixture("terragrunt/environments/homelab/env.hcl",
+		"locals {\n  truenas_ip = local.resolved.TRUENAS_IP\n}\n")
+	// Runtime templates rendered by templatefile(): a literal in one reaches
+	// the cluster exactly as a literal in the .hcl that renders it would.
+	yamlTpl := writeFixture("terragrunt/modules/gitops-bootstrap/templates/argocd-values.yaml.tpl",
+		"server:\n  host: "+planted+"\n")
+	tftpl := writeFixture("terragrunt/modules/unifi-gateway/templates/frr-bgp.conf.tftpl",
+		"router bgp 64512\n  neighbor "+planted+" remote-as 64513\n")
+	talosTpl := writeFixture("talos/machine-config/controlplane.yaml.tpl", "certSANs:\n  - "+planted+"\n")
+	cleanTpl := writeFixture("terragrunt/modules/gitops-bootstrap/templates/bootstrap-app.yaml.tpl",
+		"server:\n  host: ${truenas_ip}\n")
+
+	trackedUnderPathspecs(t, []string{leak, moduleLeak, talosLeak, packerLeak, clean, yamlTpl, tftpl, talosTpl, cleanTpl})
+
+	report, err := RunGuard(GuardOptions{RepoRoot: repo, CI: true, EnvPath: env})
+	if err != nil {
+		t.Fatalf("RunGuard: %v", err)
+	}
+	if len(report.Unreadable) != 0 {
+		t.Fatalf("every in-scope file must be readable, got %+v", report.Unreadable)
+	}
+
+	scanned := strings.Join(report.Files, " ")
+	for _, want := range []string{leak, moduleLeak, talosLeak, packerLeak, clean, yamlTpl, tftpl, talosTpl, cleanTpl} {
+		if !strings.Contains(scanned, want) {
+			t.Errorf("%s is not in the scan scope; the pathspec or its extension was lost.\nscanned: %v", want, report.Files)
+		}
+	}
+
+	found := map[string]int{}
+	for _, res := range report.Results {
+		found[res.File] = len(res.Matches)
+	}
+	for _, want := range []string{leak, moduleLeak, talosLeak, packerLeak, yamlTpl, tftpl, talosTpl} {
+		if found[want] == 0 {
+			t.Errorf("the planted operator value in %s was not reported: this is the #393 defect class, and catching it is the only reason the scope was widened", want)
+		}
+	}
+	for _, ok := range []string{clean, cleanTpl} {
+		if n := found[ok]; n != 0 {
+			t.Errorf("%s takes its value by reference and must not be reported, got %d match(es)", ok, n)
+		}
+	}
+	if IsTemplateFile(yamlTpl) || IsTemplateFile(tftpl) {
+		t.Error("runtime templates are rendered into the cluster and must not get the placeholder-only .example rule")
 	}
 }

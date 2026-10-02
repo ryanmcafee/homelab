@@ -162,6 +162,7 @@
       ],
       "retention": "limits",
       "max_age": "8760h",
+      "max_msg_size": null,
       "discard": "new",
       "delivery": "at_least_once",
       "ordering": "per_subject"
@@ -174,6 +175,7 @@
       "sources": [],
       "retention": "limits",
       "max_age": "720h",
+      "max_msg_size": null,
       "discard": "old",
       "delivery": "at_least_once",
       "ordering": "per_subject"
@@ -186,6 +188,7 @@
       "sources": [],
       "retention": "limits",
       "max_age": "168h",
+      "max_msg_size": 983040,
       "discard": "old",
       "delivery": "at_least_once",
       "ordering": "per_subject"
@@ -198,6 +201,7 @@
       "sources": [],
       "retention": "workqueue",
       "max_age": "24h",
+      "max_msg_size": null,
       "discard": "new",
       "delivery": "at_least_once",
       "ordering": "none"

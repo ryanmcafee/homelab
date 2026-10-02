@@ -1,0 +1,6 @@
+apiVersion: v2
+name: argo-rollouts-config
+description: Cluster-scoped analysis templates every canary Rollout references
+type: application
+version: 1.0.0
+appVersion: "1.0"

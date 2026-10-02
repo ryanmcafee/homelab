@@ -1,0 +1,54 @@
+# litellm-database values: one postgresql.cnpg.io/v1 Cluster (wave 12, after
+# the cloudnative-pg addon and litellm-dependencies, before the LiteLLM proxy
+# at 13). Storage class, size, image pin and sizing arrive through the parent
+# Application's helm.valuesObject from configuration/ (ADR-010).
+
+namespace: litellm
+
+# Cluster name. CNPG derives everything else from it: Services <name>-rw /
+# <name>-ro / <name>-r and the generated Secret <name>-app (username, password,
+# dbname, host, port, uri, jdbc-uri). LiteLLM's database.writer.passwordSecret
+# reads username/password from litellm-db-app.
+name: litellm-db
+
+# True when the namespace is enrolled in the Istio ambient mesh: the pods and
+# Services opt out of it (inheritedMetadata labels). Set by the parent.
+ambientOptOut: false
+
+# 1 to start; 2 once HA is wanted (automatic failover, primaryUpdateStrategy
+# unsupervised switches the primary during upgrades).
+instances: 1
+
+# Pinned Postgres image (configuration/versions.yaml images.cloudnative-pg-postgresql).
+# Empty falls back to the operator's default image.
+imageName: ""
+
+storageClass: ""
+storageSize: 10Gi
+
+# Database and owner created by bootstrap.initdb on first start. LiteLLM's
+# prisma migrations Job creates every table, so there is no
+# postInitApplicationSQL.
+database: litellm
+owner: litellm
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# PodMonitor for kube-prometheus-stack (the cloudnative-pg addon enables the
+# operator side; this is the per-Cluster switch).
+monitoring:
+  enablePodMonitor: true
+
+# No ScheduledBackup: production has no object store yet, so LiteLLM follows
+# the same interim position as paperclip-postgres (docs/apps/paperclip.md).
+# A CNPG ScheduledBackup + ObjectStore lands for both clusters together.
+postgresql:
+  parameters:
+    max_connections: "100"
+    shared_buffers: 128MB
