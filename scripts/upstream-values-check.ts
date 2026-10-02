@@ -75,7 +75,7 @@ const log = {
   ok: (m: string) => console.log(`${green("PASS")} ${m}`),
   fail: (m: string) => console.error(`${red("FAIL")} ${m}`),
   info: (m: string) => console.log(`${cyan("INFO")} ${m}`),
-  warn: (m: string) => console.log(`${yellow("WARN")} ${m}`),
+  warn: (m: string) => console.error(`${yellow("WARN")} ${m}`),
 };
 
 export const SNAPSHOT_ROOT = "tests/snapshots";
@@ -489,20 +489,66 @@ export function pullArgs(source: ChartSource, untardir: string): string[] {
   return [...args, "--untar", "--untardir", untardir];
 }
 
-async function pullChart(
-  source: ChartSource,
-  untardir: string,
-): Promise<{ dir: string } | { error: string }> {
-  const proc = Bun.spawn(["helm", ...pullArgs(source, untardir)], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+/** Pause between pull attempts; its length is the attempt count minus one. */
+export const PULL_RETRY_DELAYS_MS = [2000, 5000];
+
+/** Runs `helm` with the given arguments. */
+export type PullRun = (
+  args: string[],
+) => Promise<{ exitCode: number; stderr: string }>;
+
+const NON_RETRYABLE =
+  /manifest unknown|not found|status(?: code)?:? 404\b|\b404 Not Found/i;
+const TRANSIENT = [
+  /connection reset|broken pipe|unexpected EOF/i,
+  /i\/o timeout|TLS handshake timeout|timed out|deadline exceeded/i,
+  /status(?: code)?:? (?:5\d\d|429)\b/i,
+  /\b(?:5\d\d|429) (?:Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout|Too Many Requests)/i,
+];
+
+/**
+ * True when a failed pull is worth repeating: a reset, a timeout, a 5xx or a
+ * 429. A missing chart or version is never retried, so it still fails closed.
+ */
+export function isTransientPullError(stderr: string): boolean {
+  if (NON_RETRYABLE.test(stderr)) return false;
+  return TRANSIENT.some((re) => re.test(stderr));
+}
+
+const runHelm: PullRun = async (args) => {
+  const proc = Bun.spawn(["helm", ...args], { stdout: "pipe", stderr: "pipe" });
   const stderr = await new Response(proc.stderr).text();
   await new Response(proc.stdout).text();
-  if ((await proc.exited) !== 0) {
-    return { error: stderr.trim().split("\n").slice(-3).join(" ") };
+  return { exitCode: await proc.exited, stderr };
+};
+
+export async function pullChart(
+  source: ChartSource,
+  untardir: string,
+  {
+    run = runHelm,
+    sleep = Bun.sleep,
+    delays = PULL_RETRY_DELAYS_MS,
+  }: {
+    run?: PullRun;
+    sleep?: (ms: number) => Promise<void>;
+    delays?: number[];
+  } = {},
+): Promise<{ dir: string } | { error: string }> {
+  for (let attempt = 1; ; attempt++) {
+    const { exitCode, stderr } = await run(pullArgs(source, untardir));
+    if (exitCode === 0) return { dir: join(untardir, source.chart) };
+    const delay = delays[attempt - 1];
+    if (delay === undefined || !isTransientPullError(stderr)) {
+      const tail = stderr.trim().split("\n").slice(-3).join(" ");
+      return { error: `${tail} (after ${attempt} attempt(s))` };
+    }
+    log.warn(
+      `${cacheKey(source)}: transient pull error, retrying in ${delay}ms: ${stderr.trim().split("\n").at(-1)}`,
+    );
+    await sleep(delay);
+    rmSync(untardir, { recursive: true, force: true });
   }
-  return { dir: join(untardir, source.chart) };
 }
 
 /** Resolve the declared key surface of every distinct pinned chart. */

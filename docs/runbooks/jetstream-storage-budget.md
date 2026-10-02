@@ -229,6 +229,12 @@ The rule is derived, because no metric counts a refusal. It needs all three, eac
   lag to the origin's pending count *after* the refused event, minus one, so one or two waiting
   events read `0`; the alert fires from the third.
 
+The three terms are joined per `account` as well as per server and stream. ADR-043 gives every
+tenant its own NATS account, so `PF_AUDIT` exists once per account and the exporter labels each
+series with `account`. The alert's `account` label names the tenant whose audit trail is refused,
+and the steps below apply to that account's `PF_AUDIT`. Without `account` in the join, one tenant's
+backlog would page another tenant's full but idle `PF_AUDIT`.
+
 1. **Confirm and measure.** `nats stream info PF_AUDIT` as above: `state.bytes` against
    `config.max_bytes`, and `sources[].lag` for how many audit events are waiting.
 2. **Recover the room, do not wait it out.** 365 d of `max_age` means the stream will not expire its
@@ -278,8 +284,11 @@ accounts at 40 % each page, neither alone would), and that a `max_bytes` of `0` 
 
 All were confirmed by mutation: moving the 75 % threshold to 99 % and removing the `> 0` limit guard
 each turn `task test:alerts` red, the second with `FORK_LOCAL is +Inf% of its max_bytes`. Removing
-the source-lag term from `PFAuditRefusingWrites` fails only the idle case, and removing the
-`last_seq` term fails only the still-accepting case.
+the source-lag term from `PFAuditRefusingWrites` fails the idle case and both two-account cases,
+and removing the `last_seq` term fails only the still-accepting case. The two-account cases run two
+tenants in one namespace: one tenant's lag must not page another tenant's full, idle `PF_AUDIT`, and
+a refusing tenant pages under its own `account`. Dropping `account` from the source-lag join fails
+both.
 
 ## Related
 

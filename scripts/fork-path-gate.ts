@@ -68,7 +68,7 @@ export const COLD_WORKFLOW_PATH = ".github/workflows/fork-path-cold.yml";
 
 /**
  * Tier 1, minus Taskfile.yml which is conditional, and with readme.md
- * conditional on changes outside its badges region (see classify). This is
+ * conditional on changes outside its docs-check generated content (see classify). This is
  * exactly the surface fork-path-cold.yml executes — not "everything
  * fork-related". terragrunt/, talos/, ansible/ and packer/ are real
  * fork-ability surface but check 3a executes none of them, and a gate that
@@ -106,7 +106,7 @@ export const TIER2_PATHS = [
   ...TIER2_INFRA_PATHS,
 ];
 
-/** Conditional entries: see taskfileDiffTouchesLocaldev and readmeChangedOutsideBadges. */
+/** Conditional entries: see taskfileChangeReachesColdPath and readmeChangedOutsideGenerated. */
 export const TASKFILE = "Taskfile.yml";
 export const README = "readme.md";
 
@@ -117,6 +117,19 @@ export const README = "readme.md";
  */
 export const README_BADGES_BEGIN = "<!-- docs-check:begin badges -->";
 export const README_BADGES_END = "<!-- docs-check:end badges -->";
+
+/**
+ * The readme counters `docs:check -- --fix` rewrites in place, outside any
+ * region. Kept literal for the same reason as the badges markers; a test pins
+ * them to docs-check.ts.
+ */
+export const README_COUNTERS: readonly RegExp[] = [
+  /\b\d+ addons\b/g,
+  /\b\d+ applications\b/g,
+  /\b\d+ Applications synced from your working tree\b/g,
+  /\b\d+ ArgoCD Applications\b/g,
+  /\b\d+ chainsaw suites\b/g,
+];
 
 export type Classification = { tier1: string[]; tier2: string[] };
 
@@ -147,29 +160,173 @@ export function matchesAny(path: string, globs: readonly string[]): boolean {
 }
 
 /**
- * True when the Taskfile.yml diff adds or removes a line mentioning localdev.
- *
- * This is the measured narrowing the gate exists to make. Over the 90 days to
- * 2026-09-25, 20 of the 96 commits on main touch Taskfile.yml but only 7 touch
- * a line containing `localdev`; with the narrowing the gate fires on 33 of 96
- * (34%), without it on roughly half. A `paths:` glob cannot tell those apart; a
- * diff test can, and that is the difference between a check people read and a
- * check people mute. This file is the one home for that measurement — the
- * contract states the effect, not the numbers, so the two cannot drift.
- *
- * Reproduce it by replaying `classify` over `git log --since="90 days ago"`;
- * note that a shallow clone silently truncates the window and undercounts.
- *
- * `+++ b/Taskfile.yml` / `--- a/Taskfile.yml` are headers, not content, and are
- * skipped — the path itself never counts as a hit.
+ * The tasks fork-path-cold.yml runs by name. `localdev:diagnose` runs on
+ * failure, so a regression in it hides the evidence of every other one.
  */
-export function taskfileDiffTouchesLocaldev(diff: string): boolean {
-  for (const line of (diff ?? "").split(/\r?\n/)) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
-    if (line[0] !== "+" && line[0] !== "-") continue;
-    if (/localdev/i.test(line)) return true;
+export const COLD_PATH_TASKS = [
+  "validate",
+  "localdev:up",
+  "localdev:wait",
+  "localdev:report",
+  "localdev:diagnose",
+  "localdev:down",
+];
+
+type TaskSpan = { start: number; end: number; body: string[] };
+type TaskfileLayout = {
+  /** 1-based line numbers outside `tasks:`, which reach every task. */
+  global: Set<number>;
+  tasks: Map<string, TaskSpan>;
+};
+
+/**
+ * Splits a Taskfile into its top-level sections and its tasks by indentation.
+ *
+ * A line scan rather than a YAML parse: the gate imports nothing outside the
+ * standard library (see verify.yml), and go-task's own layout is fixed at two
+ * spaces for a task name under `tasks:`.
+ */
+export function parseTaskfile(text: string): TaskfileLayout {
+  const global = new Set<number>();
+  const tasks = new Map<string, TaskSpan>();
+  let inTasks = false;
+  let current: TaskSpan | null = null;
+  const lines = text.split(/\r?\n/);
+  lines.forEach((line, i) => {
+    const n = i + 1;
+    if (/^[^\s#]/.test(line)) {
+      inTasks = /^tasks:\s*(#.*)?$/.test(line);
+      current = null;
+      global.add(n);
+      return;
+    }
+    if (!inTasks) {
+      global.add(n);
+      return;
+    }
+    const name = /^ {2}([^\s#'"]\S*):\s*(#.*)?$/.exec(line)?.[1];
+    if (name) {
+      current = { start: n, end: n, body: [] };
+      tasks.set(name, current);
+      return;
+    }
+    if (/^ {0,2}#/.test(line)) {
+      current = null;
+      return;
+    }
+    if (current && line.trim() !== "") {
+      current.end = n;
+      current.body.push(line);
+    }
+  });
+  return { global, tasks };
+}
+
+/**
+ * Task names a task body calls: `task: x`, `deps: [x, y]`, a `deps:` block
+ * list, and a shell `task x`. Over-matching only widens Tier 1, never hides a
+ * change, so prose that happens to name a task is accepted.
+ */
+function referencedTasks(
+  body: string[],
+  known: Map<string, TaskSpan>,
+): string[] {
+  const refs = new Set<string>();
+  let inDeps = false;
+  for (const line of body) {
+    const indent = line.length - line.trimStart().length;
+    if (inDeps && indent <= 4) inDeps = false;
+    const inline = /^\s*deps:\s*\[(.*)\]/.exec(line);
+    if (inline) {
+      for (const d of inline[1].split(",")) refs.add(d.trim());
+    } else if (/^\s*deps:\s*$/.test(line)) {
+      inDeps = true;
+    } else if (inDeps) {
+      const item = /^\s*-\s+([^\s{]+)\s*$/.exec(line);
+      if (item) refs.add(item[1]);
+    }
+    for (const m of line.matchAll(/\btask:?\s+([A-Za-z0-9_:.-]+)/g))
+      refs.add(m[1]);
   }
-  return false;
+  return [...refs].filter((r) => known.has(r));
+}
+
+/** The cold entry points and every task they reach through calls or deps. */
+export function coldPathTaskClosure(text: string): Set<string> {
+  const { tasks } = parseTaskfile(text);
+  const seen = new Set<string>();
+  const queue = COLD_PATH_TASKS.filter((t) => tasks.has(t));
+  while (queue.length > 0) {
+    const name = queue.pop() as string;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const span = tasks.get(name);
+    if (span) queue.push(...referencedTasks(span.body, tasks));
+  }
+  return seen;
+}
+
+/** Changed line numbers from a unified diff: removed in the base, added in the head. */
+export function changedTaskfileLines(diff: string): {
+  base: number[];
+  head: number[];
+} {
+  const base: number[] = [];
+  const head: number[] = [];
+  let oldLine = 0;
+  let newLine = 0;
+  for (const line of (diff ?? "").split(/\r?\n/)) {
+    const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (h) {
+      oldLine = Number(h[1]);
+      newLine = Number(h[2]);
+      continue;
+    }
+    if (line.startsWith("+++") || line.startsWith("---")) continue;
+    if (oldLine === 0 && newLine === 0) continue;
+    if (line.startsWith("-")) base.push(oldLine++);
+    else if (line.startsWith("+")) head.push(newLine++);
+    else if (line.startsWith(" ")) {
+      oldLine++;
+      newLine++;
+    }
+  }
+  return { base, head };
+}
+
+function reaches(lines: number[], text: string): boolean {
+  const layout = parseTaskfile(text);
+  const cold = coldPathTaskClosure(text);
+  return lines.some((n) => {
+    if (layout.global.has(n)) return true;
+    for (const name of cold) {
+      const span = layout.tasks.get(name);
+      if (span && n >= span.start && n <= span.end) return true;
+    }
+    return false;
+  });
+}
+
+export type TaskfileChange = {
+  diff: string;
+  baseText: string;
+  headText: string;
+};
+
+/**
+ * True when a Taskfile.yml change lands in a task fork-path-cold.yml runs, in
+ * a task one of those reaches, or outside `tasks:` (vars and env reach every
+ * task). Removed lines are placed in the base, added lines in the head.
+ *
+ * This is the narrowing that keeps the gate readable: most Taskfile changes
+ * cannot reach the cold path, and a `paths:` glob cannot tell them apart. It
+ * replaced a rule that matched the substring `localdev`, which fired on
+ * `test:alerts` for naming `values-localdev.yaml` and missed a change to
+ * `validate`, the first command the cold workflow runs.
+ */
+export function taskfileChangeReachesColdPath(change: TaskfileChange): boolean {
+  const { base, head } = changedTaskfileLines(change.diff);
+  return reaches(base, change.baseText) || reaches(head, change.headText);
 }
 
 /** The readme with the badges region body removed; the markers themselves stay. */
@@ -182,35 +339,50 @@ export function stripReadmeBadges(text: string): string {
   return text.slice(0, bodyStart) + text.slice(end);
 }
 
+/** The readme with every docs-check counter's number replaced by `#`. */
+export function maskReadmeCounters(text: string): string {
+  return README_COUNTERS.reduce(
+    (out, counter) => out.replace(counter, (m) => m.replace(/^\d+/, "#")),
+    text,
+  );
+}
+
 /**
- * True when readme.md changed anywhere outside the docs-check `badges` region.
+ * True when readme.md changed anywhere outside what docs-check generates: the
+ * `badges` region and the README_COUNTERS numbers.
  *
- * A version badge is regenerated from configuration/versions.yaml by
- * `docs:check -- --fix`, including by the Renovate regeneration bot, which can
- * neither link a cold run nor apply the waiver label. The badges are not a
- * command fork-path-cold.yml types, so a badge-only diff is not Tier 1. A file
- * added or deleted (null side), or a moved marker, still counts: the stripped
- * texts then differ.
+ * Both are regenerated by `docs:check -- --fix`: a badge by the Renovate
+ * regeneration bot, which can neither link a cold run nor apply the waiver
+ * label, and a counter by any pull request that adds an addon. Neither is a
+ * command fork-path-cold.yml types. A file added or deleted (null side), a
+ * moved marker, or a counter's words changing still counts: the masked texts
+ * then differ.
  */
-export function readmeChangedOutsideBadges(
+export function readmeChangedOutsideGenerated(
   before: string | null,
   after: string | null,
 ): boolean {
   if (before === null || after === null) return true;
-  return stripReadmeBadges(before) !== stripReadmeBadges(after);
+  const mask = (t: string) => maskReadmeCounters(stripReadmeBadges(t));
+  return mask(before) !== mask(after);
 }
 
 export function classify(input: {
   files: readonly string[];
-  taskfileDiff?: string;
+  taskfile?: TaskfileChange;
   /** Both sides of readme.md; absent means unknown, which stays Tier 1. */
   readme?: { before: string | null; after: string | null };
 }): Classification {
   const tier1: string[] = [];
   const tier2: string[] = [];
-  const taskfileHits = taskfileDiffTouchesLocaldev(input.taskfileDiff ?? "");
+  // Nothing to place the change with means nothing proves it misses the cold
+  // path, so an unjudgeable Taskfile change is Tier 1.
+  const taskfileHits =
+    !input.taskfile ||
+    input.taskfile.headText.trim() === "" ||
+    taskfileChangeReachesColdPath(input.taskfile);
   const readmeHits = input.readme
-    ? readmeChangedOutsideBadges(input.readme.before, input.readme.after)
+    ? readmeChangedOutsideGenerated(input.readme.before, input.readme.after)
     : true;
   for (const file of input.files) {
     const path = file.trim();
@@ -580,17 +752,21 @@ async function main(): Promise<number> {
   // The changed set, against the merge base with the target branch.
   const range = `${baseSha}...${headSha}`;
   const files = git(["diff", "--name-only", range]).split("\n");
-  const taskfileDiff = files.includes(TASKFILE)
-    ? git(["diff", "-U0", range, "--", TASKFILE])
-    : "";
   const mergeBase = git(["merge-base", baseSha, headSha]).trim();
+  const taskfile = files.includes(TASKFILE)
+    ? {
+        diff: git(["diff", "-U0", range, "--", TASKFILE]),
+        baseText: gitShowOrNull(`${mergeBase}:${TASKFILE}`) ?? "",
+        headText: gitShowOrNull(`${headSha}:${TASKFILE}`) ?? "",
+      }
+    : undefined;
   const readme = files.includes(README)
     ? {
         before: gitShowOrNull(`${mergeBase}:${README}`),
         after: gitShowOrNull(`${headSha}:${README}`),
       }
     : undefined;
-  const classification = classify({ files, taskfileDiff, readme });
+  const classification = classify({ files, taskfile, readme });
 
   // Labels and body live on the API, not the replayed event payload.
   let labels: string[] = [];
