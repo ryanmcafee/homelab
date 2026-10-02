@@ -1,5 +1,8 @@
 # cert-manager-config homelab values
+#
+# cloudflare.onePasswordItemPath is NOT set here: the addons cert-manager-config
+# Application passes it through helm.valuesObject from CERT_MANAGER_1P_PATH, so a
+# fork's key is what reaches the OnePasswordItem.
 
 cloudflare:
   enabled: true
-  onePasswordItemPath: "vaults/homelab/items/cloudflare"

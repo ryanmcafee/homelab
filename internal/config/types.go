@@ -84,6 +84,24 @@ type ControlPlaneMember struct {
 	Address string
 }
 
+// GitOpsRepo is GITOPS_REPO_URL parsed into the parts templates need. Derived
+// by the resolver so no template restates the owner or repository name the URL
+// already carries — two spellings of the same fork would drift.
+type GitOpsRepo struct {
+	// URL is the configured value with any trailing slash and ".git" removed.
+	URL string
+	// CloneURL is URL plus ".git", the form ArgoCD's repoURL takes.
+	CloneURL string
+	// Owner is the forge account: ryanmcafee in github.com/ryanmcafee/homelab.
+	Owner string
+	// ImageOwner is Owner lowercased, because OCI repository paths must be lowercase.
+	ImageOwner string
+	// Name is the repository: homelab in github.com/ryanmcafee/homelab.
+	Name string
+	// Slug is Owner/Name, the form the GitHub search API and gh take.
+	Slug string
+}
+
 // Versions holds chart, image, and tool version strings.
 type Versions struct {
 	Charts map[string]string `yaml:"charts"`
@@ -114,6 +132,15 @@ type ResolvedConfig struct {
 	// fixture schemas in tests). len() is the member count ADR-035 derives;
 	// ordinals need not be contiguous, so CP1/CP2/CP5 is three members.
 	ControlPlane []ControlPlaneMember
+
+	// GitOps is GITOPS_REPO_URL parsed once, here. Templates read this instead
+	// of naming an owner, which is how a fork's ArgoCD reconciles the fork's
+	// own remote rather than the upstream repository.
+	//
+	// Nil only when the set resolves no GITOPS_REPO_URL (the small fixture
+	// schemas in tests). A template reading it then fails to render, which is
+	// the right outcome for a set that cannot name its own repository.
+	GitOps *GitOpsRepo
 }
 
 // ExportFormat identifies an output format.

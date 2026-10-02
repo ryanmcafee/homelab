@@ -1,0 +1,23 @@
+{{- /*
+GitHub token for the previews ApplicationSet's pull-request generator, from
+1Password (docs/runbooks/previews.md). Rendered only when previews are enabled
+and previews.github.tokenSecret.name is set; the ApplicationSet then wires the
+Secret as tokenRef. A token name without an item path would leave the tokenRef
+pointing at a Secret nothing creates, so the path is required, not defaulted.
+*/}}
+{{- $token := .Values.previews.github.tokenSecret }}
+{{- if and .Values.previews.enabled $token.name }}
+---
+# Secret key (1Password field label): token, matching
+# previews.github.tokenSecret.key. Wave appProjectSyncWave, before the
+# ApplicationSet (applicationSetSyncWave) that reads it.
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: {{ $token.name }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.previews.appProjectSyncWave | quote }}
+spec:
+  itemPath: {{ required "previews.github.tokenSecret.onePasswordItemPath is required when previews.github.tokenSecret.name is set" (trim (default "" $token.onePasswordItemPath)) | quote }}
+{{- end }}

@@ -12,11 +12,29 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-30 - `paperclip-bootstrap` Job re-created every ~70 min after the admin exists
+- **Issue**: `KubeJobFailed` for `paperclip/paperclip-bootstrap` kept coming back. Over 7 days the operator re-created the admin-seed Job about every 70 minutes (~80 pods, 47 containers terminated `Error`, none `Completed`), each run ending `BackoffLimitExceeded` and re-mounting the RWO data volume on the pinned node. The server itself stayed healthy
+- **Root Cause**: The Instance still carried `spec.auth.adminUser` (`helm-apps.tmpl` always passes `PAPERCLIP_ADMIN_EMAIL`, `instance.yaml` rendered `adminUser` whenever the e-mail was set). Operator 0.19.1 keeps reconciling the bootstrap Job for that spec and does not short-circuit on `status.bootstrap`, contrary to the assumption in the 2026-09-15 entry below; a re-run against the existing admin fails. The exact error line was not read (pod logs need kubectl)
+- **Solution**: `charts/paperclip` gained `admin.bootstrap` (default `true`); `adminUser` renders only when it is true and an e-mail is set. `helm-apps.tmpl` sets it `false` for homelab and `true` for Kind, whose database starts empty. A fresh homelab database needs `true` for one sync. The leftover failed Job may need a one-time removal after rollout if the operator does not garbage-collect it
+- **Prevention**: Drop one-shot bootstrap specs from operator CRs once they are done; do not assume an operator's seed Job is idempotent without watching it for a few reconcile periods
+
+### 2026-09-30 - Kind ArgoCD Redis pull hit ECR Public data limit (MCAA-852)
+- **Issue**: Cold-cache Kind bootstrap at PR #487 head `aa8d475` timed out on `argocd-redis` with `ImagePullBackOff`; the original CI diagnostics retained no kubelet error
+- **Root Cause**: A reproduced pull through `kind-registry-ecr` returned HTTP 500 for the Redis manifest. All 12 proxy manifest requests logged `toomanyrequests: Data limit exceeded` from ECR Public (QA artifact, run 36713254067)
+- **Solution**: Kind's ArgoCD values use `docker.io/library/redis` with the chart's existing `8.2.3-alpine` tag and Docker Hub pull-through cache. CI diagnostics retain pod events and both registry cache logs; the cache key includes the ArgoCD values file
+- **Prevention**: Keep the required Kind readiness gate; validate the rendered Redis image and use registry logs to diagnose future pull errors. A local render proves image selection, while the required Kind level-2 check establishes end-to-end readiness
+
 ### 2026-09-28 - spegel's ten-registry mirror list never reached the DaemonSet (#469)
 - **Issue**: MCAA-396 asked whether spegel mirrors argo-cd's redis, whose image is `ecr-public.aws.com/docker/library/redis` while `charts/addons/values.yaml` listed `https://public.ecr.aws`
 - **Root Cause**: spegel chart 0.6.0 has no `registries` key at all -- it is `mirroredRegistries`, and its empty default mirrors every registry. `resolveLatestTag` and `appendMirrors` were renamed to `registryFilters` and `prependExisting`. The chart ships no `values.schema.json`, so helm accepted all three unknown keys, ArgoCD reported Synced, and `tests/snapshots/` recorded them as expected output
 - **Solution**: Removed the three dead keys from `charts/addons/values.yaml` and `charts/addons/templates/spegel.yaml`. Rendering the upstream chart with the Application's own `spec.source.helm.values` is byte-identical before and after, which is the proof they were inert. Mirroring was already all-registries, so argo-cd's redis was never missing a cache hit
 - **Prevention**: `helm show values <chart> --version <v>` before trusting a values key; translating a dead allowlist to its real key name would have been a regression here. MCAA-434 tracks a CI gate for this class
+
+### 2026-10-01 - argo-workflows workflow-controller CrashLoopBackOff under a 48Mi limit
+- **Issue**: `KubePodCrashLooping` for `argo-workflows-workflow-controller` (container `controller`); while it is down no Workflows are reconciled or archived, so the triage and CI workflows stall
+- **Root Cause**: The homelab render capped the controller at 32Mi request / 48Mi limit (and the server the same) since the block was introduced in 9835d66. The controller holds informer caches for Workflows, Pods, ConfigMaps and WorkflowTemplates plus the Postgres archive pool and needs about 100-250Mi, so it is OOM-killed. Inferred from the config: the pod's `lastState.terminated.reason` and logs could not be read during triage; the other documented cause is an unreachable `argo-workflows-postgres-rw` (docs/runbooks/argo-workflows.md)
+- **Solution**: homelab controller memory request 128Mi, limit 256Mi; server request 64Mi, limit 128Mi (`configuration/templates/helm-addons.tmpl`)
+- **Prevention**: Size Argo controllers for their informer caches; 48Mi is below a Go controller's baseline. Confirm `lastState.terminated.reason` before assuming OOM on a crash loop
 
 ### 2026-09-26 - plex and otel-collector-gateway permanently OutOfSync on their HTTPRoute (#387)
 - **Issue**: After the Envoy Gateway cutover, `plex` and `otel-collector-gateway` stayed `OutOfSync`/`Healthy` with only the HTTPRoute out of sync; `argocd app diff` showed nothing
@@ -395,7 +413,7 @@ These are documented errors with known solutions:
 ### 2026-09-15 - Admin bootstrap Job fails with `EMAIL_PASSWORD_SIGN_UP_DISABLED` when `auth.disableSignUp` is true
 - **Issue**: With the node pin in place the bootstrap Job finally ran and failed: `Sign-up returned HTTP 400 ... {"code":"EMAIL_PASSWORD_SIGN_UP_DISABLED"}`, then `Invalid email or password` on the sign-in fallback, so no admin exists and nobody can log in
 - **Root Cause**: The operator's Job (0.19.1) registers the admin through `POST /api/auth/sign-up/email`; `spec.auth.disableSignUp: true` maps to `PAPERCLIP_AUTH_DISABLE_SIGN_UP`, which Better Auth applies to every sign-up including the first (`server/src/auth/better-auth.ts`, no first-user exception). The operator README nevertheless recommends combining the two ("provision the only account")
-- **Solution**: Bootstrap with sign-up enabled, then disable it: PR sets `auth.disableSignUp: false`, the Job registers the admin and the operator records `status.bootstrap`; a follow-up PR sets it back to `true` (the Job short-circuits on an already-bootstrapped instance). The instance is private (internal Traefik only) during the window. Reported upstream so the operator can gate the env var on bootstrap completion
+- **Solution**: Bootstrap with sign-up enabled, then disable it: PR sets `auth.disableSignUp: false`, the Job registers the admin and the operator records `status.bootstrap`; a follow-up PR sets it back to `true` (the assumption that the Job short-circuits on an already-bootstrapped instance was wrong, see 2026-09-30 `paperclip-bootstrap` Job re-created every ~70 min). The instance is private (internal Traefik only) during the window. Reported upstream so the operator can gate the env var on bootstrap completion
 - **Prevention**: For a new Instance with `adminUser`, deploy with `disableSignUp: false` first and flip it after `status.bootstrap` appears; do not trust the operator README on this combination until the upstream fix lands
 
 ### 2026-09-15 - Sporadic Kubernetes API loss: etcd WAL fsync stalled by worker I/O on the shared ZFS pool
@@ -545,3 +563,26 @@ These are documented errors with known solutions:
 - **Cause**: `cmdDiagnose` called `isReady(app, false)` and returned before namespace collection.
 - **Fix**: Require sync readiness in diagnosis; print `status.sync.status` and full sync detail, then collect destination namespace evidence. Preserve the existing new-empty-chart exception.
 - **Verification**: Command regression fails for OutOfSync before the fix and passes after; Synced control stays quiet. Real Kind failure-path verification is tracked separately under MCAA-468.
+
+### 2026-09-30 - PR dependency triage label write returned 403
+- **Issue**: `pull_request_target` run 36656956730 failed on `PUT /repos/ryanmcafee/homelab/issues/511/labels` although the job log granted `Issues: write`.
+- **Diagnosis**: The workflow labels pull requests through the shared Issues endpoint. The response advertises `issues=write; pull_requests=write`, but the granted Issues scope did not authorize the operation in this run. Repository Actions permission settings could not be read by the current integration (403), so the exact server-side policy remains unconfirmed.
+- **Candidate fix**: PR #533 changes the job to only `pull-requests: write`, adds a one-PR dispatch guard, and documents fork behavior. Security signed off on the token scope. This integration gets 403 when dispatching the branch workflow, so a successful live label write is still required before calling this resolved.
+- **Prevention**: Confirm effective token permissions in the job setup log and exercise a real write; a green static workflow check does not prove authorization.
+
+### 2026-09-30 - PR dependency triage cancelled unrelated PR events
+- **Issue**: A single `pr-dependency-triage` concurrency group let any PR event or hourly sweep cancel a run for a different PR.
+- **Solution**: Key `pull_request_target` runs by the base repository's PR number and put schedule/manual sweeps in a distinct `sweep` group, retaining `cancel-in-progress` for same-PR supersession.
+- **Prevention**: `scripts/pr-dependency-triage-concurrency_test.ts` checks different-PR isolation, same-PR supersession, and sweep separation.
+
+### 2026-09-30 - Cold-draw policy tests timed out on unavailable external commands
+- **Issue**: PR #460's policy job exceeded Bun's five-second limit in two `kind-cold-draw` cases.
+- **Likely Cause**: The capture unit test ran four real `kubectl` and two real `docker` commands through synchronous `Bun.spawnSync`; their latency and host state were outside the test's control. The fixture-only verdict case also timed out in that run, consistent with the synchronous capture blocking the runner. The CI log does not isolate which external command consumed the time.
+- **Solution**: Let the capture test inject a failing command runner, while production capture retains the real runner. The test still checks missing pod and registry evidence and the written artifacts, and now asserts that all six commands ran through the fixture.
+- **Prevention**: In script unit tests, simulate external command results and assert the commands issued; reserve real `kubectl` and `docker` for integration checks.
+
+### 2026-10-01 - KubeCPUOvercommit after the Paperclip/NATS request increases
+- **Issue**: `KubeCPUOvercommit` from 2026-10-01 02:35 UTC: pod CPU requests 13.97 CPU against 13.75 CPU allocatable with the largest node (7.95 CPU) down, 0.22 CPU over
+- **Root Cause**: Requests grew from 12.79 to 13.97 CPU in two days: ca1e123 (Paperclip request to one core, +0.5), #438 (NATS, +0.325), #562 (paperclip-postgres 250m -> 500m, +0.25, merged 18 minutes before the alert) and argo-rollouts (+0.1). Paperclip and postgres use what they request; several other workloads asked for 10-40x their 7-day peak
+- **Solution**: CPU requests sized from the 7-day peak, limits unchanged: sonarr and radarr 200m -> 75m (peak ~50m), tautulli 100m -> 25m (~9m), lazylibrarian 100m -> 25m (~3m), production NATS 100m -> 25m per replica (~6m, 3 replicas). Frees ~0.6 CPU, enough for the overcommit plus one 250m triage stage pod
+- **Prevention**: Before raising a request, check `sum(namespace_cpu:kube_pod_container_resource_requests:sum) - (sum(kube_node_status_allocatable{resource="cpu"}) - max(kube_node_status_allocatable{resource="cpu"}))` stays below 0 with the new value; same failure as the 2026-09-23 entry (KubeCPUOvercommit after the observability rollout)
