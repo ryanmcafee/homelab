@@ -12,12 +12,6 @@ Each entry should include:
 
 ## Entries
 
-### 2026-09-30 - Kind cold-draw evidence test timed out on host commands (PR #535)
-- **Issue**: The no-cluster capture test used real `kubectl` and `docker`; CI timed out at five seconds without naming the stalled command.
-- **Cause**: `capture` had no command injection seam and `run` gave `Bun.spawnSync` no timeout.
-- **Fix**: Inject a deterministic failing runner in the unit test. Bound real capture commands to ten seconds and record the command in timeout evidence. A success-code mutation fails the missing-evidence assertion.
-- **Verification**: 26 focused tests and 650 script tests pass; the negative mutation fails 1/1 targeted test.
-
 ### 2026-09-30 - `paperclip-bootstrap` Job re-created every ~70 min after the admin exists
 - **Issue**: `KubeJobFailed` for `paperclip/paperclip-bootstrap` kept coming back. Over 7 days the operator re-created the admin-seed Job about every 70 minutes (~80 pods, 47 containers terminated `Error`, none `Completed`), each run ending `BackoffLimitExceeded` and re-mounting the RWO data volume on the pinned node. The server itself stayed healthy
 - **Root Cause**: The Instance still carried `spec.auth.adminUser` (`helm-apps.tmpl` always passes `PAPERCLIP_ADMIN_EMAIL`, `instance.yaml` rendered `adminUser` whenever the e-mail was set). Operator 0.19.1 keeps reconciling the bootstrap Job for that spec and does not short-circuit on `status.bootstrap`, contrary to the assumption in the 2026-09-15 entry below; a re-run against the existing admin fails. The exact error line was not read (pod logs need kubectl)
@@ -29,11 +23,6 @@ Each entry should include:
 - **Root Cause**: A reproduced pull through `kind-registry-ecr` returned HTTP 500 for the Redis manifest. All 12 proxy manifest requests logged `toomanyrequests: Data limit exceeded` from ECR Public (QA artifact, run 36713254067)
 - **Solution**: Kind's ArgoCD values use `docker.io/library/redis` with the chart's existing `8.2.3-alpine` tag and Docker Hub pull-through cache. CI diagnostics retain pod events and both registry cache logs; the cache key includes the ArgoCD values file
 - **Prevention**: Keep the required Kind readiness gate; validate the rendered Redis image and use registry logs to diagnose future pull errors. A local render proves image selection, while the required Kind level-2 check establishes end-to-end readiness
-
-### 2026-09-30 - An allowlist exception applied to unrelated chart identities (MCAA-848)
-- **Issue**: The upstream-values allowlist matched only chart name and path, so a same-named chart from another repository or revision could inherit an exception without warning.
-- **Root Cause**: `isAllowed` ignored `repoURL` and `targetRevision`; `unusedEntries` also tracked failed pulls by chart name alone.
-- **Solution**: Bind every exception and uninspected-chart exemption to the same repository/chart/revision cache key used for chart pulls. Migrated all 48 entries from rendered Application sources. Both identity mutations now emit `upstream-values/undeclared-key` for the original chart and leave the altered entry unused.
 
 ### 2026-09-28 - spegel's ten-registry mirror list never reached the DaemonSet (#469)
 - **Issue**: MCAA-396 asked whether spegel mirrors argo-cd's redis, whose image is `ecr-public.aws.com/docker/library/redis` while `charts/addons/values.yaml` listed `https://public.ecr.aws`
