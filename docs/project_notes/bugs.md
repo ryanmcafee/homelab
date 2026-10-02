@@ -557,6 +557,7 @@ These are documented errors with known solutions:
 - **Root Cause**: `unifi_setting.syslog` set `this_controller = true` and `this_controller_encrypted_only = true`; `this_controller` makes the controller itself the syslog destination and excludes the remote SIEM server
 - **Solution**: Both flags are `false` in `terragrunt/modules/unifi-gateway/main.tf`; apply with `task tf:apply:component COMPONENT=unifi-gateway`
 - **Prevention**: Test an export end to end with one synthetic message before trusting the controller's setting page
+
 ### 2026-09-30 - PR dependency triage label write returned 403
 - **Issue**: `pull_request_target` run 36656956730 failed on `PUT /repos/ryanmcafee/homelab/issues/511/labels` although the job log granted `Issues: write`.
 - **Diagnosis**: The workflow labels pull requests through the shared Issues endpoint. The response advertises `issues=write; pull_requests=write`, but the granted Issues scope did not authorize the operation in this run. Repository Actions permission settings could not be read by the current integration (403), so the exact server-side policy remains unconfirmed.

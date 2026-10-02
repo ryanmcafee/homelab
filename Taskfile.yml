@@ -920,6 +920,12 @@ tasks:
     cmds:
       - bun scripts/renovate-regen.ts {{.CLI_ARGS}}
 
+  pr:refresh:
+    desc: "Merge the base (default origin/main) into this PR branch, resolve append-only, generated and count-only conflicts, regenerate, run level 0 and commit (-- --dry-run to classify, -- --continue after resolving by hand, -- --base origin/<branch> for a stacked PR, -- --push)"
+    deps: [bun:install]
+    cmds:
+      - bun scripts/pr-refresh.ts {{.CLI_ARGS}}
+
   renovate:deployed-major:
     desc: "Read the deployed Renovate major out of an open renovate/* PR body and fail if it reached 44 (where isBranchModified reads the committer) while this repo still treats a committer mismatch as advisory"
     deps: [bun:install]
