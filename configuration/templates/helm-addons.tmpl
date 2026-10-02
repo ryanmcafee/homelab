@@ -1467,13 +1467,16 @@ argo-workflows:
         memory: 48Mi
 
   controller:
+    # The controller holds cluster-wide pod, Workflow and ConfigMap informers
+    # plus the semaphore/mutex managers; at 48Mi it was OOMKilled within
+    # seconds of starting under the triage-agent workflow load.
     resources:
       requests:
         cpu: 100m
-        memory: 32Mi
+        memory: 128Mi
       limits:
         cpu: 500m
-        memory: 48Mi
+        memory: 256Mi
 
     # Garbage collection of live objects. Completed workflows stay browsable in
     # the archive (retentionDays) after their TTL removes them from the cluster.

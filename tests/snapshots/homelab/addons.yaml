@@ -857,10 +857,10 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 48Mi
+              memory: 256Mi
             requests:
               cpu: 100m
-              memory: 32Mi
+              memory: 128Mi
           workflowDefaults:
             spec:
               podGC:
