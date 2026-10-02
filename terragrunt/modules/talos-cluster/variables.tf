@@ -303,7 +303,7 @@ variable "install_kubelet_csr_approver_inline" {
 
 # Image Cache Configuration
 variable "image_cache_endpoint" {
-  description = "Image cache registry endpoint URL (e.g., 'https://192.168.1.100:5000'). When set, registry mirrors will use this cache as the primary endpoint."
+  description = "Image cache registry endpoint URL (e.g., 'https://198.51.100.100:5000'). When set, registry mirrors will use this cache as the primary endpoint."
   type        = string
   default     = ""
 }

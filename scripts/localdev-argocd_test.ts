@@ -2784,3 +2784,19 @@ test("localdev ArgoCD persists per-resource health, so diagnose can print it", a
       : undefined;
   assertEquals(String(persist), "true");
 });
+test("localdev Redis avoids the ECR Public cold-cache data limit", async () => {
+  const values = parseYaml(await Bun.file(ARGOCD_VALUES).text());
+  const redis =
+    typeof values === "object" && values !== null && "redis" in values
+      ? values.redis
+      : undefined;
+  const image =
+    typeof redis === "object" && redis !== null && "image" in redis
+      ? redis.image
+      : undefined;
+  const repository =
+    typeof image === "object" && image !== null && "repository" in image
+      ? image.repository
+      : undefined;
+  assertEquals(repository, "docker.io/library/redis");
+});

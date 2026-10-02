@@ -1,0 +1,21 @@
+# expect: Healthy
+# message: Stream successfully created
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: pf-events
+  namespace: nats
+  generation: 1
+spec:
+  name: PF_EVENTS
+  subjects:
+    - pf.*.*.*.*.*.ev
+  retention: limits
+status:
+  observedGeneration: 1
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: Created
+      message: Stream successfully created
+      lastTransitionTime: "2026-09-28T00:00:00Z"

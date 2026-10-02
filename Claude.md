@@ -259,6 +259,14 @@ charts:
   plugin-barman-cloud: "0.8.0"
   # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
   argo-workflows: "1.0.18"
+  # renovate: datasource=helm depName=argo-rollouts registryUrl=https://argoproj.github.io/argo-helm
+  argo-rollouts: "2.43.2"
+  # renovate: datasource=helm depName=nats registryUrl=https://nats-io.github.io/k8s/helm/charts/
+  nats: "2.15.0"
+  # NACK ships the jetstream.nats.io CRDs (Stream, Consumer) that charts/nats-config
+  # declares the platform streams with. Bump it together with the nats chart.
+  # renovate: datasource=helm depName=nack registryUrl=https://nats-io.github.io/k8s/helm/charts/
+  nack: "0.35.0"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
   plex-media-server: "1.6.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
@@ -316,8 +324,11 @@ charts:
   # Cluster-wide codesearch (docs/apps/codesearch.md); the chart's image tag is the same version.
   # renovate: datasource=helm depName=codesearch registryUrl=https://ryanmcafee.github.io/codesearch
   codesearch: "1.7.0"
+  # Componentized LiteLLM chart (gateway, backend, ui, migrations Job), OCI-only (issue #424).
+  # renovate: datasource=docker depName=ghcr.io/berriai/litellm/chart/litellm
+  litellm: "1.102.1"
 images:
-  homelab-cmp: "0.1.52"
+  homelab-cmp: "0.1.54"
   # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);
   # bump it with every change under triage-agent/ so main publishes a new tag.
   triage-agent: "0.1.1"
@@ -355,10 +366,6 @@ tools:
   helm: "4.3.0"
   # renovate: datasource=github-releases depName=kubernetes-sigs/kind
   kind: "v0.33.0"
-  # Code search MCP server of the Paperclip agents (PAPERCLIP_MCP_CODESEARCH), from the
-  # PAPERCLIP_CODESEARCH_REPO default; another repository sets PAPERCLIP_CODESEARCH_VERSION.
-  # renovate: datasource=git-tags depName=https://github.com/ryanmcafee/codesearch
-  codesearch: "v1.6.1"
   # renovate: datasource=github-releases depName=kyverno/chainsaw
   chainsaw: "v0.2.15"
   # renovate: datasource=github-releases depName=argoproj/argo-cd

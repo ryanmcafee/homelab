@@ -122,6 +122,10 @@ keys:
       - "true"
       - "false"
 
+  LITELLM_HOSTNAME:
+    description: LiteLLM admin UI and gateway hostname
+    const: "litellm.{{.DOMAIN}}"
+
   # PVC names — per-app persistent volume claims
   PLEX_CONFIG_PVC:
     description: PVC name for Plex config

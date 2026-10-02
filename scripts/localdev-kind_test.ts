@@ -79,7 +79,7 @@ test("hostsTomlPath: certs.d/<host>/hosts.toml", () => {
 // ----------------------------------------------------------------------------
 // Upstream table
 // ----------------------------------------------------------------------------
-test("registryUpstreams: the five upstreams from the plan, unique names and hosts", () => {
+test("registryUpstreams: every cached upstream, unique names and hosts", () => {
   const hosts = registryUpstreams.map((u) => u.host);
   assertEquals(hosts, [
     "docker.io",
@@ -87,6 +87,7 @@ test("registryUpstreams: the five upstreams from the plan, unique names and host
     "quay.io",
     "registry.k8s.io",
     "lscr.io",
+    "ecr-public.aws.com",
   ]);
   assertEquals(
     new Set(registryUpstreams.map((u) => u.name)).size,
@@ -97,6 +98,21 @@ test("registryUpstreams: the five upstreams from the plan, unique names and host
   for (const u of registryUpstreams) {
     assert(u.upstream.startsWith("https://"), u.upstream);
     if (u.host !== "docker.io") assertEquals(u.upstream, `https://${u.host}`);
+  }
+});
+
+test("registryUpstreams: covers every registry the argo-cd chart pulls from", () => {
+  // The ArgoCD bootstrap runs before any Application exists, so an uncached
+  // pull here fails the whole level-2 job rather than one Application. Hosts
+  // from `helm show values argo-cd` at configuration/versions.yaml charts.argocd.
+  const argocdImageHosts = [
+    "quay.io", // argoproj/argocd: controller, server, repo-server, applicationset
+    "ghcr.io", // oliver006/redis_exporter, dexidp/dex
+    "ecr-public.aws.com", // docker/library/redis
+  ];
+  const cached = new Set(registryUpstreams.map((u) => u.host));
+  for (const host of argocdImageHosts) {
+    assert(cached.has(host), `${host} has no pull-through cache`);
   }
 });
 

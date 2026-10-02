@@ -1,0 +1,61 @@
+{{- $p := .Values.canaryHttpHealth }}
+# Metric source: an in-cluster HTTP probe Job against the canary Service, run by
+# the Rollouts controller between canary steps. curl's exit code is the verdict —
+# a connection refused, a timeout or any status >= 400 fails the measurement and
+# aborts the rollout back to the stable ReplicaSet. No Prometheus dependency.
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterAnalysisTemplate
+metadata:
+  name: canary-http-health
+spec:
+  args:
+    # The Rollout's canaryService — the controller pins its selector to the
+    # canary pod-template-hash, so the probe never reaches a stable pod.
+    - name: service
+    - name: namespace
+    - name: port
+      value: "80"
+    - name: path
+      value: /healthz
+  metrics:
+    - name: canary-http-health
+      initialDelay: {{ $p.initialDelay }}
+      count: {{ $p.count }}
+      interval: {{ $p.interval }}
+      failureLimit: {{ $p.failureLimit }}
+      provider:
+        job:
+          spec:
+            backoffLimit: 0
+            activeDeadlineSeconds: {{ $p.jobDeadlineSeconds }}
+            ttlSecondsAfterFinished: {{ $p.jobTTLSeconds }}
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: probe
+                    image: curlimages/curl:{{ .Values.images.curl }}
+                    command: ["sh", "-c"]
+                    args:
+                      - |
+                        set -eu
+                        URL="http://{{ `{{args.service}}` }}.{{ `{{args.namespace}}` }}.svc.cluster.local:{{ `{{args.port}}` }}{{ `{{args.path}}` }}"
+                        echo "canary-http-health: probing $URL"
+                        curl -fsS --max-time {{ $p.probeTimeoutSeconds }} -o /dev/null "$URL"
+                    resources:
+                      requests:
+                        cpu: 10m
+                        memory: 16Mi
+                      limits:
+                        cpu: 100m
+                        memory: 64Mi
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        drop:
+                          - ALL
+                      seccompProfile:
+                        type: RuntimeDefault
