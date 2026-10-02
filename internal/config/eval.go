@@ -237,11 +237,16 @@ func Eval(schema *Schema, versions *Versions, setName string, layers ...map[stri
 		}
 	}
 
-	// 6. Derive the control-plane address list. Once, here — every consumer
-	// reads the field instead of re-applying the key-name rule.
+	// 6. Derive the node address lists. Once, here — every consumer reads the
+	// fields instead of re-applying the key-name rules.
 	controlPlane, err := DeriveControlPlane(schema, resolved)
 	if err != nil {
 		return nil, fmt.Errorf("control-plane derivation failed for set %q: %w", setName, err)
+	}
+
+	workers, err := DeriveWorkers(schema, resolved)
+	if err != nil {
+		return nil, fmt.Errorf("worker derivation failed for set %q: %w", setName, err)
 	}
 
 	// 7. Parse the GitOps remote. Once, here — templates read the parts instead
@@ -256,6 +261,7 @@ func Eval(schema *Schema, versions *Versions, setName string, layers ...map[stri
 		Versions:     *versions,
 		Set:          setName,
 		ControlPlane: controlPlane,
+		Workers:      workers,
 		GitOps:       gitOps,
 	}, nil
 }
@@ -378,38 +384,80 @@ func cutLast(s, sep string) (before, after string, found bool) {
 // smaller. Omitting an optional higher ordinal is a smaller cluster; declaring
 // CP3_IP and leaving it blank is a question nobody answered, and the caller is
 // on a path that destroys nodes.
-func DeriveControlPlane(schema *Schema, values map[string]string) ([]ControlPlaneMember, error) {
-	cp, ok := schema.controlPlanePattern()
+func DeriveControlPlane(schema *Schema, values map[string]string) ([]NodeMember, error) {
+	return deriveAddressFamily(schema, values, addressFamily{
+		role:  RoleControlPlaneAddress,
+		label: "control-plane",
+		// A control plane with no members is not a small cluster, it is a
+		// question nobody answered, and the caller destroys nodes.
+		requireAtLeastOne: true,
+		indeterminate: "the member count is indeterminate, " +
+			"which contracts/cluster/topology.v1.yaml treats as unsafe",
+	})
+}
+
+// DeriveWorkers resolves the worker address list from the schema's
+// RoleWorkerAddress key pattern, ascending by ordinal.
+//
+// It is DeriveControlPlane's rule applied to a second family, and it differs in
+// exactly one way: an empty result is allowed. A cluster must have an etcd
+// member, so a control plane that matched nothing is a failure; it need not have
+// a worker, and how few this repository's own schema tolerates is stated by
+// WORKER1_IP's `required: true` — a fact an operator can read — rather than by a
+// minimum hidden in the resolver.
+//
+// The indeterminate rule does carry over unchanged: a declared worker key left
+// blank fails here rather than silently shrinking the cluster by one node.
+func DeriveWorkers(schema *Schema, values map[string]string) ([]NodeMember, error) {
+	return deriveAddressFamily(schema, values, addressFamily{
+		role:              RoleWorkerAddress,
+		label:             "worker",
+		requireAtLeastOne: false,
+		indeterminate:     "the node list is indeterminate, which is not the same as one node fewer",
+	})
+}
+
+// addressFamily parameterises deriveAddressFamily over the two node roles.
+type addressFamily struct {
+	role              string
+	label             string
+	requireAtLeastOne bool
+	indeterminate     string
+}
+
+// deriveAddressFamily resolves one role's address list from the schema's key
+// pattern for that role, ascending by ordinal. It returns nil when the schema
+// declares no such family, which is how the small fixture schemas in tests stay
+// unaffected.
+func deriveAddressFamily(schema *Schema, values map[string]string, f addressFamily) ([]NodeMember, error) {
+	fam, ok := schema.patternForRole(f.role)
 	if !ok {
 		return nil, nil
 	}
 
-	var members []ControlPlaneMember
+	var members []NodeMember
 	for _, name := range sortedNames(values) {
-		m := cp.re.FindStringSubmatch(name)
+		m := fam.re.FindStringSubmatch(name)
 		if m == nil {
 			continue
 		}
 		value := strings.TrimSpace(values[name])
 		if value == "" {
 			return nil, fmt.Errorf(
-				"control-plane address key %q is declared with an empty value: the member count is indeterminate, "+
-					"which contracts/cluster/topology.v1.yaml treats as unsafe — give it an address or remove the key",
-				name)
+				"%s address key %q is declared with an empty value: %s — give it an address or remove the key",
+				f.label, name, f.indeterminate)
 		}
 		ordinal, err := strconv.Atoi(m[1])
 		if err != nil {
 			// Unreachable while the pattern's capture group is digits, but the
 			// pattern is data and a future one may not be.
-			return nil, fmt.Errorf("control-plane address key %q has non-numeric ordinal %q: %w", name, m[1], err)
+			return nil, fmt.Errorf("%s address key %q has non-numeric ordinal %q: %w", f.label, name, m[1], err)
 		}
-		members = append(members, ControlPlaneMember{Ordinal: ordinal, Key: name, Address: value})
+		members = append(members, NodeMember{Ordinal: ordinal, Key: name, Address: value})
 	}
 
-	if len(members) == 0 {
-		return nil, fmt.Errorf(
-			"no control-plane address key matched %q: the member count is indeterminate, "+
-				"which contracts/cluster/topology.v1.yaml treats as unsafe", cp.pattern)
+	if f.requireAtLeastOne && len(members) == 0 {
+		return nil, fmt.Errorf("no %s address key matched %q: %s", f.label, fam.pattern, f.indeterminate)
 	}
 
 	// Ascending by ordinal, not by key name: sorted as strings CP10_IP sorts
@@ -420,8 +468,8 @@ func DeriveControlPlane(schema *Schema, values map[string]string) ([]ControlPlan
 		if members[i].Ordinal == members[i-1].Ordinal {
 			// Two key names, one ordinal (CP1_IP and CP01_IP). Which one is
 			// cp-1 would be arbitrary, so refuse rather than pick.
-			return nil, fmt.Errorf("control-plane keys %q and %q both resolve to ordinal %d",
-				members[i-1].Key, members[i].Key, members[i].Ordinal)
+			return nil, fmt.Errorf("%s keys %q and %q both resolve to ordinal %d",
+				f.label, members[i-1].Key, members[i].Key, members[i].Ordinal)
 		}
 	}
 

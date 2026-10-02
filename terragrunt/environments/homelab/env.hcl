@@ -185,30 +185,42 @@ locals {
   unifi_insecure = true
   unifi_site     = get_env("UNIFI_SITE", "default")
 
-  # Resource allocation
-  # Control plane: 3 nodes x 8GB = 24GB total
-  # Workers: 3 nodes x 50GB = 150GB total
-  # Total cluster memory: 174GB
+  # Resource allocation, per node. At this cluster's shape — three control
+  # planes, three workers — that is 24GB of control plane and 150GB of worker.
+  # The totals are a consequence of how many addresses the ConfigSet lists, so
+  # they are not stated here as facts a fork would inherit wrongly.
+
+  # NODE KEY PATTERNS. These must equal the schema's keyPatterns entries in
+  # configuration/schema/network.schema.yaml, and the control-plane one must
+  # equal contracts/cluster/topology.v1.yaml controlPlane.countKeyPattern.
+  # TestTerragruntNodeMapsDeriveFromKeyPatterns fails if either drifts.
+  cp_key_pattern     = "^CP([0-9]+)_IP$"
+  worker_key_pattern = "^WORKER([0-9]+)_IP$"
 
   # Addresses and the hosting node come from the ConfigSet; the sizes stay here
   # because they are a capacity choice, not the operator's identity.
+  #
+  # The node maps are DERIVED from the ConfigSet's address keys rather than
+  # enumerated. Three literal cp-N entries stated this cluster's topology as
+  # firmly as a count would, and a fork editing terragrunt to add a fourth node
+  # is a fork editing the repository — the thing ADR-035 removed one layer up.
+  #
+  # Ordinal -> address, keyed through tonumber so a CP01_IP key lands on cp-1,
+  # the same node the ansible inventory names from the resolver's integer
+  # .Ordinal. Two keys claiming one ordinal is refused by the resolver before
+  # terragrunt ever reads the export.
+  cp_ips = {
+    for key, ip in local.config : tonumber(regex(local.cp_key_pattern, key)[0]) => ip
+    if length(regexall(local.cp_key_pattern, key)) > 0
+  }
+  worker_ips = {
+    for key, ip in local.config : tonumber(regex(local.worker_key_pattern, key)[0]) => ip
+    if length(regexall(local.worker_key_pattern, key)) > 0
+  }
+
   control_plane_nodes = {
-    "cp-1" = {
-      ip        = local.config.CP1_IP
-      host_node = local.config.PROXMOX_NODE
-      cores     = 2
-      memory    = 8192 # 8GB
-      disk_size = 50
-    }
-    "cp-2" = {
-      ip        = local.config.CP2_IP
-      host_node = local.config.PROXMOX_NODE
-      cores     = 2
-      memory    = 8192 # 8GB
-      disk_size = 50
-    }
-    "cp-3" = {
-      ip        = local.config.CP3_IP
+    for ordinal, ip in local.cp_ips : "cp-${ordinal}" => {
+      ip        = ip
       host_node = local.config.PROXMOX_NODE
       cores     = 2
       memory    = 8192 # 8GB
@@ -216,30 +228,18 @@ locals {
     }
   }
 
+  # Worker 1 is this repository's GPU node: the schema describes WORKER1_IP that
+  # way and `homelab verify gpu` resolves the GPU node by that key. Sizing
+  # follows the same split — the GPU worker gets the extra cores.
   worker_nodes = {
-    "worker-1" = {
-      ip        = local.config.WORKER1_IP
+    for ordinal, ip in local.worker_ips : "worker-${ordinal}" => {
+      ip        = ip
       host_node = local.config.PROXMOX_NODE
-      cores     = 8
+      cores     = ordinal == "1" ? 8 : 4
       memory    = 51200 # 50GB
       disk_size = 100
-      gpu       = true # GPU worker: Intel Arc (gpu_vendor); the NVIDIA Quadro P2200 is installed but unused
-    }
-    "worker-2" = {
-      ip        = local.config.WORKER2_IP
-      host_node = local.config.PROXMOX_NODE
-      cores     = 4
-      memory    = 51200 # 50GB
-      disk_size = 100
-      gpu       = false
-    }
-    "worker-3" = {
-      ip        = local.config.WORKER3_IP
-      host_node = local.config.PROXMOX_NODE
-      cores     = 4
-      memory    = 51200 # 50GB
-      disk_size = 100
-      gpu       = false
+      # GPU worker: Intel Arc (gpu_vendor); the NVIDIA Quadro P2200 is installed but unused
+      gpu = ordinal == "1"
     }
   }
 }

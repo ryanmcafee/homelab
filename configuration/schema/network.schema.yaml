@@ -27,6 +27,22 @@ keyPatterns:
     role: control-plane-address
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
+  # The workers, as a list, by the same rule. Three individually required
+  # WORKER1/2/3_IP scalars stated this cluster's worker count as firmly as a
+  # literal 3 would, and no value-level check could see it: a fork running two
+  # workers or six had nowhere to say so, and a one-control-plane fork that had
+  # just been freed of CP2_IP/CP3_IP still failed validation on WORKER2_IP.
+  #
+  # Unlike the control plane, no contract file restates this pattern, because no
+  # contract needs it: a worker holds no etcd member, so nothing here gates a
+  # destructive operation. WORKER1_IP stays a literal required key below — that
+  # is where "this cluster has at least one worker" is stated, so an operator
+  # reads it in the schema rather than inferring it from resolver behaviour.
+  "^WORKER([0-9]+)_IP$":
+    description: Worker node IP, one key per node (WORKER1_IP, WORKER2_IP, ...)
+    role: worker-address
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
 keys:
   DOMAIN:
     description: Base domain for all services
@@ -83,18 +99,14 @@ keys:
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
+  # The first worker, and the only one that is individually required. A cluster
+  # with no worker is a real Talos shape, but it needs a schedulable control
+  # plane (terragrunt allow_scheduling_on_control_planes) to run a single pod, so
+  # permitting it here alone would render a cluster that provisions and schedules
+  # nothing. `homelab verify gpu` also reads this key by name for the GPU node.
+  # Every other worker is admitted by the WORKERn_IP pattern under keyPatterns.
   WORKER1_IP:
     description: Worker node 1 IP (GPU node)
-    required: true
-    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
-
-  WORKER2_IP:
-    description: Worker node 2 IP
-    required: true
-    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
-
-  WORKER3_IP:
-    description: Worker node 3 IP
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
