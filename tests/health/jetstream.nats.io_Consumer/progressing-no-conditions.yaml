@@ -1,0 +1,10 @@
+# expect: Progressing
+# message: Waiting for NACK to report a Ready condition
+apiVersion: jetstream.nats.io/v1beta2
+kind: Consumer
+metadata:
+  name: verify-workload-v1
+  namespace: nats
+spec:
+  durableName: verify-workload-v1
+  streamName: PF_EVENTS

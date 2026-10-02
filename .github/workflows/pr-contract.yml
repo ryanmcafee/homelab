@@ -48,10 +48,13 @@ jobs:
           # synthetic candidate GitHub is considering for the queue.
           ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
 
-      - name: Install go, helm, kubeconform, conftest, pluto, task from mise.toml
+      - name: Install go, helm, bun, kubeconform, conftest, pluto, task from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go helm kubeconform conftest pluto task
+          install_args: go helm bun kubeconform conftest pluto task
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
 
       - name: Cache kubeconform core schemas
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
