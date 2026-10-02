@@ -1,0 +1,27 @@
+{{- if .Values.account.name }}
+# The tenant's account, as NACK sees it. Every Stream and Consumer below names this resource
+# through `spec.account`, so the controller connects per account rather than through one
+# server-wide credential.
+#
+# `spec.nkey` and NOT `spec.creds`: the static backend issues raw nkeys, while `creds` is an nsc
+# credentials file. The two are not interchangeable and the chart's `nats-sys-creds` default
+# invites the wrong one. NACK holds the tenant account, never `$SYS` -- a system-account
+# controller has cross-account reach over every tenant's streams, which is the boundary the
+# account buys (ADR-043 D4).
+---
+apiVersion: jetstream.nats.io/v1beta2
+kind: Account
+metadata:
+  name: {{ .Values.account.name }}
+  labels:
+    app.kubernetes.io/part-of: {{ .Chart.Name | trimSuffix "-config" }}
+    app.kubernetes.io/component: jetstream-account
+spec:
+  name: {{ .Values.account.natsName }}
+  servers:
+    - {{ .Values.natsUrl }}
+  nkey:
+    secret:
+      name: {{ required "account.credentialSecret is required once account.name is set" .Values.account.credentialSecret }}
+    seed: {{ .Values.account.credentialSecretKey }}
+{{- end }}

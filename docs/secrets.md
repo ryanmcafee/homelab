@@ -43,7 +43,12 @@ Rules that CI enforces:
   `ansible/**` (the Ansible inventory is rendered from `configuration/` and gitignored).
   Use `<KEY>` placeholders and RFC 5737 addresses in docs and tests.
 - The 1Password paths themselves are not secrets and are committed as `*_1P_PATH` keys in
-  `configuration/schema/secrets.schema.yaml`.
+  `configuration/schema/secrets.schema.yaml`. A key whose OnePasswordItem is rendered by a separate
+  `*-config` / `*-dependencies` chart reaches it through the parent Application's
+  `helm.valuesObject`, never through a literal in the child's `values-<env>.yaml`, so changing the
+  key in `configuration/environments/<env>.yaml` is what changes the rendered `spec.itemPath`
+  (`TestOnePasswordItemPathsFollowTheConfigSet` renders the chain for two forks and requires the
+  two paths to differ).
 - The Tailscale ACL is SOPS-encrypted with a dedicated ACL-only age key
   (`op://homelab/tailscale-acl-age-key`), never the master key.
 

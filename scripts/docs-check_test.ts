@@ -19,10 +19,12 @@ import {
   check,
   countApplications,
   docName,
+  e2eSuiteDrift,
   expectedLiterals,
   type Facts,
   parseArgs,
   parseVersions,
+  readmeSuiteMentions,
   readRegion,
   renderBadges,
   renderRouteTable,
@@ -30,6 +32,7 @@ import {
   routeInventory,
   smokeJobs,
   splitDocs,
+  stepNameDrift,
 } from "./docs-check.ts";
 
 const SNAPSHOT = `---
@@ -262,6 +265,7 @@ function facts(): Facts {
     addons: 29,
     applications: 15,
     argoApplications: 68,
+    localdevApplications: 57,
     e2eSuites: ["plex", "grafana"],
     smokeJobs: ["smoke-plex"],
     routes: [
@@ -284,6 +288,17 @@ function facts(): Facts {
   };
 }
 
+test("expectedLiterals: the localdev:up line carries the Kind count, not production's", () => {
+  const readme = expectedLiterals(facts())
+    .filter((l) => l.file === "readme.md")
+    .map((l) => l.expect);
+  assert(readme.includes("57 Applications synced from your working tree"));
+  assert(readme.includes("68 ArgoCD Applications"));
+  assert(!readme.includes("68 Applications synced from your working tree"));
+  // Anchored, so a bare "57 Applications" elsewhere on the page cannot satisfy it.
+  assert(!readme.includes("57 Applications"));
+});
+
 test("expectedLiterals: envoy-internal hosts except the echo comparison route", () => {
   const lits = expectedLiterals(facts());
   const svg = lits
@@ -301,7 +316,7 @@ test("check: reports stale regions and literals, --fix rewrites what it can", ()
   const files = new Map<string, string>([
     [
       "readme.md",
-      "<!-- docs-check:begin badges -->\nstale\n<!-- docs-check:end badges -->\n32 addons, 15 applications, 73 Applications, 2 chainsaw suites, 73 ArgoCD Applications in all",
+      "<!-- docs-check:begin badges -->\nstale\n<!-- docs-check:end badges -->\n32 addons, 15 applications, 73 Applications synced from your working tree, 2 chainsaw suites, 73 ArgoCD Applications in all",
     ],
     ["docs/networking.md", "no region here"],
     [
@@ -318,7 +333,11 @@ test("check: reports stale regions and literals, --fix rewrites what it can", ()
   assert(whats.includes("readme.md: region badges is stale"));
   assert(whats.includes("docs/networking.md: region route-table missing"));
   assert(whats.includes('readme.md: expected "29 addons"'));
-  assert(whats.includes('readme.md: expected "68 Applications"'));
+  assert(
+    whats.includes(
+      'readme.md: expected "57 Applications synced from your working tree"',
+    ),
+  );
   assert(whats.includes('readme.md: expected "68 ArgoCD Applications"'));
   assert(whats.includes('.github/homelab.svg: expected "addons · 29"'));
   assertEquals(
@@ -329,7 +348,7 @@ test("check: reports stale regions and literals, --fix rewrites what it can", ()
   assertStringIncludes(readme, "badge/Talos-v1.14.0-");
   assertStringIncludes(
     readme,
-    "29 addons, 15 applications, 68 Applications, 2 chainsaw suites, 68 ArgoCD Applications in all",
+    "29 addons, 15 applications, 57 Applications synced from your working tree, 2 chainsaw suites, 68 ArgoCD Applications in all",
   );
   assertStringIncludes(fixed.get(".github/homelab.svg")!, "addons · 29");
   // the applications.md tables were empty rows -> header only, still rewritten
@@ -345,7 +364,7 @@ test("check: in-sync input yields no drift", () => {
     new Map([
       [
         "readme.md",
-        "<!-- docs-check:begin badges -->\n\n<!-- docs-check:end badges -->\n29 addons 15 applications 68 Applications 2 chainsaw suites 68 ArgoCD Applications in all",
+        "<!-- docs-check:begin badges -->\n\n<!-- docs-check:end badges -->\n29 addons 15 applications 57 Applications synced from your working tree 2 chainsaw suites 68 ArgoCD Applications in all",
       ],
       [
         "docs/networking.md",
@@ -376,4 +395,163 @@ test("parseArgs", () => {
   assertEquals(parseArgs(["--fix", "--root", "/x", "--json"]).root, "/x");
   assertEquals(parseArgs(["--root=/y"]).root, "/y");
   assertThrows(() => parseArgs(["--nope"]), Error, "unknown argument");
+});
+
+const E2E_README = `# e2e
+
+## Layout
+
+| Path | Purpose |
+|------|---------|
+| \`.chainsaw.yaml\` | Configuration |
+| \`plex/\` | Plex answers |
+| \`grafana/\`, \`sonarr/\` | HTTP through Envoy Gateway |
+
+## How the HTTP tests reach an app
+
+| \`notasuite/\` | a later table is not the suite table |
+`;
+
+function chainsaw(...steps: string[]): string {
+  return `---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: t
+spec:
+  steps:
+${steps.map((s) => `    - name: ${s}\n      try: []`).join("\n")}
+`;
+}
+
+function suiteFiles(readme: string, suites: Record<string, string>) {
+  const files = new Map([["tests/e2e/README.md", readme]]);
+  for (const [s, text] of Object.entries(suites)) {
+    files.set(`tests/e2e/${s}/chainsaw-test.yaml`, text);
+  }
+  return files;
+}
+
+const CLEAN_SUITES = {
+  plex: chainsaw("applications-healthy", "curl-plex"),
+  grafana: chainsaw("applications-healthy", "curl-grafana"),
+  sonarr: chainsaw("applications-healthy"),
+};
+
+test("readmeSuiteMentions: directory tokens of the Layout table only", () => {
+  assertEquals(readmeSuiteMentions(E2E_README), ["plex", "grafana", "sonarr"]);
+  assertEquals(readmeSuiteMentions("# no layout here"), undefined);
+});
+
+test("e2eSuiteDrift: a clean tree has no drift", () => {
+  assertEquals(
+    e2eSuiteDrift(
+      ["grafana", "plex", "sonarr"],
+      suiteFiles(E2E_README, CLEAN_SUITES),
+    ),
+    [],
+  );
+});
+
+test("e2eSuiteDrift: a suite listed twice in the README fails", () => {
+  const readme = E2E_README.replace(
+    "| `plex/` | Plex answers |",
+    "| `plex/` | Plex answers |\n| `plex/` | Plex, again from the other branch |",
+  );
+  const drift = e2eSuiteDrift(
+    ["grafana", "plex", "sonarr"],
+    suiteFiles(readme, CLEAN_SUITES),
+  );
+  assertEquals(drift, [
+    {
+      file: "tests/e2e/README.md",
+      what: "suite plex/ has 2 rows in the Layout table (expected exactly 1)",
+      fixable: false,
+    },
+  ]);
+});
+
+test("e2eSuiteDrift: undocumented suites and orphan rows fail", () => {
+  const drift = e2eSuiteDrift(
+    ["grafana", "plex", "radarr"],
+    suiteFiles(E2E_README, {
+      ...CLEAN_SUITES,
+      radarr: chainsaw("applications-healthy"),
+    }),
+  );
+  assertEquals(
+    drift.map((d) => d.what),
+    [
+      "suite radarr/ has no row in the Layout table (expected exactly 1)",
+      "row sonarr/ names no tests/e2e/sonarr/chainsaw-test.yaml",
+    ],
+  );
+});
+
+test("e2eSuiteDrift: a missing README or Layout table fails", () => {
+  const plex = { plex: chainsaw("a") };
+  assertEquals(
+    e2eSuiteDrift(["plex"], new Map()).map((d) => `${d.file}: ${d.what}`),
+    [
+      "tests/e2e/README.md: file missing (suite table)",
+      "tests/e2e/plex/chainsaw-test.yaml: file missing",
+    ],
+  );
+  assertEquals(
+    e2eSuiteDrift(["plex"], suiteFiles("# e2e", plex)).map((d) => d.what),
+    ["Layout table missing"],
+  );
+});
+
+test("stepNameDrift: duplicate, empty and missing step names fail", () => {
+  const file = "tests/e2e/plex/chainsaw-test.yaml";
+  assertEquals(stepNameDrift(file, chainsaw("a", "b")), []);
+  assertEquals(
+    stepNameDrift(file, chainsaw("curl-plex", "a", "curl-plex")).map(
+      (d) => d.what,
+    ),
+    ['step name "curl-plex" is used 2 times (step names must be unique)'],
+  );
+  assertEquals(
+    stepNameDrift(file, chainsaw('""', "a")).map((d) => d.what),
+    ["step 1 has no name"],
+  );
+  assertEquals(
+    stepNameDrift(
+      file,
+      chainsaw("a").replace("    - name: a\n", "    -\n"),
+    ).map((d) => d.what),
+    ["step 1 has no name"],
+  );
+});
+
+test("stepNameDrift: unparseable YAML and a Test with no steps fail", () => {
+  const file = "tests/e2e/plex/chainsaw-test.yaml";
+  const [bad] = stepNameDrift(file, "spec: [unclosed");
+  assertStringIncludes(bad.what, "does not parse:");
+  assertEquals(
+    stepNameDrift(file, "kind: Test\nspec: {}\n").map((d) => d.what),
+    ["Test has no steps"],
+  );
+  assertEquals(
+    stepNameDrift(file, "kind: ConfigMap\n").map((d) => d.what),
+    ["no kind: Test document"],
+  );
+});
+
+test("e2eSuiteDrift: step-name drift is reported per suite file", () => {
+  const drift = e2eSuiteDrift(
+    ["grafana", "plex", "sonarr"],
+    suiteFiles(E2E_README, {
+      ...CLEAN_SUITES,
+      plex: chainsaw("curl-plex", "curl-plex"),
+    }),
+  );
+  assertEquals(drift, [
+    {
+      file: "tests/e2e/plex/chainsaw-test.yaml",
+      what: 'step name "curl-plex" is used 2 times (step names must be unique)',
+      fixable: false,
+    },
+  ]);
 });

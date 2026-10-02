@@ -1,0 +1,105 @@
+# promtool unit tests for the homelab-nats-jetstream rules with two NATS
+# accounts in one install (charts/addons/templates/kube-prometheus-stack.yaml,
+# docs/runbooks/pf-work-age-expiry.md).
+#
+# ADR-043 gives every tenant its own NATS account, and PF_WORK exists once per
+# account. prometheus-nats-exporter 0.20.1 labels every nats_stream_* and
+# nats_consumer_* series with `account` (collector/jsz.go), so two tenants in the
+# same namespace and job differ only by that label. Aggregating it away maxes one
+# tenant's head against the other's, so each case below was silent before the
+# rules kept `account`: a real loss, a blind tenant and an aging head all hidden
+# by a healthy neighbour.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 1. tenant-a loses three messages with no consumer bound; tenant-b drains two
+  #    and acks both. Collapsed, tenant-b's head (10 -> 12) won the max and its
+  #    two acks cancelled the advance, so tenant-a's loss read as zero.
+  - interval: 30s
+    name: one account's loss is not netted against another account's acks
+    input_series:
+      - series: 'nats_stream_first_seq{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '1+0x10 4+0x20'
+      - series: 'nats_stream_total_messages{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '3+0x10 0+0x20'
+      - series: 'nats_stream_first_seq{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '10+0x10 12+0x20'
+      - series: 'nats_stream_total_messages{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '2+0x10 0+0x20'
+      - series: 'nats_consumer_ack_floor_stream_seq{account="tenant-b",stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="true",namespace="nats",job="nats"}'
+        values: '9+0x10 11+0x20'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: PFWorkMessagesExpiredUnacked
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              account: tenant-a
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: '3 PF_WORK messages left the stream without being acked'
+              description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+
+  # 2. tenant-a stops reporting while tenant-b keeps reporting from the same
+  #    exporter. Collapsed, tenant-b kept the per-install series alive and the
+  #    blind tenant was invisible.
+  - interval: 30s
+    name: one account goes blind while another keeps reporting
+    input_series:
+      - series: 'nats_stream_first_seq{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '1+0x120 _x120'
+      - series: 'nats_stream_total_messages{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '3+0x120 _x120'
+      - series: 'nats_stream_first_seq{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '5+0x240'
+      - series: 'nats_stream_total_messages{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '3+0x240'
+    alert_rule_test:
+      - eval_time: 55m
+        alertname: PFWorkStreamMetricsAbsent
+        exp_alerts: []
+      - eval_time: 1h40m
+        alertname: PFWorkStreamMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              account: tenant-a
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
+              description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+
+  # 3. tenant-a's head freezes with work queued; tenant-b's head keeps advancing
+  #    at a higher sequence. Collapsed, the max followed tenant-b, so changes()
+  #    never saw tenant-a's head stop.
+  - interval: 30s
+    name: one account's aging head is not hidden by another account's progress
+    input_series:
+      - series: 'nats_stream_first_seq{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '1+0x240 2+0x2700'
+      - series: 'nats_stream_total_messages{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '3+0x2940'
+      - series: 'nats_stream_first_seq{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '100+1x2940'
+      - series: 'nats_stream_total_messages{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '3+0x2940'
+    alert_rule_test:
+      - eval_time: 14h30m
+        alertname: PFWorkOldestUnackedAging
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              account: tenant-a
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: 'The oldest unacked PF_WORK message has been queued for more than 12h'
+              description: 'nats_stream_first_seq has not moved for 12h while the stream was never empty, so the head message is at least 12h old and PF_WORK max_age is 24h. Age expiry deletes it with no advisory and no per-message signal. docs/runbooks/pf-work-age-expiry.md.'

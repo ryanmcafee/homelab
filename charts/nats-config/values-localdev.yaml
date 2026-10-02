@@ -1,0 +1,23 @@
+# nats-config — local development overrides
+#
+# Kind is a single node, so every stream asks for one replica. A stream that
+# requests more replicas than there are servers never reports healthy, which is
+# why this is not left to the chart default.
+replicas: 1
+
+# Kind provisions a 2 GiB JetStream file store (nats.jetstream.storage.size in
+# charts/addons/values-localdev.yaml), so the homelab budget cannot apply here:
+# four limits summing above the store are collectively unbounded and the peer
+# reaches `insufficient resources (10023)` before any stream reaches its own
+# ceiling. These hold the split both surfaces share — 33.3 / 50 / 4.2 / 12.5 —
+# and total 1.125 GiB, 56% of the store (ADR-042 `max_bytes_sum_rule`).
+maxBytes:
+  PF_EVENTS: 402653184 # 384 MiB, 33.3% of the budget
+  PF_AUDIT: 603979776 # 576 MiB, 50%
+  PF_WORK: 50331648 # 48 MiB, 4.2%
+  PF_DLQ: 150994944 # 144 MiB, 12.5%
+
+# Restates the file store this surface provisions. The parent Application injects
+# the real value at sync time; this is what makes the sum rule checkable when the
+# chart renders on its own, and the drift gate pins the two equal.
+fileStoreSize: 2Gi

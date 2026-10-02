@@ -1,0 +1,470 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: argo-rollouts
+spec:
+  description: >-
+    Progressive delivery end to end. The argo-rollouts and argo-rollouts-config Applications are
+    Healthy, the shipped paperclip-exporter workload is a canary Rollout wired to the
+    canary-http-health ClusterAnalysisTemplate, and a fixture Rollout in the chainsaw namespace
+    proves both halves of the contract against that same template: a good revision is promoted
+    after a Successful AnalysisRun, and a revision whose pods are Ready but do not serve the
+    Service port is aborted back to the stable ReplicaSet by a Failed AnalysisRun — no operator
+    and no kubectl rollback. The stable Service answers 200 throughout the abort.
+  steps:
+    - name: rollouts-healthy
+      description: The argo-rollouts and argo-rollouts-config Applications are Healthy and Succeeded.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: argo-rollouts
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: argo-rollouts-config
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: ClusterAnalysisTemplate
+              metadata:
+                name: canary-http-health
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: argo-rollouts
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: argo-rollouts-config
+            namespace: argocd
+
+    - name: shipped-workload-is-a-canary-rollout
+      description: >-
+        paperclip-exporter, the real golden-path workload, is a Rollout with a canary strategy
+        whose analysis step is the same ClusterAnalysisTemplate this test exercises.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: paperclip-exporter
+                namespace: paperclip
+              spec:
+                strategy:
+                  canary:
+                    canaryService: paperclip-exporter-canary
+                    stableService: paperclip-exporter
+                    (length(steps[?analysis != null])): 1
+                    (steps[?analysis != null] | [0].analysis.templates[0].templateName): canary-http-health
+                    (steps[?analysis != null] | [0].analysis.templates[0].clusterScope): true
+              status:
+                phase: Healthy
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Rollout
+            name: paperclip-exporter
+            namespace: paperclip
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: paperclip
+            namespace: argocd
+
+    - name: fixture-stable
+      description: >-
+        A two-replica canary Rollout and its stable/canary Services reach Healthy. Argo Rollouts
+        skips the canary steps for a first revision, so this is the baseline, not a promotion.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: canary-demo
+              spec:
+                selector:
+                  app: canary-demo
+                ports:
+                  - name: http
+                    port: 80
+                    targetPort: 8080
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: canary-demo-canary
+              spec:
+                selector:
+                  app: canary-demo
+                ports:
+                  - name: http
+                    port: 80
+                    targetPort: 8080
+        - apply:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: canary-demo
+              spec:
+                replicas: 2
+                selector:
+                  matchLabels:
+                    app: canary-demo
+                strategy:
+                  canary:
+                    canaryService: canary-demo-canary
+                    stableService: canary-demo
+                    steps:
+                      - setWeight: 50
+                      - analysis:
+                          templates:
+                            - templateName: canary-http-health
+                              clusterScope: true
+                          args:
+                            - name: service
+                              value: canary-demo-canary
+                            - name: namespace
+                              valueFrom:
+                                fieldRef:
+                                  fieldPath: metadata.namespace
+                      - setWeight: 100
+                template:
+                  metadata:
+                    labels:
+                      app: canary-demo
+                  spec:
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 65534
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      # pinned tag, shared with charts/istio-gateways echo;
+                      # agnhost has no entry in configuration/versions.yaml
+                      - name: echo
+                        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+                        args: ["netexec", "--http-port=8080"]
+                        env:
+                          - name: REVISION
+                            value: "1"
+                        ports:
+                          - name: http
+                            containerPort: 8080
+                        readinessProbe:
+                          httpGet:
+                            path: /healthz
+                            port: 8080
+                          periodSeconds: 5
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities:
+                            drop: [ALL]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 16Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: canary-demo
+              status:
+                phase: Healthy
+                readyReplicas: 2
+                updatedReplicas: 2
+                availableReplicas: 2
+      catch:
+        - events: {}
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Rollout
+            name: canary-demo
+
+    - name: canary-promotion
+      description: >-
+        A second, healthy revision walks setWeight 50 -> analysis -> setWeight 100. The AnalysisRun
+        the step creates reaches Successful and the new ReplicaSet becomes the stable one.
+      timeouts:
+        assert: 8m
+      try:
+        - apply:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: canary-demo
+              spec:
+                replicas: 2
+                selector:
+                  matchLabels:
+                    app: canary-demo
+                strategy:
+                  canary:
+                    canaryService: canary-demo-canary
+                    stableService: canary-demo
+                    steps:
+                      - setWeight: 50
+                      - analysis:
+                          templates:
+                            - templateName: canary-http-health
+                              clusterScope: true
+                          args:
+                            - name: service
+                              value: canary-demo-canary
+                            - name: namespace
+                              valueFrom:
+                                fieldRef:
+                                  fieldPath: metadata.namespace
+                      - setWeight: 100
+                template:
+                  metadata:
+                    labels:
+                      app: canary-demo
+                  spec:
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 65534
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: echo
+                        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+                        args: ["netexec", "--http-port=8080"]
+                        env:
+                          - name: REVISION
+                            value: "2"
+                        ports:
+                          - name: http
+                            containerPort: 8080
+                        readinessProbe:
+                          httpGet:
+                            path: /healthz
+                            port: 8080
+                          periodSeconds: 5
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities:
+                            drop: [ALL]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 16Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: AnalysisRun
+              status:
+                phase: Successful
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: canary-demo
+              status:
+                phase: Healthy
+                readyReplicas: 2
+                updatedReplicas: 2
+                availableReplicas: 2
+      catch:
+        - events: {}
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Rollout
+            name: canary-demo
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: AnalysisRun
+
+    - name: automated-rollback
+      description: >-
+        A third revision serves on 8081 while its readiness probe passes there, so its pods are
+        Ready but the Service port answers nothing. The canary-http-health probe Job fails, the
+        AnalysisRun is Failed and the controller aborts the Rollout back to the stable ReplicaSet.
+      timeouts:
+        assert: 8m
+      try:
+        - apply:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: canary-demo
+              spec:
+                replicas: 2
+                selector:
+                  matchLabels:
+                    app: canary-demo
+                strategy:
+                  canary:
+                    canaryService: canary-demo-canary
+                    stableService: canary-demo
+                    steps:
+                      - setWeight: 50
+                      - analysis:
+                          templates:
+                            - templateName: canary-http-health
+                              clusterScope: true
+                          args:
+                            - name: service
+                              value: canary-demo-canary
+                            - name: namespace
+                              valueFrom:
+                                fieldRef:
+                                  fieldPath: metadata.namespace
+                      - setWeight: 100
+                template:
+                  metadata:
+                    labels:
+                      app: canary-demo
+                  spec:
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 65534
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: echo
+                        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+                        # Ready on 8081, silent on the 8080 the Services target.
+                        args: ["netexec", "--http-port=8081"]
+                        env:
+                          - name: REVISION
+                            value: "3-broken"
+                        ports:
+                          - name: http
+                            containerPort: 8081
+                        readinessProbe:
+                          httpGet:
+                            path: /healthz
+                            port: 8081
+                          periodSeconds: 5
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities:
+                            drop: [ALL]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 16Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: AnalysisRun
+              status:
+                phase: Failed
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Rollout
+              metadata:
+                name: canary-demo
+              status:
+                abort: true
+                phase: Degraded
+      catch:
+        - events: {}
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Rollout
+            name: canary-demo
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: AnalysisRun
+
+    - name: stable-still-serves
+      description: >-
+        The rollback left the stable ReplicaSet serving: a curl Job gets 200 from the stable
+        Service, which is what "automated rollback" has to mean for a user.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-canary-demo
+              spec:
+                backoffLimit: 0
+                template:
+                  spec:
+                    restartPolicy: Never
+                    containers:
+                      - name: curl
+                        # pinned to images.curl in configuration/versions.yaml
+                        image: curlimages/curl:8.22.0
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -eu
+                            code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 10 --retry-delay 3 \
+                              --retry-all-errors --max-time 10 "http://canary-demo/healthz")
+                            echo "stable canary-demo: HTTP $code"
+                            test "$code" = "200"
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        securityContext:
+                          runAsNonRoot: true
+                          runAsUser: 100
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: [ALL]
+                          seccompProfile:
+                            type: RuntimeDefault
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-canary-demo
+              status:
+                succeeded: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=curl-canary-demo

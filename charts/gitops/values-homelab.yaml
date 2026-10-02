@@ -138,3 +138,11 @@ notifications:
 previews:
   # The `previews` ApplicationSet + AppProject (docs/runbooks/previews.md).
   enabled: true
+  github:
+    # Authenticated polling: the anonymous per-IP quota is shared with the
+    # cluster's other GitHub callers and runs out. Human step: the 1Password
+    # item must exist (field `token`, read-only token for this repository)
+    # before this syncs.
+    tokenSecret:
+      name: previews-github-token
+      onePasswordItemPath: "vaults/homelab/items/previews-github-token"

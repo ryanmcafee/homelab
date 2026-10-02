@@ -23,6 +23,7 @@ The `Instance`: image `ghcr.io/paperclipai/paperclip` at `images.paperclip` (sha
 `database.mode: external` with `externalURLSecretRef {paperclip-postgres-app, uri}`;
 `deployment.mode: authenticated`, `exposure: private` (the instance sits behind the `envoy-internal` Gateway only; `public` cannot be onboarded by operator 0.19.1 with app 2026.831+, see the values comment), `publicURL: https://paperclip.<domain>`;
 admin bootstrapped once from `PAPERCLIP_ADMIN_EMAIL` + `ADMIN_PASSWORD`, `disableSignUp: false` for now (the bootstrap Job signs the admin up through the same API, see the values comment and bugs.md 2026-09-15; the instance has reported `status.bootstrap` since 2026-09-15, so flipping it back to `true` is an open follow-up);
+`admin.bootstrap: false` in homelab, so no `spec.auth.adminUser` is rendered there: operator 0.19.1 re-creates the bootstrap Job while `adminUser` is in the spec, even after the admin exists, and every re-run failed (bugs.md 2026-09-30). Kind keeps `bootstrap: true` because its database starts empty; a fresh homelab database needs `bootstrap: true` in `helm-apps.tmpl` for one sync;
 `spec.networking.httpRoute` on the `https` listener of `envoy-internal` with external-dns (TLS is the Gateway's wildcard certificate, no per-app Secret);
 Service `paperclip` port 3100, health path `/api/health`; the operator's default NetworkPolicy stays
 enabled; `security.seLinuxRelabel: false` (the operator's default privileged relabel init container is rejected by the namespace's PodSecurity baseline, and chcon has no purpose on Talos or NFS); Instance metrics off (the OTEL preload and collector do not exist here); persistence 10Gi
@@ -48,7 +49,9 @@ kubectl label node <node> paperclip.homelab/pin=true
 kubectl -n paperclip rollout restart statefulset paperclip
 ```
 
-The pin goes away once upstream drops the volume from the Job or gives it pod affinity.
+The pin goes away once upstream drops the volume from the Job or gives it pod affinity. With
+`admin.bootstrap: false` (homelab since 2026-09-30) the Job is not rendered at all, so the pin only
+matters again for a one-sync bootstrap of a fresh database.
 
 ## Configuration keys
 
@@ -237,9 +240,10 @@ repository only, field `GIT_TOKEN`); the init container waits for the Secret.
   kubectl -n paperclip rollout restart statefulset paperclip
   ```
 
-- **Reset the admin password**: the bootstrap Job runs once, so for an existing admin change the
-  password in the app UI. The `ADMIN_PASSWORD` value in 1Password only matters before the first
-  bootstrap or for a fresh database.
+- **Reset the admin password**: homelab renders no bootstrap Job (`admin.bootstrap: false`), so for
+  an existing admin change the password in the app UI. The `ADMIN_PASSWORD` value in 1Password only
+  matters for a fresh database, bootstrapped by setting `bootstrap: true` for one sync and back to
+  `false` once `status.bootstrap` appears.
 - **Back up and restore the database**: daily `pg_dump` and a one-command restore, both Argo
   Workflows ([paperclip-db-restore.md](../runbooks/paperclip-db-restore.md)). Take a backup before
   an image bump: a newer image migrates the schema and the old one cannot read it.
@@ -274,9 +278,13 @@ task prod:diff -- paperclip
 
 ## Follow-ups
 
-- Flip `auth.disableSignUp` back to `true` (bugs.md 2026-09-15): the instance has reported
-  `status.bootstrap` since 2026-09-15, so the Job short-circuits and the workaround is no longer
-  needed. Verify the operator does not re-run the bootstrap Job on the changed spec hash first
+- Flip `auth.disableSignUp` back to `true` (bugs.md 2026-09-15): the Job does not short-circuit,
+  the operator re-ran it every ~70 minutes while `adminUser` was rendered (bugs.md 2026-09-30).
+  Homelab no longer renders `adminUser`, so there is no Job left for the flag to block there; Kind
+  still bootstraps and needs `false` (or a per-set value) until upstream gates the env var
+- Confirm on Kind whether operator 0.19.1 deletes an existing `paperclip-bootstrap` Job when
+  `adminUser` is removed or only stops re-creating it; if it leaves it, the failed homelab Job has
+  to be removed once after the `admin.bootstrap: false` rollout
 - CNPG `ScheduledBackup` + `ObjectStore` for `paperclip-postgres` once an S3-compatible target exists in production
 - `spec.adapters.cloudSandbox` (in-cluster agent sandboxes) and inference proxy
 - Google OAuth login (`spec.auth.google`) reusing the `google-oauth` 1Password item

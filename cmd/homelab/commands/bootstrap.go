@@ -89,18 +89,18 @@ bare invocation reaches terragrunt apply.
 			fmt.Println()
 
 			// Step 4: Run the tier.
+			var skipped []string
 			switch tier {
 			case prereq.Localdev:
-				if err := deployLocaldev(); err != nil {
-					return err
-				}
+				skipped, err = deployLocaldev()
 			case prereq.Homelab:
-				if err := deployHomelab(opts); err != nil {
-					return err
-				}
+				skipped, err = deployHomelab(opts)
+			}
+			if err != nil {
+				return err
 			}
 
-			logger.OK("Setup complete!")
+			printCompletion(skipped)
 			printNextSteps(tier)
 
 			return nil
@@ -206,32 +206,126 @@ func installTools() error {
 	return nil
 }
 
+// phase is one step of a tier's bring-up.
+//
+// component is the name reported when the phase fails, so the last line an
+// operator reads names the part of the platform to go and fix rather than the
+// step number that gave up.
+//
+// confirm, when non-empty, asks before running. Declining an optional phase
+// skips it, which is a legitimate choice — the operator may have run it by
+// hand already. Declining one marked confirmRequired aborts, because the
+// phases after it cannot mean anything without it.
+type phase struct {
+	name            string
+	component       string
+	detail          []string
+	confirm         string
+	confirmRequired bool
+	run             func() error
+	// fixHint is the command to run by hand after this phase is skipped or
+	// fails. Every phase that can be skipped or can fail must set one, so no
+	// path out of bootstrap leaves the operator without a next command.
+	fixHint string
+}
+
+// confirmFn is utils.Confirm behind a seam so the phase runner can be tested
+// without a terminal.
+var confirmFn = utils.Confirm
+
+// runPhases executes phases in order and stops at the first failure, returning
+// the components the operator chose to skip.
+//
+// Stopping is the point. Before this, a failing `task tf:apply` logged a
+// warning, fell through to the next phase and ended on "Setup complete!" — so
+// a fork whose infrastructure never provisioned was told it had succeeded.
+// A phase that fails now aborts the bring-up and names its component.
+func runPhases(phases []phase) ([]string, error) {
+	var skipped []string
+
+	for i, p := range phases {
+		logger.Info(fmt.Sprintf("Phase %d/%d: %s (%s)", i+1, len(phases), p.name, p.component))
+		for _, line := range p.detail {
+			logger.Info("  " + line)
+		}
+
+		// --dry-run walks every phase to print the resolved order. It must not
+		// prompt: utils.Confirm answers no under DryRun, which would abort the
+		// walk at the first gate and print nothing about the phases behind it.
+		// runTask and utils.ExecCommand already no-op under DryRun, so nothing
+		// here mutates.
+		if p.confirm != "" && !DryRun && !confirmFn(p.confirm) {
+			if p.confirmRequired {
+				logger.Error(fmt.Sprintf("Phase %d/%d cannot be skipped: %s", i+1, len(phases), p.component))
+				if p.fixHint != "" {
+					logger.Info("  " + p.fixHint)
+				}
+				return skipped, fmt.Errorf("%s: declined by operator", p.component)
+			}
+			logger.Warn(fmt.Sprintf("Skipped %s", p.component))
+			if p.fixHint != "" {
+				logger.Info("  Run it later: " + p.fixHint)
+			}
+			skipped = append(skipped, p.component)
+			fmt.Println()
+			continue
+		}
+
+		if p.run != nil {
+			if err := p.run(); err != nil {
+				logger.Error(fmt.Sprintf("Phase %d/%d failed: %s", i+1, len(phases), p.component))
+				if p.fixHint != "" {
+					logger.Info("  Retry with: " + p.fixHint)
+				}
+				return skipped, fmt.Errorf("%s: %w", p.component, err)
+			}
+		}
+
+		logger.OK(p.name)
+		fmt.Println()
+	}
+
+	return skipped, nil
+}
+
+// printCompletion reports the outcome honestly: "complete" only when every
+// phase actually ran.
+func printCompletion(skipped []string) {
+	if len(skipped) == 0 {
+		logger.OK("Setup complete!")
+		return
+	}
+	logger.Warn(fmt.Sprintf("Setup finished with %d phase(s) skipped: %s", len(skipped), strings.Join(skipped, ", ")))
+	logger.Info("The cluster is not fully bootstrapped until those run; each printed its command above.")
+}
+
 // deployLocaldev runs the Kind + ArgoCD loop through the Taskfile and waits
 // until every Application is Healthy.
-func deployLocaldev() error {
-	logger.Info("Phase 1: Kind + ArgoCD loop (task localdev:up)")
-	logger.Info("  Kind (Cilium, registry caches, fakes) -> ArgoCD -> every Application synced from the working tree")
-	logger.Info("  See " + docLocalDevelopment)
-	fmt.Println()
-	if err := runTask("localdev:up"); err != nil {
-		logger.Error("The Kind loop did not come up")
-		logger.Info("Inspect with: task localdev:diagnose; retry with: task localdev:up")
-		return err
+func deployLocaldev() ([]string, error) {
+	skipped, err := runPhases([]phase{
+		{
+			name:      "Kind + ArgoCD loop",
+			component: "localdev:up",
+			detail: []string{
+				"Kind (Cilium, registry caches, fakes) -> ArgoCD -> every Application synced from the working tree",
+				"See " + docLocalDevelopment,
+			},
+			run:     func() error { return runTask("localdev:up") },
+			fixHint: "task localdev:diagnose to inspect; task localdev:up to retry",
+		},
+		{
+			name:      "Wait for every Application to be Healthy",
+			component: "argocd",
+			run:       func() error { return runTask("localdev:wait") },
+			fixHint:   "task localdev:diagnose; re-sync one app with task localdev:sync -- --only <app>",
+		},
+	})
+	if err != nil {
+		return skipped, err
 	}
-	logger.OK("Kind cluster and ArgoCD are up")
-	fmt.Println()
-
-	logger.Info("Phase 2: waiting for every Application to be Healthy (task localdev:wait)")
-	if err := runTask("localdev:wait"); err != nil {
-		logger.Error("Not every Application became Healthy")
-		logger.Info("Inspect with: task localdev:diagnose; re-sync one app with: task localdev:sync -- --only <app>")
-		return err
-	}
-	logger.OK("Every Application is Healthy")
-	fmt.Println()
 
 	printLocaldevAccess()
-	return nil
+	return skipped, nil
 }
 
 // printLocaldevAccess prints how the loop exposes ArgoCD (docs/local-development.md).
@@ -245,59 +339,64 @@ func printLocaldevAccess() {
 
 // deployHomelab walks the four production phases through the Taskfile so the
 // 1Password wiring (op run, rendered-file sync) is never bypassed.
-func deployHomelab(opts prereq.Options) error {
-	logger.Info("Phase 1: Proxmox installation")
-	logger.Info("  Proxmox VE is installed by hand on the host; the rest is automated from here.")
-	logger.Info("  See " + docProvisioning)
-	fmt.Println()
-
-	if !utils.Confirm("Has Proxmox been installed and is it accessible?") {
-		logger.Warn("Install Proxmox first, then rerun ./bin/homelab bootstrap -e homelab")
-		return fmt.Errorf("aborted by user")
+func deployHomelab(opts prereq.Options) ([]string, error) {
+	skipped, err := runPhases(homelabPhases())
+	if err != nil {
+		return skipped, err
 	}
-	logger.OK("Proxmox installation confirmed")
-	fmt.Println()
-
-	logger.Info("Phase 2: Proxmox configuration (Ansible: task ansible:apply)")
-	logger.Info("  Runs ansible/playbooks/site.yml against the Proxmox host.")
-	logger.Info("  See " + docProvisioning)
-	if utils.Confirm("Run Ansible to configure Proxmox?") {
-		if err := runTask("ansible:apply"); err != nil {
-			logger.Warn("Ansible configuration failed")
-			logger.Info("Run manually: task ansible:apply (task ansible:dry-run previews it)")
-		} else {
-			logger.OK("Proxmox configured via Ansible")
-		}
-	} else {
-		logger.Warn("Skipped Ansible configuration")
-		logger.Info("Run manually: task ansible:apply")
-	}
-	fmt.Println()
-
-	logger.Info("Phase 3: Infrastructure provisioning (Terragrunt: task tf:apply ENV=homelab)")
-	logger.Info("  Talos VMs, the control plane VIP, TrueNAS and the bootstrap Application; secrets via op run.")
-	logger.Info("  See " + docProvisioning + " and " + docControlPlaneStorage + " (control plane disks)")
-	if utils.Confirm("Run Terragrunt to provision the infrastructure?") {
-		if err := runTask("tf:apply", "ENV=homelab"); err != nil {
-			logger.Warn("Terragrunt provisioning failed")
-			logger.Info("Run manually: task tf:apply ENV=homelab (task tf:plan ENV=homelab previews it)")
-		} else {
-			logger.OK("Infrastructure provisioned via Terragrunt")
-		}
-	} else {
-		logger.Warn("Skipped Terragrunt provisioning")
-		logger.Info("Run manually: task tf:apply ENV=homelab")
-	}
-	fmt.Println()
-
-	logger.Info("Phase 4: GitOps")
-	logger.Info("  The root Application applied by Terragrunt lets ArgoCD sync bootstrap -> addons -> applications.")
-	logger.Info("  Watch it: task prod:status; verify: task verify:prod")
-	fmt.Println()
 
 	retrieveArgoCDPassword(opts)
 
-	return nil
+	return skipped, nil
+}
+
+// homelabPhases is the production bring-up order, kept separate from
+// deployHomelab so the ordering and its recovery hints can be asserted without
+// touching Proxmox.
+func homelabPhases() []phase {
+	return []phase{
+		{
+			name:      "Proxmox installation",
+			component: "proxmox",
+			detail: []string{
+				"Proxmox VE is installed by hand on the host; the rest is automated from here.",
+				"See " + docProvisioning,
+			},
+			confirm:         "Has Proxmox been installed and is it accessible?",
+			confirmRequired: true,
+			fixHint:         "Install Proxmox first, then rerun ./bin/homelab bootstrap -e homelab",
+		},
+		{
+			name:      "Proxmox configuration",
+			component: "ansible",
+			detail: []string{
+				"Runs ansible/playbooks/site.yml against the Proxmox host.",
+				"See " + docProvisioning,
+			},
+			confirm: "Run Ansible to configure Proxmox?",
+			run:     func() error { return runTask("ansible:apply") },
+			fixHint: "task ansible:apply (task ansible:dry-run previews it)",
+		},
+		{
+			name:      "Infrastructure provisioning",
+			component: "terragrunt",
+			detail: []string{
+				"Talos VMs, the control plane VIP, TrueNAS and the bootstrap Application; secrets via op run.",
+				"See " + docProvisioning + " and " + docControlPlaneStorage + " (control plane disks)",
+			},
+			confirm: "Run Terragrunt to provision the infrastructure?",
+			run:     func() error { return runTask("tf:apply", "ENV=homelab") },
+			fixHint: "task tf:apply ENV=homelab (task tf:plan ENV=homelab previews it)",
+		},
+		{
+			name:      "GitOps handover",
+			component: "argocd",
+			detail: []string{
+				"The root Application applied by Terragrunt lets ArgoCD sync bootstrap -> addons -> applications.",
+				"Watch it: task prod:status; verify: task verify:prod",
+			},
+		},
+	}
 }
 
 func retrieveArgoCDPassword(opts prereq.Options) {

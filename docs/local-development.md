@@ -47,7 +47,7 @@ here touches the homelab cluster: agents may mutate only Kind (ADR-009).
 │  │  1 control-plane + 2 workers, Cilium CNI   │◄─┤ pull-through       │  │
 │  │                                            │  │ caches (docker.io, │  │
 │  │  argocd/   ArgoCD (chart from versions.yaml│  │ ghcr, quay, k8s,   │  │
-│  │            + health Lua from bootstrap)    │  │ lscr) -> ~/.cache  │  │
+│  │            + health Lua from bootstrap)    │  │ lscr, ecr) ~/.cache│  │
 │  │     └─ gitops ─┬─ (bootstrap: not created)   │  └────────────────────┘  │
 │  │                ├─ addons (cilium, envoy-   │                          │
 │  │                │   gateway, cert-manager)  │  localhost:8080 ArgoCD   │
@@ -272,13 +272,20 @@ provides what Kind lacks so every Application reaches Healthy:
 ### Registry pull-through caches
 
 `task localdev:kind` starts one `registry:2` container per upstream (`docker.io`,
-`ghcr.io`, `quay.io`, `registry.k8s.io`, `lscr.io`) on the `kind` Docker network, named
-`kind-registry-<name>`, with blobs under `$HOMELAB_KIND_CACHE_DIR` (default
-`$XDG_CACHE_HOME/homelab-kind-registry`, i.e. `~/.cache/homelab-kind-registry`). It writes
-`/etc/containerd/certs.d/<host>/hosts.toml` into every node pointing pulls at the cache
-with the upstream as fallback, so an empty, stopped or purged cache only costs pull time.
-Recreating the cluster keeps the cache; `task localdev:down -- --purge-cache` removes it.
-CI restores the same directory with `actions/cache`. `--no-registry` skips all of it.
+`ghcr.io`, `quay.io`, `registry.k8s.io`, `lscr.io`, `ecr-public.aws.com`) on the `kind`
+Docker network, named `kind-registry-<name>`, with blobs under `$HOMELAB_KIND_CACHE_DIR`
+(default `$XDG_CACHE_HOME/homelab-kind-registry`, i.e. `~/.cache/homelab-kind-registry`).
+It writes `/etc/containerd/certs.d/<host>/hosts.toml` into every node pointing pulls at the
+cache with the upstream as fallback, so an empty, stopped or purged cache only costs pull
+time. Recreating the cluster keeps the cache; `task localdev:down -- --purge-cache` removes
+it. CI restores the same directory with `actions/cache`. `--no-registry` skips all of it.
+
+Every registry the ArgoCD bootstrap pulls from must be in that list. The argo-cd chart
+takes redis from `ecr-public.aws.com/docker/library/redis` and everything else from
+`quay.io`/`ghcr.io`; while ECR Public was missing, `argocd-redis` was the one ArgoCD pod
+pulling straight from the internet on every run, and a slow or throttled pull surfaced as
+an `ImagePullBackOff` that timed out `task localdev:argocd` before any Application existed.
+`scripts/localdev-kind_test.ts` pins the chart's image hosts against the upstream table.
 
 ### Cilium in Kind
 
@@ -536,28 +543,37 @@ Level 0 runs separately in `.github/workflows/verify.yml`.
 
 ### The cold fork path (`.github/workflows/fork-path-cold.yml`)
 
-`tilt-ci.yml` proves the loop converges, but it does not measure what a newcomer experiences,
-for two reasons worth stating plainly: it runs `task localdev:ci`, not the `task localdev:up`
-the quickstart above puts first, and it restores the `kind-registry-*` pull-through cache, so
-its wall clock is a lower bound rather than a cold clone.
+`tilt-ci.yml` proves the loop converges, but its wall clock is not what a newcomer experiences:
+it runs `task localdev:ci`, which is `localdev:up` -> `localdev:wait` -> `test:e2e`, not the
+`task localdev:up` the quickstart above puts first. The extra `test:e2e` alone makes the two
+durations incomparable.
 
-`fork-path-cold.yml` closes both gaps. It runs on demand (`workflow_dispatch`), weekly, and on
+The `kind-registry-*` cache is not a second reason, despite what this section used to say. Its
+restore missed on all seven consecutive level-2 runs sampled on 2026-09-29, so tilt-ci is no
+warmer than this job; see [homelab#512](https://github.com/ryanmcafee/homelab/issues/512).
+
+`fork-path-cold.yml` closes that gap. It runs on demand (`workflow_dispatch`), weekly, and on
 a pull request that edits the workflow itself — never on an ordinary pull request, because a
 cold uncached run pulls every image from upstream and does not belong on the critical path.
 
 | Job | What it runs | Decides the run |
 |-----|--------------|-----------------|
 | `stranger-bootstrap` | `docs/tooling.md` verbatim on a clean runner: the `mise.run` installer, `mise trust && mise install`, `task validate`. Every step `continue-on-error`; the Job Summary reports which documented command failed. | no |
-| `cold-fork-path` | No `actions/cache` step at all, and it fails if a cache directory already exists. Then `task localdev:up` → `task localdev:wait` → `task localdev:report` → `task localdev:down`, each timed, followed by an assertion that `kind get clusters` no longer lists `homelab-localdev`. | yes |
+| `cold-fork-path` | No `actions/cache` step at all, and it fails if a cache directory already exists. Then `task localdev:up` -> `task localdev:wait` -> `task localdev:report` -> `task localdev:down`, each timed, followed by an assertion that `kind get clusters` no longer lists `homelab-localdev`. No step is `continue-on-error`, so any of the three readme commands regressing turns the check red. On failure a `Diagnostics` step runs before teardown, because `localdev:down` deletes the cluster on every outcome. | yes |
 
 Two things to read out of its Job Summary:
 
-- **Cold time to first success** = `localdev:up` + `localdev:wait`. This is the number to quote
-  for the fork path. Do not quote tilt-ci's duration for it.
-- `localdev:wait` is timed separately on purpose. `task localdev:up` is `kind` → `argocd` →
+- **Cold time to first success** = `localdev:up` + `localdev:wait`. Quote this for the fork path
+  rather than tilt-ci's duration, because tilt-ci times a different command, not because it is
+  warmer. Measured, cold, `up` + `wait`: **18m55s** (2026-09-25), **21m03s** (2026-09-27),
+  **23m04s** (2026-09-29). Three runs is a range, not a trend; no cold-vs-cached pair exists
+  while the cache is broken.
+- `localdev:wait` is timed separately on purpose. `task localdev:up` is `kind` -> `argocd` ->
   `sync`; it returns when the last wave is synced, **not** when every Application reports
-  Healthy. `localdev:ci` appends `localdev:wait`, which is why CI sees convergence and a
-  newcomer following the quickstart does not, until they wait or open the UI.
+  Healthy. In practice that gap has been about a second: `localdev:wait` cost **1s** on all
+  three cold runs, so `localdev:up` had already left everything Healthy. The step stays because
+  a second is the measurement, not a guarantee -- an Application that converges slowly would
+  show up here and nowhere else.
 
 This is fork-ability check 3 in [`docs/contracts/fork-ability.md`](contracts/fork-ability.md)
 partly mechanised: it replaces the "does the documented command still work, uncached" half. The

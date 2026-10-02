@@ -9,6 +9,21 @@ metadata:
     argocd.argoproj.io/sync-wave: "11"
 
 ---
+# Source: applications/templates/litellm.yaml
+# Namespace for the LiteLLM proxy and its CloudNativePG Cluster. Both run
+# non-root, so baseline is enough.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: litellm
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+
+---
 # Source: applications/templates/namespaces.yaml
 # Namespace: media
 # Created early so config charts and app deployments have a target namespace.
@@ -622,13 +637,18 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/duckdns-dependencies
     helm:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # The 1Password item path comes from this parent's duckdns values
+      # (configuration/ DUCKDNS_1P_PATH via the CMP), so a fork's key reaches
+      # the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        onePasswordItemPath: "vaults/homelab/items/duckdns"
   destination:
     server: https://kubernetes.default.svc
     namespace: duckdns
@@ -657,7 +677,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/duckdns
     helm:
@@ -692,7 +712,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/flaresolverr-config
     helm:
@@ -701,7 +721,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -812,7 +832,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/lazylibrarian-config
     helm:
@@ -821,7 +841,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -864,7 +884,7 @@ spec:
                       cpu: 500m
                       memory: 288Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 192Mi
         persistence:
           books:
@@ -937,6 +957,115 @@ spec:
         maxDuration: 3m
 
 ---
+# Source: applications/templates/litellm.yaml
+# Dependencies Application: the 1Password items the proxy reads (master key,
+# salt key, provider API keys). Only where a secret store exists
+# (SECRETS_PROVIDER): without one the chart would render nothing, and localdev
+# seeds the same Secrets in localdev/fakes/secrets.yaml instead.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/REPLACEME-user/homelab.git
+    targetRevision: main
+    path: charts/litellm-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # 1Password paths come from configuration/ (secrets.schema.yaml) through
+      # this parent, so the child's committed values stay environment-free.
+      valuesObject:
+        namespace: litellm
+        onePassword:
+          apiKeysItemPath: vaults/homelab/items/litellm-api-keys
+          enabled: true
+          masterKeyItemPath: vaults/homelab/items/litellm-master-key
+          saltKeyItemPath: vaults/homelab/items/litellm-salt-key
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: applications/templates/litellm.yaml
+# Database Application: a CloudNativePG Cluster (the operator is the
+# cloudnative-pg addon). CNPG generates Secret litellm-db-app whose username
+# and password keys become the chart's database.writer.passwordSecret, so no
+# credential is ever written by us. ArgoCD's built-in Cluster health check
+# makes the proxy's wave wait for a ready database.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm-database
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/REPLACEME-user/homelab.git
+    targetRevision: main
+    path: charts/litellm-database
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Storage class, size, image pin and sizing are environment facts
+      # (configuration/) and reach the child through this parent (ADR-010).
+      valuesObject:
+        namespace: litellm
+        ambientOptOut: false
+        imageName: ghcr.io/cloudnative-pg/postgresql:17.11
+        instances: 1
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        storageClass: democratic-csi-iscsi
+        storageSize: 10Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The Cluster CRD comes from the cloudnative-pg addon; if a sync lands before
+    # the CRD is served the apply fails with "no matches for kind Cluster" and
+    # this retries until the operator is up.
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
 # Source: applications/templates/mosquitto.yaml
 # Mosquitto Config: deploys static PV+PVC for mosquitto persistent storage
 apiVersion: argoproj.io/v1alpha1
@@ -951,7 +1080,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/mosquitto-config
     helm:
@@ -960,7 +1089,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: home-automation
@@ -1043,9 +1172,6 @@ spec:
                 protocol: tcp
                 targetPort: 9001
             type: LoadBalancer
-        mosquitto:
-          auth:
-            enabled: true
         TZ: "America/New_York"
 
   destination:
@@ -1092,7 +1218,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/nzbget-config
     helm:
@@ -1101,7 +1227,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1292,7 +1418,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/paperclip-dependencies
     helm:
@@ -1340,7 +1466,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/paperclip-database
     helm:
@@ -1362,10 +1488,10 @@ spec:
         instances: 1
         resources:
           limits:
-            cpu: "1"
+            cpu: "2"
             memory: 1Gi
           requests:
-            cpu: 250m
+            cpu: 500m
             memory: 512Mi
         storageClass: democratic-csi-iscsi
         storageSize: 10Gi
@@ -1407,7 +1533,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/paperclip
     helm:
@@ -1423,6 +1549,7 @@ spec:
         serviceMesh:
           ambient: true
         admin:
+          bootstrap: false
           email: admin@REPLACEME-domain.com
           name: Admin
         agentPolicy:
@@ -1446,7 +1573,7 @@ spec:
             cpu: "2"
             memory: 16Gi
           requests:
-            cpu: 500m
+            cpu: "1"
             memory: 16Gi
         route:
           gateway:
@@ -1487,7 +1614,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/plex-config
     helm:
@@ -1496,7 +1623,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1596,7 +1723,7 @@ spec:
             mountPath: /dev/dri
         service:
           annotations:
-            io.cilium/lb-ipam-ips: 192.168.1.103
+            io.cilium/lb-ipam-ips: 198.51.100.103
             port-forwarding.replaceme-domain.com/enable: "true"
           externalTrafficPolicy: Local
           port: 32400
@@ -1670,7 +1797,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/prowlarr-config
     helm:
@@ -1679,7 +1806,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1805,7 +1932,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/radarr-config
     helm:
@@ -1814,7 +1941,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1865,7 +1992,7 @@ spec:
                       cpu: 1000m
                       memory: 960Mi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 640Mi
         persistence:
           config:
@@ -1952,7 +2079,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/renovate-config
     helm:
@@ -2054,7 +2181,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/sonarr-config
     helm:
@@ -2063,7 +2190,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2114,7 +2241,7 @@ spec:
                       cpu: 1000m
                       memory: 1536Mi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 896Mi
         persistence:
           config:
@@ -2201,7 +2328,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/tautulli-config
     helm:
@@ -2210,7 +2337,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2253,7 +2380,7 @@ spec:
                       cpu: 500m
                       memory: 448Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 288Mi
         persistence:
           config:

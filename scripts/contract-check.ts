@@ -17,7 +17,14 @@
  *      event published into a void. The stream set itself is checked for the
  *      things a real nats-server refuses: overlapping subject filters between
  *      two streams (`10065`, which makes the second stream UNCREATABLE) and a
- *      hard-coded `replicas` a single-node fork cannot satisfy (`10074`).
+ *      hard-coded `replicas` a single-node fork cannot satisfy (`10074`). It also
+ *      rejects a stream whose `discard` policy has no limit to act on — JetStream
+ *      runs `discard` only at `max_msgs`/`max_bytes`/`max_msgs_per_subject`, never
+ *      on age expiry, so an unbounded stream's policy is decorative and the stream
+ *      exhausts the SHARED file store instead (`10023`, which refuses writes for
+ *      every stream on the peer) — a count limit in place of a byte limit, and a
+ *      producer budget set level with the server's `max_payload`, which counts
+ *      headers and is therefore unreachable.
  *
  *   2. Backward compatibility — the whole contract is diffed against the frozen
  *      baseline in contracts/events/registry.v1.baseline.json: the registered
@@ -103,6 +110,11 @@ export interface Stream {
   replicas?: string | number;
   retention?: string;
   max_age?: string;
+  duplicate_window?: string;
+  max_bytes?: string | number;
+  max_msgs?: string | number;
+  max_msgs_per_subject?: string | number;
+  max_msg_size?: number;
   discard?: string;
   delivery: Delivery;
   ordering: Ordering;
@@ -113,6 +125,8 @@ export interface Taxonomy {
   grammar: { pattern: string; tokens: number; root: string };
   domains: Record<string, string>;
   streams: Stream[];
+  max_bytes_defaults?: Record<string, Record<string, number>>;
+  limits?: { server_max_payload?: number; max_event_bytes?: number };
 }
 
 /** The envelope schema, read only for the fields the gate pins. */
@@ -272,6 +286,7 @@ export interface BaselineStream {
   sources: StreamSource[];
   retention: string | null;
   max_age: string | null;
+  max_msg_size: number | null;
   discard: string | null;
   delivery: Delivery;
   ordering: Ordering;
@@ -295,6 +310,12 @@ export interface Baseline {
 export const TENANT_SAMPLE = "t0";
 export const TENANT_PLACEHOLDER = "<tenant>";
 export const REPLICAS_PLACEHOLDER = "<replicas>";
+export const MAX_BYTES_PLACEHOLDER = "<max_bytes>";
+/** An absent `max_msg_size` is no per-message cap at all, i.e. the widest value. */
+export const msgSizeLimit = (n: number | null | undefined): number =>
+  typeof n === "number" ? n : Number.POSITIVE_INFINITY;
+/** Bytes reserved between the producer budget and the server's `max_payload`. */
+export const HEADER_RESERVE_BYTES = 65536;
 export const TOKEN_COUNT = 7;
 
 // ============================================================================
@@ -504,12 +525,70 @@ export function validateTaxonomy(taxonomy: Taxonomy): Violation[] {
         `replicas is ${JSON.stringify(st.replicas)}; it must be the literal ${REPLICAS_PLACEHOLDER} placeholder, because a single-node fork cannot create a replicated stream ("replicas > 1 not supported in non-clustered mode", 10074) and defaults belong in replicas_defaults`,
       );
 
+    // Same fork-ability argument as replicas: one operator's disk is not contract.
+    if (st.max_bytes !== MAX_BYTES_PLACEHOLDER)
+      v(
+        "max-bytes-hardcoded",
+        st.name,
+        `max_bytes is ${JSON.stringify(st.max_bytes)}; it must be the literal ${MAX_BYTES_PLACEHOLDER} placeholder, because a committed byte count is one operator's disk and defaults belong in max_bytes_defaults`,
+      );
+
+    // Capacity is bytes here, never counts. A committed message count is one
+    // operator's capacity in a different unit, and on a `discard: new` stream it
+    // silently replaces the byte-based retention the sizing rules reason about.
+    for (const field of ["max_msgs", "max_msgs_per_subject"] as const)
+      if (st[field] !== undefined)
+        v(
+          "count-limit-unsupported",
+          st.name,
+          `${field} is ${JSON.stringify(st[field])}; capacity in this contract is expressed in max_bytes and sized per surface in max_bytes_defaults. A count cap commits one operator's capacity to a contract every fork inherits, and on a discard: new stream it refuses writes at the count however much of the byte budget is unused`,
+        );
+
+    // A `discard` policy only ever runs against a real limit. Age expiry is a
+    // separate path that ignores it, so a discard with no limit beside it is
+    // decorative: the stream never fills, and the only thing it can exhaust is
+    // the SHARED file store — which refuses writes for every stream on the peer,
+    // not just this one. `-1` and `0` are how JetStream spells unlimited, so
+    // presence is not limit-ness.
+    const hasLimit =
+      st.max_bytes === MAX_BYTES_PLACEHOLDER ||
+      (typeof st.max_bytes === "number" && st.max_bytes > 0);
+    if (st.discard !== undefined && !hasLimit)
+      v(
+        "discard-without-limit",
+        st.name,
+        `discard is ${JSON.stringify(st.discard)} but the stream declares no max_bytes above zero (got ${JSON.stringify(st.max_bytes)}; JetStream reads -1 and 0 as unlimited), so the policy can never run — JetStream applies discard only when a limit is reached, and age expiry ignores it. An unbounded stream exhausts the shared file store instead, which refuses writes for EVERY stream on the peer ("insufficient resources", 10023)`,
+      );
+
+    // nats-server refuses a stream whose dedup window outlives its retention:
+    // "duplicates window can not be larger then max age" (10052). Harmless at the
+    // current values, uncreatable the moment an operator shortens max_age.
+    const dupWindow = durationSeconds(st.duplicate_window);
+    const maxAge = durationSeconds(st.max_age);
+    if (dupWindow !== null && maxAge !== null && dupWindow > maxAge)
+      v(
+        "duplicate-window-over-max-age",
+        st.name,
+        `duplicate_window is ${st.duplicate_window} against a max_age of ${st.max_age}; NATS refuses the stream with "duplicates window can not be larger then max age" (10052), so the stream cannot be created`,
+      );
+
     if ((st.subjects ?? []).length === 0 && (st.sources ?? []).length === 0)
       v(
         "stream-ingests-nothing",
         st.name,
         "a stream with neither subjects nor sources receives nothing",
       );
+
+    const originCounts = new Map<string, number>();
+    for (const src of st.sources ?? [])
+      originCounts.set(src.name, (originCounts.get(src.name) ?? 0) + 1);
+    for (const [origin, count] of originCounts)
+      if (count > 1)
+        v(
+          "stream-source-same-origin",
+          st.name,
+          `declares ${count} sources entries from ${origin}. prometheus-nats-exporter labels nats_stream_source_* by source_name and not by filter subject, so the entries collide on one label set and /metrics returns HTTP 500 -- every nats_* series disappears, alerts included. Declare ONE ${origin} entry and carry each filter in its subjectTransforms (ADR-044)`,
+        );
 
     // A sourced stream may only source subjects its upstream actually captures.
     for (const src of st.sources ?? []) {
@@ -548,6 +627,83 @@ export function validateTaxonomy(taxonomy: Taxonomy): Violation[] {
               `subject filters ${fa} and ${fb} overlap; NATS refuses the second stream with "subjects overlap with an existing stream" (10065), so one of these two streams cannot be created. Source one stream from the other instead`,
             );
     }
+  }
+
+  // Every stream's `max_bytes` is a placeholder, so the only place a reader can
+  // see the four numbers add up is max_bytes_defaults. A surface missing a stream
+  // there is a stream an operator sizes by guessing.
+  const defaults = taxonomy.max_bytes_defaults ?? {};
+  if (Object.keys(defaults).length === 0)
+    v(
+      "max-bytes-defaults-missing",
+      "max_bytes_defaults",
+      `no max_bytes_defaults block; every stream requires the ${MAX_BYTES_PLACEHOLDER} placeholder, so without defaults per surface nothing states what an operator should size it to`,
+    );
+  for (const [surface, sizes] of Object.entries(defaults)) {
+    for (const st of taxonomy.streams) {
+      if (typeof sizes[st.name] !== "number")
+        v(
+          "max-bytes-default-missing",
+          `${surface}/${st.name}`,
+          `max_bytes_defaults.${surface} has no entry for ${st.name}; the sum rule cannot be applied to a budget with a hole in it`,
+        );
+    }
+    for (const name of Object.keys(sizes)) {
+      if (!taxonomy.streams.some((s) => s.name === name))
+        v(
+          "max-bytes-default-unknown",
+          `${surface}/${name}`,
+          `max_bytes_defaults.${surface} sizes ${name}, which is not a declared stream`,
+        );
+    }
+  }
+
+  // A stream with its own subjects is one producers publish into directly, so it
+  // is where the producer budget can be enforced rather than restated. Absence is
+  // a violation, not a skipped rule: deleting the only max_msg_size is a
+  // compatibility WIDENING and must pass the comparator, so this invariant is the
+  // only thing standing between the contract and a budget nothing enforces.
+  const ingestStreams = taxonomy.streams.filter(
+    (s) => (s.subjects ?? []).length > 0,
+  );
+  if (
+    ingestStreams.length > 0 &&
+    !ingestStreams.some((s) => s.max_msg_size !== undefined)
+  )
+    v(
+      "max-msg-size-missing",
+      ingestStreams.map((s) => s.name).join("/"),
+      `no stream with subjects of its own declares max_msg_size, so limits.max_event_bytes is advice no stream enforces; a producer exceeding the budget is refused only by the server's own max_payload, which is a different and larger number`,
+    );
+
+  // The producer budget is a budget only while it is strictly below the server
+  // limit. Set equal, an envelope of exactly that size is refused at publish
+  // whatever any stream says, because max_payload counts headers plus body.
+  const serverMax = taxonomy.limits?.server_max_payload;
+  const eventMax = taxonomy.limits?.max_event_bytes;
+  // Both are required, or the inequality below is checked against nothing and the
+  // rule silently stops applying — which is how the budget got set to the server
+  // limit in the first place.
+  if (typeof serverMax !== "number" || typeof eventMax !== "number")
+    v(
+      "limits-incomplete",
+      "limits",
+      `limits must declare both server_max_payload and max_event_bytes as numbers (got ${JSON.stringify(serverMax)} and ${JSON.stringify(eventMax)}); the producer budget is only a budget relative to the server limit, so neither means anything alone`,
+    );
+  if (typeof serverMax === "number" && typeof eventMax === "number") {
+    if (eventMax > serverMax - HEADER_RESERVE_BYTES)
+      v(
+        "max-event-bytes-unreachable",
+        "limits.max_event_bytes",
+        `max_event_bytes is ${eventMax} against a server max_payload of ${serverMax}; it must leave at least ${HEADER_RESERVE_BYTES} bytes for headers, because max_payload bounds the whole message — headers plus body — so a budget at or near the server limit is unreachable at publish`,
+      );
+    for (const st of ingestStreams)
+      if (st.max_msg_size !== undefined && st.max_msg_size !== eventMax)
+        v(
+          "max-msg-size-mismatch",
+          st.name,
+          `max_msg_size is ${st.max_msg_size} but limits.max_event_bytes is ${eventMax}; they must be equal so the stream ENFORCES the producer budget instead of the contract merely restating it`,
+        );
   }
 
   return out;
@@ -903,6 +1059,7 @@ export function toBaselineStreams(taxonomy: Taxonomy): BaselineStream[] {
       })),
       retention: st.retention ?? null,
       max_age: st.max_age ?? null,
+      max_msg_size: st.max_msg_size ?? null,
       discard: st.discard ?? null,
       delivery: st.delivery,
       ordering: st.ordering,
@@ -1388,6 +1545,17 @@ export function checkTaxonomyCompatibility(
         "stream-retention-changed",
         was.name,
         `retention policy changed ${was.retention} -> ${is.retention}; limits and workqueue are different delivery models, not a tuning knob`,
+      );
+
+    // Narrowing the accepted message size retroactively refuses events a producer
+    // was already allowed to publish. ABSENT MEANS UNLIMITED, so absent is the
+    // WIDEST value: removing a cap is additive, and adding one where there was
+    // none is breaking. Raising an existing cap is additive.
+    if (msgSizeLimit(is.max_msg_size) < msgSizeLimit(was.max_msg_size))
+      v(
+        "stream-max-msg-size-narrowed",
+        was.name,
+        `max_msg_size narrowed ${was.max_msg_size ?? "unlimited"} -> ${is.max_msg_size ?? "unlimited"}; an event a producer was allowed to publish is now refused. Raising a cap or removing it is additive; lowering one or adding one is breaking`,
       );
 
     if (was.discard !== null && is.discard !== was.discard)
