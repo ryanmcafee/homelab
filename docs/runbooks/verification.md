@@ -9,7 +9,7 @@ production (ADR-009). The production feedback loop is tracked in
 
 | Level | Command | Needs | Adds |
 |---|---|---|---|
-| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy, ADR record |
+| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy, ADR record, event contract |
 | 1 | `task verify LEVEL=1` | a Kind cluster (`task localdev:kind` is enough) | server-side dry run of every localdev chart |
 | 2 | `task verify LEVEL=2` | the synced loop (`task localdev:up` or `localdev:ci`) | ArgoCD Application state, chainsaw e2e suite |
 
@@ -68,6 +68,7 @@ merge blocker even though GitHub will not.
 | `decisions/adr-record` | `docs/project_notes/decisions.md` exists, parses, and contains at least one ADR. Emitted **instead of** the two checks below when the parse cannot be trusted — an unterminated fence hides every heading under it, and a record with no ADRs would otherwise report "0 ADRs, no duplicate number" as a green. | The finding names the line. Close (or delete) the stray fence; a record with no ADR heading is a wrong path or a truncated file, not a passing record. |
 | `decisions/adr-format` | Every ADR heading in `docs/project_notes/decisions.md` is `### ADR-NNN: <title>` — three digits, heading depth three, at most three spaces of indent (four is a code block and is not read). A heading that names *no* number (`## ADR numbering conventions`) is prose and is not checked; one that names a number at any other depth (`#### ADR-034 rollout notes`) **is** a failure, because it is byte-adjacent to the placeholder shape below and the two cannot be told apart. | Fix the heading — a sub-heading inside an ADR body must not repeat the number. A number you intend to use goes in a blockquote above the next real ADR, never in a heading: a placeholder heading merges cleanly over the real ADR of that number and deletes it (ADR-039). |
 | `decisions/adr-numbers` | No ADR number is defined twice. Branches that each appended "the next number" merge without a conflict, so this is the only thing that sees the duplicate. | `findings` names every line. The number belongs to whichever ADR merged first: renumber the one this branch adds to the next free number, keep its body byte-identical, and update the citations that name the old number (ADR-039). |
+| `contracts/events` | `bun scripts/contract-check.ts check` passes: `contracts/events/` is internally consistent and compatible with its baseline. Includes `stream-source-same-origin` -- two `sources` entries from one origin stream collide on the NATS exporter's `source_name` label and make `/metrics` return HTTP 500 (ADR-044). `bun` missing fails the check rather than skipping it. | Fix the rule each finding names (`task contracts:check` reproduces it); after a deliberate additive change, `task contracts:baseline`. |
 
 **When a duplicate ADR number reaches `main`.** The `decisions/*` checks read the
 repository, not the branch, so a duplicate that lands turns the required check red on
@@ -275,9 +276,32 @@ homelab,localdev`: kubeconform validates every custom resource this repository r
 against the new CRD schemas. The result and the list of files the bump needs regenerated
 are appended to the report. Nothing is committed.
 
+**Undeclared helm values.** `task upstream:values` fails when an Application sets a
+`spec.source.helm` key path that its pinned chart does not declare. Almost no chart ships
+a `values.schema.json`, so helm accepts an unknown key in silence: the render succeeds,
+kubeconform passes, the snapshot records the dead key as expected output and ArgoCD
+reports Synced. A version bump that renames a key is exactly this shape, which is why the
+check runs here and not in `pr-contract.yml` (which skips `renovate/*` heads); it pulls
+every pinned chart, so it cannot be level 0, which is network-free by contract.
+`task renovate:regen` runs it too, after regenerating the snapshots.
+
+The check pulls each chart with `helm pull --untar` and collects the key paths the chart
+*and its vendored dependencies* declare. Three rules keep it usable without blunting it:
+a dependency's values count at the root when it is a `type: library` chart (that is where
+TrueCharts' `common` declares `TZ`, `workload` and `persistence`) and under its alias or
+name otherwise (kube-prometheus-stack's `grafana`); a values.yaml whose only top-level key
+is underscore-prefixed is unwrapped (istio's `_internal_defaults_do_not_set`); and an
+upstream default of `{}` or null declares everything below it, so `resources: {}` accepts
+`resources.limits.cpu`. What those cannot settle goes in
+`tests/gitops/upstream-values-allowlist.yaml`, keyed by chart and path prefix, with a
+reason — and an entry that stops matching anything fails the gate, so a key upstream has
+since declared cannot sit there forever. An allowlist entry is never the place for a key
+the chart does not read: that is the defect the gate exists to find.
+
 **Automerge gate.** On `renovate/*` branches the job sets the commit status
 `upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
-only when every `upgrade/*` check is `unchanged` and revalidation passed, otherwise
+only when every `upgrade/*` check is `unchanged`, revalidation passed and no Application
+sets a helm value its chart does not declare, otherwise
 `failure` ("rendered manifests changed — human review required, automerge blocked").
 `renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
 (`kindest/node`, majors, infrastructure tools and ksops stay manual) and patch bumps

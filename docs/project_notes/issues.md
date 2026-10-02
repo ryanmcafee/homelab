@@ -18,6 +18,11 @@ Each entry should include:
 - **Description**: QA reproduced the ECR Public `toomanyrequests: Data limit exceeded` response in run 36713254067. Kind ArgoCD now selects Docker Hub's official Redis image at the pinned chart tag, and CI retains pod events plus ECR/Docker proxy logs. The Redis test passes with Docker Hub and fails with the old ECR Public repository.
 - **URL**: https://github.com/ryanmcafee/homelab/pull/536
 
+### 2026-09-30 - Upstream Helm values declaration gate follow-up
+- **Status**: PR #483 open; rebased after PR #469 merged
+- **Description**: The earlier upgrade report inspected 80 chart sources and failed on six spegel findings. After rebasing, the gate passes all 82 chart sources across 42 pinned charts. The paired fixture proves an undeclared key fails and the same key passes when declared, with rule ID `upstream-values/undeclared-key`. The guard now refuses multi-source Helm Applications, unchecked Helm parameters, and chart directories without Chart.yaml. The prior level-2 failure occurred during ArgoCD bootstrap when `argocd-redis` remained `ImagePullBackOff`; no Applications were inspected there.
+- **URL**: https://github.com/ryanmcafee/homelab/pull/483
+
 ### 2026-09-25 - Alert triage agent: alert -> fix PR -> Pushover (Argo Workflows DAG)
 - **Status**: PR #372 open; before it runs create 1Password item `triage-agent` (`CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` fine-grained PAT with contents + pull requests read/write; optional `DOTFILES_REPO`, `ARGOCD_AUTH_TOKEN`, `PAPERCLIP_API_KEY`, `PAPERCLIP_COMPANY_ID`), make the `homelab-triage-agent` package public after the first publish, and generate the `triage-agent` ArgoCD token
 - **Description**: intake Deployment + `triage-fix` WorkflowTemplate: triage, plan, implement, deterministic verify loop, commit, PR, CI loop, needs-human, Pushover onExit; deny hook in `triage-agent/src/policy.ts`; ArgoCD account `triage-agent` (get + sync). ADR-036, docs/runbooks/triage-agent.md
@@ -100,6 +105,7 @@ Each entry should include:
 
 ## Pending/In Progress
 
+- **2026-09-30** - Cold-draw script test stabilization for PR #460: injectable command runner removes real `kubectl`/`docker` calls from the no-cluster unit test while retaining missing-evidence assertions; 25 focused and 619 script cases pass locally. [MCAA-1007](/MCAA/issues/MCAA-1007).
 - **2026-09-30** - PR dependency triage label-write 403: PR #533 (`1cc4189`) scopes the job to `pull-requests: write` and adds targeted dispatch; run 36656956730 is the known-bad case. Security signed off on the scope, but this integration's targeted dispatch of #511 returns Actions HTTP 403, so a live known-good label write remains pending — https://github.com/ryanmcafee/homelab/pull/533
 - **2026-09-25** - Envoy Gateway becomes the ingress (Gateways `envoy-internal`/`envoy-external`, wildcard TLS at the Gateway, every Ingress converted to an HTTPRoute, external-dns `gateway-httproute`, OIDC plugin dropped) and Istio gateways deployed for comparison (ADR-040, docs/runbooks/envoy-gateway.md) — PR #387 (https://github.com/ryanmcafee/homelab/pull/387)
 - **2026-09-21** - PR #316: Paperclip `adapters.apiKeys.anthropic.enabled` / `adapters.apiKeys.openai.enabled` (both default false) replace the operator's all-or-nothing `apiKeysSecretRef`, so `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are wired independently and neither reaches the pod by default; subscription tokens stay wired through `adapters.extraSecretEnv` — https://github.com/ryanmcafee/homelab/pull/316

@@ -1,0 +1,480 @@
+# The bus principal declaration, v1.
+#
+# Normative. Checked by `bun scripts/contract-check.ts` (task contracts:check) and by
+# scripts/nats-principals-contract_test.ts.
+# Reasoning: docs/contracts/event-contract.md Sec. 5.1-5.4 and
+# docs/contracts/byo-extension-points.md. Decision: ADR-043.
+#
+# This file IS the `BusPrincipal -> NATS user` seam. Per principal it states the subjects it
+# may publish, the subjects it may subscribe to, its private inbox prefix, its ACK namespace
+# and its `$JS.API` allow-list -- and nothing about a credential mechanism, an issuer or a
+# provider. Two backends consume it: the static one renders it into the server's `accounts {}`
+# block with the credential delivered as a Secret, and the auth-callout one renders the same
+# declaration into a short-lived user JWT. One declaration is what makes that one seam instead
+# of two permission models that drift.
+#
+# A tenant's permission set is GENERATED from this file, never hand-written per customer. A
+# hand-maintained account block is the fork `byo-extension-points.md` exists to prevent, in the
+# one file where it would be least visible.
+#
+# WHAT THIS FILE DOES NOT CONTAIN, and must not: any public or private key, any account name
+# for a real deployment, any tenant token other than the `<tenant>` placeholder, any operator's
+# 1Password item. Identity is operator-supplied (`nats.tenants[].principals[].nkey` in the
+# addons values); permissions are contract. That split is what lets a stranger fork this
+# repository, generate their own key pairs and get the same enforcement.
+
+version: 1
+
+# ---------------------------------------------------------------------------------------------
+# Accounts
+# ---------------------------------------------------------------------------------------------
+
+accounts:
+  # One account per tenant, and the account is the enforcement. A client in one tenant's
+  # account may still SPELL `pf.<other tenant>.…` -- nothing reserves the string -- but the
+  # message is published into its own account and reaches no subscriber in another. The account
+  # stops the reach; `subject_ceiling` below stops the spelling. (ADR-043 D1, D2)
+  per_tenant: true
+  name_template: TENANT_<TENANT>
+  # `<TENANT>` is the tenant token upper-cased with `-` mapped to `_`. Homelab renders exactly
+  # one account from the reserved tenant `local`, so `TENANT_LOCAL`, plus `$SYS`. (ADR-043 D12)
+  name_pattern: '^TENANT_[A-Z0-9][A-Z0-9_]{0,62}$'
+
+  system_account: $SYS
+  # `$SYS` is for server events, `$SYS.ACCOUNT.*.>` advisories and break-glass administration.
+  # No platform component holds it -- NACK included, which is what the `nack` chart's
+  # `nats-sys-creds` default invites. A system-account NACK has cross-account reach over every
+  # tenant's streams, which is exactly the boundary the account buys. (ADR-043 D4)
+  system_account_principals: []
+
+  # No export or import between tenant accounts, ever. An export is the one construct that
+  # reopens the boundary invisibly to every subject permission, so it is refused at the
+  # contract rather than reviewed case by case. (ADR-043 D3)
+  exports: forbidden
+  imports: forbidden
+
+  # Routing and topology features that carry traffic past the assumptions above. Each stays off
+  # unless reviewed against event-contract.md Sec. 5.1, and a leaf principal is bound to a
+  # single tenant account.
+  disabled_unless_reviewed:
+    - leafnodes
+    - gateways
+    - websocket
+    - mqtt
+    - mappings
+
+  # Per-account JetStream limits are MANDATORY, not advisory. Without them one tenant's streams
+  # exhaust the shared file store and every account on that peer is refused with `insufficient
+  # resources (10047)` -- the bus-wide outage ADR-042 bounds per stream, reappearing one level
+  # up. v2.15.0 accepts all four inside a config-file account. (ADR-043 D8)
+  jetstream_limits_required:
+    - max_memory
+    - max_store
+    - max_streams
+    - max_consumers
+  jetstream_budget_rule: >-
+    PER-STREAM `maxBytes` SUMS BELOW ITS ACCOUNT'S `max_store`, AND THE ACCOUNTS' `max_store`
+    VALUES SUM BELOW THE FILE STORE WITH HEADROOM. ADR-042's `maxBytesBudgetFraction` caps a
+    surface's summed `max_bytes` at 75% of the WHOLE file store. That denominator is correct for
+    exactly one account and wrong at the second: applied unchanged it measures every tenant's
+    streams against the whole store, so it passes a configuration in which one account is
+    overcommitted against its own `max_store` and admits the 10047 refusal the gate exists to
+    prevent. Homelab's single account makes the two arithmetics identical, which is why the
+    discrepancy is invisible until a second account exists. RECONCILING THE GATE TO THE ACCOUNT
+    LEVEL GATES ONBOARDING THE SECOND TENANT, not the first. Storage limits bound storage only:
+    CPU, connection count and shared-node contention stay shared-server residual risk.
+
+# ---------------------------------------------------------------------------------------------
+# Subject grants
+# ---------------------------------------------------------------------------------------------
+
+subject_grants:
+  # `pf.<tenant>.>` is the CEILING a generated grant may not exceed, not a grant anything
+  # receives. Each principal gets the producer-owned prefixes the registry assigns it, narrowed
+  # within its own tenant, which preserves the producer boundary event-contract.md Sec. 5 already
+  # had. (ADR-043 D2)
+  tenant_ceiling: pf.<tenant>.>
+
+  # Issued to nothing, on either backend, platform components included. A grant matching one of
+  # these makes the `<tenant>` token forgeable inside the account, which is the precise thing the
+  # account cannot stop.
+  never_granted:
+    - pf.>
+    - pf.*.>
+    - '$JS.ACK.>'
+    - _INBOX.>
+    - '$JS.API.>'
+    - '$JS.>'
+
+  # Every principal's private inbox. JS API replies and pulled messages arrive here, and the
+  # client's inbox prefix is configured to match. A shared `_INBOX.>` grant would let any
+  # principal in the account read every other principal's replies and delivered messages.
+  # (ADR-043 D5a)
+  inbox_prefix_template: _INBOX.<principal>
+  inbox_subscribe_template: _INBOX.<principal>.>
+
+  # A responder on the `rq` path replies to the REQUESTER's private inbox, which it must not
+  # hold a standing publish grant on -- that grant is `_INBOX.<other principal>.>` and it reads
+  # every reply that principal receives. The mechanism is the server's own response permission,
+  # which authorizes a reply to the subject the responder was just delivered and nothing else.
+  # THE EXACT CONFIG KEY AND ITS BOUNDS ARE CONFIRMED AGAINST A RUNNING v2.15.0 AT LEVEL 2
+  # (conformance `rq_reply_needs_no_inbox_grant`), not asserted here.
+  reply_mechanism: server_response_permission
+  reply_inbox_publish_grant: forbidden
+
+  # The server derives ACK subjects from the stream and consumer name, in two forms: the
+  # `$JS.ACK.<stream>.<consumer>.…` form and the v2
+  # `$JS.ACK.<domain>.<account-hash>.<stream>.<consumer>.…` form. Both are scopable to one
+  # principal. The account hash is not known at render time, so the v2 form wildcards the two
+  # leading tokens and pins stream and consumer -- which is what keeps the grant narrower than
+  # `$JS.ACK.>`. (ADR-043 D5a)
+  ack_templates:
+    - '$JS.ACK.<stream>.<consumer>.>'
+    - '$JS.ACK.*.*.<stream>.<consumer>.>'
+
+# ---------------------------------------------------------------------------------------------
+# `$JS.API` allow-lists, by role
+# ---------------------------------------------------------------------------------------------
+#
+# AUTHORIZATION HERE IS DEFAULT-DENY AND THE ALLOW-LIST IS THE WHOLE CONTRACT. A NATS user with
+# an explicit `allow` set may publish nothing else. That matters because the account-scoped
+# `$JS.API` surface is far larger than the handful of destructive verbs one thinks to name:
+# v2.15.0 also serves `STREAM.RESTORE`, `STREAM.SNAPSHOT`, `STREAM.MSG.GET`, `ACCOUNT.PURGE`,
+# `CONSUMER.PAUSE`, `CONSUMER.UNPIN`, `CONSUMER.RESET` and the peer-remove/evacuate/step-down
+# endpoints -- `STREAM.MSG.GET` reads any message body in the account and `ACCOUNT.PURGE`
+# destroys all of it. Enumerating dangerous verbs is the wrong shape and goes stale at the next
+# chart bump. The `deny` entries below are DEFENCE IN DEPTH against a future broader grant, not
+# the thing doing the work. (ADR-043 D5)
+
+roles:
+  publisher:
+    description: >-
+      Publishes its registry-owned types and nothing else. It never reads a stream, so it gets
+      no stream or consumer API at all.
+    js_api_allow:
+      - '$JS.API.INFO'
+    js_api_deny: []
+    binds_stream_explicitly: false
+
+  puller:
+    description: >-
+      A durable pull consumer of a single fully-specified subject -- the `wq` shape. It creates
+      its own consumer through the fully-filtered endpoint, which is what makes ADR-038 D2's
+      silent repoint a denial instead of an accepted update.
+    js_api_allow:
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.<stream>'
+      - '$JS.API.CONSUMER.INFO.<stream>.<consumer>'
+      - '$JS.API.CONSUMER.CREATE.<stream>.<consumer>.<filter>'
+      - '$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>'
+    # v2.15.0 routes three subjects to one handler: `$JS.API.CONSUMER.CREATE.*` (which carries no
+    # consumer name in the subject at all), `$JS.API.CONSUMER.CREATE.*.>` and
+    # `$JS.API.CONSUMER.DURABLE.CREATE.*.*`. Under default-deny the alternates are already
+    # refused; these denies exist so a later broader grant cannot quietly re-open them.
+    #
+    # THE BROAD `$JS.API.CONSUMER.CREATE.*.>` FORM IS DELIBERATELY NOT DENIED: deny takes
+    # precedence over allow, so denying it would also kill the filtered endpoint above.
+    js_api_deny:
+      - '$JS.API.CONSUMER.CREATE.*'
+      - '$JS.API.CONSUMER.DURABLE.CREATE.*.*'
+    # `nats.go` v1.37.0's subscribe path performs stream discovery over
+    # `$JS.API.STREAM.NAMES` unless the stream is named, and that subject is not in the
+    # allow-list. Granting account-wide discovery to accommodate an implicit SDK choice is the
+    # wrong repair. (ADR-043 D5b)
+    binds_stream_explicitly: true
+
+  bound_puller:
+    description: >-
+      Binds a durable that NACK pre-created, with NO consumer-create grant of any kind. This is
+      the path for wildcard and multi-filter consumers -- the audit and DLQ readers, and the
+      ADR-045 Argo Events bridge -- which do not send the fully-specified create subject, so the
+      `puller` argument does not cover them. (ADR-043 D6a)
+    js_api_allow:
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.INFO.<stream>'
+      - '$JS.API.CONSUMER.INFO.<stream>.<consumer>'
+      - '$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>'
+    js_api_deny:
+      - '$JS.API.CONSUMER.CREATE.*'
+      - '$JS.API.CONSUMER.DURABLE.CREATE.*.*'
+    binds_stream_explicitly: true
+    # An ack on a SHARED durable advances the delivery state every other reader of it depends
+    # on, so a bridge sharing a durable leaves its failure domain reaching into the audit
+    # record's consumer state while every subject permission still reads correct. ADR-045's
+    # claim that the trigger bus cannot move PF_EVENTS or PF_AUDIT state is a property of this,
+    # not of running a second StatefulSet. (ADR-043 D7a)
+    durable_is_exclusive: true
+
+  stream_controller:
+    description: >-
+      NACK, and only NACK. The stream set is GitOps state (ADR-038), so this is the one role
+      with stream lifecycle rights -- scoped to its tenant's account through the `Account`
+      resource, never to `$SYS`. The static backend uses `spec.nkey`, with the matching PUBLIC
+      user key assigned to the tenant account; `spec.creds` is an nsc credentials file and the
+      two are not interchangeable. (ADR-043 D4)
+    js_api_allow:
+      - '$JS.API.INFO'
+      - '$JS.API.STREAM.CREATE.*'
+      - '$JS.API.STREAM.UPDATE.*'
+      - '$JS.API.STREAM.INFO.*'
+      - '$JS.API.STREAM.NAMES'
+      - '$JS.API.STREAM.LIST'
+      - '$JS.API.CONSUMER.CREATE.*'
+      - '$JS.API.CONSUMER.CREATE.*.>'
+      - '$JS.API.CONSUMER.DURABLE.CREATE.*.*'
+      - '$JS.API.CONSUMER.INFO.*.*'
+      - '$JS.API.CONSUMER.NAMES.*'
+      - '$JS.API.CONSUMER.LIST.*'
+    # Every Stream and Consumer this repository declares sets `preventDelete: true`, so the
+    # controller never needs a delete verb to reconcile them -- and the verbs it is refused are
+    # the ones that would let a reshaped resource destroy replay history rather than change a
+    # stream's shape. `STREAM.MSG.GET` is refused for the same reason a workload is refused it:
+    # it reads any message body in the account.
+    js_api_deny:
+      - '$JS.API.STREAM.DELETE.*'
+      - '$JS.API.STREAM.PURGE.*'
+      - '$JS.API.STREAM.MSG.DELETE.*'
+      - '$JS.API.STREAM.MSG.GET.*'
+      - '$JS.API.STREAM.SNAPSHOT.*'
+      - '$JS.API.STREAM.RESTORE.*'
+      - '$JS.API.CONSUMER.DELETE.*.*'
+      - '$JS.API.ACCOUNT.PURGE'
+    binds_stream_explicitly: true
+
+# ---------------------------------------------------------------------------------------------
+# The principals
+# ---------------------------------------------------------------------------------------------
+#
+# `publish` and `subscribe` are subject templates. `<tenant>` is substituted with the account's
+# own tenant token by the renderer and by no other means -- that substitution is the whole
+# mechanism of "narrowed within its own tenant". A literal tenant token here would be one
+# operator's deployment committed into the contract.
+#
+# `publish` on a `.ev`/`.rq`/`.wq` subject must be a prefix the registry assigns this component
+# as `producer`; scripts/nats-principals-contract_test.ts fails when the two drift. The `.dl`
+# subjects are derived, per the subject taxonomy's `dl` rule: a consumer republishes the full
+# original envelope to the `dl` subject of the `wq` message it gives up on, so the grant belongs
+# to the CONSUMER of that `wq` subject, not to its producer.
+
+principals:
+  - name: nack
+    role: stream_controller
+    component: nack
+    publish: []
+    subscribe: []
+
+  - name: workload-operator
+    role: puller
+    component: workload-operator
+    publish:
+      - pf.<tenant>.workload.deployment.deployed.v1.ev
+      - pf.<tenant>.workload.deployment.degraded.v1.ev
+      - pf.<tenant>.workload.deployment.promoted.v1.ev
+      # The dead-letter republish for the `wq` subject it consumes below.
+      - pf.<tenant>.workload.deployment.promote.v1.dl
+    subscribe: []
+    consumes:
+      - stream: PF_WORK
+        consumer: workload-operator-deployment-promote-v1
+        filter: pf.<tenant>.workload.deployment.promote.v1.wq
+
+  - name: gitops-bridge
+    role: publisher
+    component: gitops-bridge
+    publish:
+      - pf.<tenant>.gitops.application.synced.v1.ev
+      - pf.<tenant>.gitops.application.drifted.v1.ev
+    subscribe: []
+
+  - name: infra-operator
+    role: publisher
+    component: infra-operator
+    publish:
+      - pf.<tenant>.infra.node.replaced.v1.ev
+    subscribe: []
+
+  - name: homelab-cli
+    role: publisher
+    component: homelab-cli
+    publish:
+      - pf.<tenant>.control.bootstrap.progressed.v1.ev
+    subscribe: []
+
+  - name: identity-broker
+    role: publisher
+    component: identity-broker
+    publish:
+      - pf.<tenant>.identity.principal.issued.v1.ev
+      - pf.<tenant>.identity.principal.revoked.v1.ev
+    subscribe: []
+
+  - name: slo-bridge
+    role: publisher
+    component: slo-bridge
+    publish:
+      - pf.<tenant>.observability.slo.burned.v1.ev
+    subscribe: []
+
+  - name: platform-api
+    role: publisher
+    component: platform-api
+    publish:
+      - pf.<tenant>.workload.deployment.describe.v1.rq
+      - pf.<tenant>.workload.deployment.promote.v1.wq
+    # The `rq` reply arrives on this principal's own inbox, which
+    # `subject_grants.inbox_subscribe_template` already covers. It is not listed here, because a
+    # principal's inbox grant is generated from its name rather than declared per principal --
+    # a declared one could name another principal's prefix.
+    subscribe: []
+
+  - name: dlq-reporter
+    role: bound_puller
+    component: dlq-reporter
+    publish: []
+    subscribe: []
+    consumes:
+      - stream: PF_DLQ
+        consumer: dlq-reporter-observability-v1
+        filter: pf.<tenant>.*.*.*.*.dl
+
+  # The bridge ADR-045 rules is the only legal path from the platform bus to a Sensor. It is a
+  # bus principal like any other: a NACK-pre-created durable no other consumer shares, no
+  # consumer-create grant, an explicit stream bind and an ACK grant scoped to its own stream and
+  # consumer. Its credential is a Secret in the Argo Events namespace, which makes it one more
+  # `(component, tenant)` pair. (ADR-043 D7a)
+  - name: argo-events-bridge
+    role: bound_puller
+    component: argo-events-bridge
+    # The bridge component does not exist yet, so nothing pre-creates its durable. Its shape is
+    # declared here anyway because ADR-043 D7a is what makes ADR-045's containment claim
+    # enforceable -- it is a property of this permission set, not of running a second
+    # StatefulSet. `pending` is what stops the chart cross-check asserting a durable nothing
+    # creates while leaving the declaration honest about which side of the line it is on.
+    pending: MCAA-7
+    publish: []
+    subscribe: []
+    consumes:
+      - stream: PF_EVENTS
+        consumer: argo-events-bridge-delivery-v1
+        filter: pf.<tenant>.delivery.*.*.*.ev
+
+  # The end-to-end verification's read-back principal. It binds the wildcard durable NACK
+  # pre-creates, so it is a `bound_puller` and holds no consumer-create grant.
+  #
+  # IT PUBLISHES NOTHING. The verification exercises four registered types -- a workload event,
+  # a durable request, its dead letter and an identity event -- and every one of them is owned
+  # by a different component in the registry. A `verify` principal granted all four would be a
+  # single credential able to forge four producers' events, which is the producer boundary in
+  # event-contract.md Sec. 5 failing in the one place nobody reviews. So the verification
+  # connects AS THE PRODUCING PRINCIPAL for each publish, which also makes it prove
+  # per-principal scoping rather than only round-tripping a message. `nats-box` connecting
+  # anonymously is exactly what this contract removes: each runbook command becomes a named
+  # context with a credential.
+  - name: verify
+    role: bound_puller
+    component: verify
+    publish: []
+    subscribe: []
+    consumes:
+      - stream: PF_EVENTS
+        consumer: verify-workload-v1
+        filter: pf.<tenant>.workload.*.*.v1.ev
+
+# ---------------------------------------------------------------------------------------------
+# Conformance
+# ---------------------------------------------------------------------------------------------
+#
+# The gate is split between what a static check can see over rendered manifests and what only a
+# running server can settle. Per ADR-038 the static gate must not be the only thing that is
+# green. (ADR-043 D13)
+
+conformance:
+  level_0:
+    # Each id names a test in scripts/nats-principals-contract_test.ts, which fails when an id
+    # here has neither a live test nor a `pending` tracking issue. An id whose mechanism is not
+    # rendered yet carries `pending` and is turned on by the issue named there -- removing the
+    # key without adding the test does not pass.
+    - id: no_wildcard_tenant_grant
+      asserts: No principal publishes or subscribes on `pf.>` or any `pf.*.` form.
+    - id: grant_within_producer_ownership
+      asserts: >-
+        Every `.ev`/`.rq`/`.wq` publish grant is a subject the registry assigns this component
+        as `producer`, and every `.dl` grant derives from a `wq` subject this principal consumes.
+    - id: grant_within_tenant_ceiling
+      asserts: Every `pf.` grant begins `pf.<tenant>.` and never a literal tenant token.
+    - id: no_shared_inbox_or_ack
+      asserts: No principal is granted `_INBOX.>` or `$JS.ACK.>`, and no ACK grant omits its own stream and consumer.
+    - id: js_api_allow_is_exhaustive
+      asserts: >-
+        Every role's `js_api_allow` is a subset of the endpoints its role needs, and no role
+        allows `$JS.API.>`, `STREAM.MSG.GET`, `ACCOUNT.PURGE`, `STREAM.RESTORE` or
+        `STREAM.SNAPSHOT`.
+    - id: consumer_create_denies_present
+      asserts: >-
+        Every role allowing a consumer-create subject carries the name-only and legacy-durable
+        denies, and NONE denies the broad `$JS.API.CONSUMER.CREATE.*.>` form.
+    - id: no_system_account_principal
+      asserts: '`accounts.system_account_principals` is empty and no principal names `$SYS`.'
+    - id: no_cross_account_link
+      asserts: Exports and imports are forbidden and every topology feature that bypasses them is listed as disabled.
+    - id: jetstream_limits_declared
+      asserts: All four per-account JetStream limits are required, and the rendered account sets all four.
+    - id: durable_not_shared
+      asserts: >-
+        No two principals name the same (stream, consumer) pair, so a `bound_puller`'s
+        `durable_is_exclusive` is a property of the declaration and not a comment.
+    - id: stream_and_consumer_name_account
+      asserts: Every rendered `Stream` and `Consumer` sets `spec.account`.
+    - id: callout_allowed_accounts_bounded
+      asserts: >-
+        When the callout backend is configured, `allowed_accounts` is non-empty and excludes
+        `$SYS` -- v2.15.0 delegates EVERY account when it is left empty, so the secure value is
+        not the default.
+
+  level_2:
+    # Run against the rendered image digests, never a version read from a document. These are
+    # the claims a static check cannot make, and two of them are OPEN QUESTIONS this contract
+    # deliberately does not answer.
+    - id: start_bind_pull_ack_reconnect
+      asserts: A principal starts, binds, pulls, ACK/NAK/TERMs and reconnects under the real rendered ACL.
+    - id: lifecycle_refused
+      asserts: Every stream and consumer lifecycle verb outside the allow-list is refused.
+    - id: cross_principal_inbox_and_ack_refused
+      asserts: >-
+        A principal cannot read another principal's inbox or acknowledge another consumer's
+        messages INSIDE ONE ACCOUNT. Cross-tenant refusal alone does not test this.
+    - id: consumer_create_name_only_reach
+      open_question: true
+      asserts: >-
+        UNMEASURED. What the nameless `$JS.API.CONSUMER.CREATE.<stream>` endpoint can reach with
+        a body-supplied `Name`. v2.15.0 routes three subjects to one handler and the five-token
+        form carries no consumer name in the subject at all, so an allow-list naming only the
+        fully-filtered form may leak through it. The declaration denies the weaker forms
+        explicitly; THAT THIS IS SUFFICIENT IS WHAT THIS TEST SETTLES, covering durable and
+        named-ephemeral consumers with and without `Durable`.
+    - id: nack_account_on_stream_move
+      open_question: true
+      asserts: >-
+        UNMEASURED. NACK 0.35.0's `Account` behaviour when a `Stream` moves between accounts.
+    - id: rq_reply_needs_no_inbox_grant
+      open_question: true
+      asserts: >-
+        UNMEASURED. That a responder can reply to a requester's private inbox through the
+        server's response permission with no standing publish grant on that inbox, and the exact
+        config key and bounds that expresses.
+    - id: monitoring_network_policy
+      asserts: >-
+        Untrusted-pod denial AND authorized scrape, on BOTH 8222 (the monitoring port, published
+        by `nats-headless` and reachable on the pod IP either way) and 7777 (the exporter, which
+        republishes the same cross-account metadata).
+    - id: rotation_and_revocation_drill
+      asserts: >-
+        Staged new-key publication, Secret delivery, server config reload, client and NACK
+        reconnect, old-key removal, and refusal of both new AND already-established old sessions
+        within a stated bound -- plus rollback and a `$SYS` recovery path that works while the
+        identity service is down. External Secrets and 1Password synchronise material; they do
+        not supply this protocol.
+    - id: cold_start_no_maintainer_account
+      asserts: >-
+        Cold start on fresh synthetic credentials with no maintainer account, no identity service
+        and no anonymous fallback. This is the fork-ability contract for the bus.

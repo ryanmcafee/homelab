@@ -31,9 +31,6 @@ spec:
               secretKeyRef:
                 name: cloudflare-api-token
                 key: api_token
-
-        cloudflare:
-          proxied: {{ index .Values "external-dns" "cloudflare" "proxied" }}
         {{- end }}
 
         # HTTPRoutes only (the CRD source has its own deployment)

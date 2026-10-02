@@ -244,11 +244,84 @@ func Eval(schema *Schema, versions *Versions, setName string, layers ...map[stri
 		return nil, fmt.Errorf("control-plane derivation failed for set %q: %w", setName, err)
 	}
 
+	// 7. Parse the GitOps remote. Once, here — templates read the parts instead
+	// of naming an owner the URL already carries.
+	gitOps, err := DeriveGitOpsRepo(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("gitops repository derivation failed for set %q: %w", setName, err)
+	}
+
 	return &ResolvedConfig{
 		Values:       values,
 		Versions:     *versions,
 		Set:          setName,
 		ControlPlane: controlPlane,
+		GitOps:       gitOps,
+	}, nil
+}
+
+// GitOpsRepoKey is the schema key holding the repository ArgoCD reconciles from.
+const GitOpsRepoKey = "GITOPS_REPO_URL"
+
+// DeriveGitOpsRepo parses GITOPS_REPO_URL into its owner, repository name and
+// clone URL.
+//
+// It returns nil when the set resolves no value for the key, which is how the
+// small fixture schemas in tests stay unaffected. A value that is present but
+// does not carry an owner and a repository name is an error rather than a
+// best-effort parse: rendering half of it produces an ArgoCD Application that
+// syncs from the wrong repository and still reports Healthy.
+func DeriveGitOpsRepo(values map[string]string) (*GitOpsRepo, error) {
+	raw, ok := values[GitOpsRepoKey]
+	if !ok {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	// Accept both https://host/owner/repo(.git) and git@host:owner/repo(.git).
+	normalized := strings.TrimSuffix(strings.TrimRight(trimmed, "/"), ".git")
+	path := normalized
+	if scheme := strings.Index(path, "://"); scheme >= 0 {
+		path = path[scheme+len("://"):]
+		host, rest, found := strings.Cut(path, "/")
+		if !found || host == "" {
+			return nil, fmt.Errorf("%s %q has no path after the host", GitOpsRepoKey, raw)
+		}
+		path = rest
+	} else if _, rest, found := strings.Cut(path, ":"); found {
+		path = rest
+	} else {
+		// Without a scheme or an scp-style colon there is no way to tell the
+		// host from the owner: github.com/me/homelab would parse its owner as
+		// "github.com/me". Rejecting beats guessing at a repository URL.
+		return nil, fmt.Errorf(
+			"%s %q has no scheme: write it as https://<host>/<owner>/<repo> or git@<host>:<owner>/<repo>", GitOpsRepoKey, raw)
+	}
+	path = strings.Trim(path, "/")
+
+	segments := strings.Split(path, "/")
+	if len(segments) < 2 {
+		return nil, fmt.Errorf(
+			"%s %q does not name an owner and a repository: expected <host>/<owner>/<repo>, "+
+				"which is what the ArgoCD Application and the GitHub queries are built from", GitOpsRepoKey, raw)
+	}
+	// A self-hosted forge can nest the owner (gitlab.example.com/group/sub/repo);
+	// the repository is the last segment and its owner is everything before it.
+	name := segments[len(segments)-1]
+	owner := strings.Join(segments[:len(segments)-1], "/")
+	if owner == "" || name == "" {
+		return nil, fmt.Errorf("%s %q has an empty owner or repository segment", GitOpsRepoKey, raw)
+	}
+
+	return &GitOpsRepo{
+		URL:      normalized,
+		CloneURL: normalized + ".git",
+		Owner:    owner,
+		Name:     name,
+		Slug:     owner + "/" + name,
 	}, nil
 }
 

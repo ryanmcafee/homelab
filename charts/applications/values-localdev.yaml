@@ -815,11 +815,6 @@ mosquitto:
           nodePort: 31901
           protocol: tcp
 
-  # Authentication configuration
-  mosquitto:
-    auth:
-      enabled: true
-
   TZ: America/New_York
 
   # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster

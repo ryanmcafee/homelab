@@ -16,7 +16,6 @@
 {{- $onepassword := eq .Values.SECRETS_PROVIDER.Value "onepassword" -}}
 {{- $automated := eq .Values.ARGOCD_AUTOMATED_SYNC.Value "true" -}}
 {{- $logging := eq .Values.LOGGING_ENABLED.Value "true" -}}
-{{- $githubOwner := "ryanmcafee" -}}
 # Addons Chart - {{ .Set }} Environment Values
 #
 # GENERATED FILE — do not edit. Source: configuration/templates/helm-addons.tmpl
@@ -44,7 +43,7 @@ global:
   storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
 
   # Git repository for SOPS secrets
-  repoUrl: https://github.com/{{ $githubOwner }}/homelab.git
+  repoUrl: {{ .GitOps.CloneURL }}
   # homelab: main is what production tracks. localdev: a placeholder that the
   # parent Application overrides through helm.valuesObject with the PR head
   # (scripts/localdev-argocd.ts install --revision).
@@ -235,8 +234,6 @@ cilium:
         enabled: false
       hostRoot: /sys/fs/cgroup
     l2announcements:
-      enabled: true
-    externalIPs:
       enabled: true
     bgpControlPlane:
       enabled: true
@@ -871,7 +868,6 @@ external-dns:
 
   cloudflare:
     apiToken: ""
-    proxied: true
     onePasswordItemPath: {{ .Values.EXTERNAL_DNS_1P_PATH.Value }}
 
   domainFilters:
@@ -1556,6 +1552,114 @@ argo-rollouts:
   # status are the supported read paths.
   dashboard:
     enabled: false
+# NATS + JetStream — the platform event bus (docs/event-backbone.md)
+# Sync Waves: 10 nats, 11 nack (the jetstream.nats.io CRDs), 12 nats-config
+# (the stream set). Subjects, retention and delivery guarantees are normative in
+# contracts/events/subjects.v1.yaml and are not re-decided here.
+# ============================================================================
+
+nats:
+  # Runs in Kind too: the event-backbone e2e test publishes and consumes against
+  # it, which is the only way the dead-letter path is shown firing rather than
+  # merely configured.
+  enabled: true
+  namespace: nats
+  url: nats://nats.nats.svc.cluster.local:4222
+
+  chart:
+    name: nats
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "{{ index .Versions.Charts "nats" }}"
+
+  monitoring:
+    # Must stay well under 5m: the PF_WORK aging rules gate on
+    # min_over_time(nats_stream_total_messages[5m]), and an empty window drops the
+    # whole expression, so those alerts would silently never fire (MCAA-134).
+    scrapeInterval: 30s
+
+  # Stream sizing is operator-supplied, not contract: a hard-coded 3 means a
+  # single-node fork cannot create any stream (10074).
+  replicas: {{ .Values.NATS_SERVER_REPLICAS.Value }}
+
+  # ADR-043's static backend. Identity is operator-supplied, permissions are contract:
+  # contracts/events/bus-principals.v1.yaml declares the grants and
+  # charts/addons/files/nats-accounts.gen.yaml is its expansion. PUBLIC keys only -- the
+  # private seeds reach workloads as Secrets through External Secrets.
+  #
+  # Empty NATS_PRINCIPAL_NKEYS leaves the bus anonymous. Setting it renders the accounts
+  # block, and the server then refuses every client that has no key, NACK and nats-box
+  # included, so every principal a workload runs as has to be listed before it is set.
+  tenant: {{ .Values.NATS_TENANT.Value }}
+  principalNkeys: "{{ .Values.NATS_PRINCIPAL_NKEYS.Value }}"
+  systemAccountNkey: "{{ .Values.NATS_SYSTEM_ACCOUNT_NKEY.Value }}"
+  natsBoxPrincipals: "{{ .Values.NATS_BOX_PRINCIPALS.Value }}"
+
+  # Per-account JetStream limits, mandatory rather than advisory (ADR-043 D8). Both store
+  # limits are checked against the SERVER's stores at startup and a limit above what the
+  # server offers is fatal for every account, not just the greedy one -- measured on v2.15.0
+  # against this chart's own rendered nats.conf. `max_memory: 0` is the declared limit for a
+  # file-store-only bus: no memory store is enabled, so a memory-backed stream is refused.
+  # `max_store` sits under the file store below, which is the ADR-043 budget rule at the
+  # account level for the one account homelab renders.
+  accountLimits:
+    max_memory: 0
+{{- if $localdev }}
+    max_store: << 1GB >>
+    max_streams: 16
+    max_consumers: 64
+{{- else }}
+    max_store: << 15GB >>
+    max_streams: 32
+    max_consumers: 256
+{{- end }}
+
+  jetstream:
+    streamReplicas: {{ .Values.NATS_STREAM_REPLICAS.Value }}
+    storage:
+{{- if $localdev }}
+      size: 2Gi
+{{- else }}
+      size: 20Gi
+{{- end }}
+      # Block storage: JetStream's file store is a write-ahead log and needs real
+      # fsync semantics, so it takes the iSCSI SSD class and never an NFS one.
+      className: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+{{- if $localdev }}
+
+  # Kind sizing
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+{{- else }}
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+{{- end }}
+
+nack:
+  natsUrl: nats://nats.nats.svc.cluster.local:4222
+
+  chart:
+    name: nack
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "{{ index .Versions.Charts "nack" }}"
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: {{ if $localdev }}100m{{ else }}200m{{ end }}
+      memory: 128Mi
 
 # ============================================================================
 # Istio ambient mesh + Kiali (docs/service-mesh.md)
@@ -1843,12 +1947,12 @@ github-pr-exporter:
   onePasswordItemPath: "{{ if $onepassword }}{{ .Values.GITHUB_PR_ALERTS_1P_PATH.Value }}{{ end }}"
   scrapeInterval: {{ .Values.GITHUB_PR_ALERTS_SCRAPE_INTERVAL.Value }}
   repeatInterval: {{ .Values.GITHUB_PR_ALERTS_REPEAT_INTERVAL.Value }}
-  # Both queries are scoped to the repositories of repoUrl's owner, who is also the reviewer.
+  # Both queries are scoped to the repositories of GITOPS_REPO_URL's owner, who is also the reviewer.
   queries:
     - name: unreviewed
-      url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_UNREVIEWED.Value $githubOwner $prExclude) }}&per_page=100"
+      url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_UNREVIEWED.Value .GitOps.Owner $prExclude) }}&per_page=100"
     - name: review-requested
-      url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s review-requested:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_REQUESTED.Value $githubOwner $githubOwner $prExclude) }}&per_page=100"
+      url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s review-requested:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_REQUESTED.Value .GitOps.Owner .GitOps.Owner $prExclude) }}&per_page=100"
 
 # ============================================================================
 # Alert triage agent (templates/triage-agent.yaml, charts/triage-agent)
@@ -1860,8 +1964,10 @@ github-pr-exporter:
 triage-agent:
   enabled: {{ $triage }}
   namespace: triage-agent
-  image: "ghcr.io/{{ $githubOwner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"
-  repoSlug: "{{ $githubOwner }}/homelab"
+  # Published by .github/workflows/triage-agent-image.yml to the fork's own
+  # ghcr namespace; the image name there is fixed, only the owner varies.
+  image: "ghcr.io/{{ .GitOps.Owner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"
+  repoSlug: "{{ .GitOps.Slug }}"
   workflowUiUrl: "https://{{ .Values.WORKFLOWS_HOSTNAME.Value }}"
   # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN plus optional fields (docs/runbooks/triage-agent.md).
   onePasswordItemPath: "{{ if $onepassword }}{{ .Values.TRIAGE_AGENT_1P_PATH.Value }}{{ end }}"

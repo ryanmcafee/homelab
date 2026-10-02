@@ -1,0 +1,146 @@
+# The platform stream set. Every field here restates a normative value from
+# contracts/events/subjects.v1.yaml (ADR-026, revised by ADR-038);
+# scripts/nats-streams-contract_test.ts fails when the two drift.
+#
+# The parent Application (charts/addons/templates/nats-config.yaml) supplies
+# `natsUrl`, `replicas` and `fileStoreSize`, so stream sizing stays
+# operator-supplied and no fork edits this file to run on one node.
+
+natsUrl: nats://nats.nats.svc.cluster.local:4222
+
+# Replicas per stream. The contract keeps this a placeholder on purpose: a
+# hard-coded 3 means a single-node fork cannot create any stream at all
+# ("replicas > 1 not supported in non-clustered mode (10074)").
+replicas: 1
+
+# Byte ceiling per stream, from the contract's `max_bytes_defaults.homelab`. The
+# contract keeps `max_bytes` a placeholder for the same reason as `replicas`: a
+# committed byte count is one operator's disk.
+#
+# Required on every stream. JetStream applies `discard` only at `max_bytes`,
+# `max_msgs` or `max_msgs_per_subject` — age expiry ignores it — so an unlimited
+# stream has a decorative discard policy and the only thing it can exhaust is the
+# shared file store, which then refuses writes for every stream on the peer with
+# `insufficient resources (10023)`. PF_AUDIT is the largest because 365d of
+# identity and control history is what it exists to hold; PF_WORK is the smallest
+# because a drained work queue is nearly empty and a deep one is already an alert.
+maxBytes:
+  PF_EVENTS: 2147483648 # 2 GiB, 33.3% of the budget
+  PF_AUDIT: 3221225472 # 3 GiB, 50%
+  PF_WORK: 268435456 # 256 MiB, 4.2%
+  PF_DLQ: 805306368 # 768 MiB, 12.5%
+
+# The JetStream file store the ceilings above are budgeted against, restating the
+# homelab `nats.jetstream.storage.size` from configuration/templates/helm-addons.tmpl.
+# The parent Application injects each environment's real value, so this default is
+# what makes the sum rule checkable when the chart renders on its own; the drift
+# gate pins it to what the parent injects per surface.
+fileStoreSize: 20Gi
+
+# The four ceilings must sum at or below this fraction of the file store.
+# `maxBytes` bounds a stream against itself and reserves nothing, so limits
+# summing above the store are individually bounded and collectively unbounded,
+# and the headroom covers the index and metadata JetStream accounts for alongside
+# message bytes (ADR-042 `max_bytes_sum_rule`).
+#
+# 0.75 is also the ceiling on this value itself, not just its default: the
+# contract makes 75% the most of the store the four limits may claim, so a
+# fraction above it would not enlarge the budget, only stop the sum rule from
+# being applied. The chart refuses to render above it.
+maxBytesBudgetFraction: 0.75
+
+# The tenant account every Stream and Consumer belongs to, injected by the parent
+# Application from the same values that render the server's `accounts {}` block, so the
+# account NACK writes into and the account the server enforces cannot drift.
+#
+# Empty leaves `spec.account` off every resource, which is the pre-ADR-043 anonymous bus:
+# NACK connects through its server-wide credential and the stream lands in whatever
+# account that one reaches.
+account:
+  # Metadata name of the Account resource. RFC 1123, so never the NATS account name.
+  name: ""
+  # The NATS account name, `TENANT_<TENANT>` (ADR-043 D12).
+  natsName: ""
+  # Secret holding NACK's PRIVATE nkey seed, delivered by External Secrets.
+  credentialSecret: ""
+  credentialSecretKey: nats.nk
+
+streams:
+  - name: PF_EVENTS
+    description: The only ingestion point for .ev; general fan-out of every v1 platform event
+    subjects:
+      - pf.*.*.*.*.*.ev
+    retention: limits
+    maxAge: 168h
+    # 960 KiB, the contract's `limits.max_event_bytes`. Deliberately below the
+    # server's 1 MiB `max_payload` so headers cannot push a legal event over it.
+    maxMsgSize: 983040
+    discard: old
+    duplicateWindow: 2m
+
+  - name: PF_AUDIT
+    description: A retention policy over the identity and control subset of PF_EVENTS
+    # Deliberately no subjects. Two streams in one account may not have
+    # overlapping filters — a real server refuses the second with "subjects
+    # overlap with an existing stream (10065)" — so PF_AUDIT sources from
+    # PF_EVENTS instead of ingesting directly. One publish, one PubAck, one
+    # unambiguous envelope sequence.
+    # Both filters go on ONE source. The exporter labels nats_stream_source_* by
+    # source_name alone, so a second source from the same origin collides on an
+    # identical label set and the whole /metrics scrape 500s (docs/event-backbone.md).
+    sources:
+      - name: PF_EVENTS
+        subjectTransforms:
+          - source: pf.*.identity.*.*.*.ev
+          - source: pf.*.control.*.*.*.ev
+    retention: limits
+    maxAge: 8760h
+    discard: new
+    duplicateWindow: 2m
+
+  - name: PF_WORK
+    description: Durable deferred work; exactly one consumer group takes each message
+    subjects:
+      - pf.*.*.*.*.*.wq
+    retention: workqueue
+    # 24h, chosen to exceed the worst consumer outage the platform intends to
+    # survive. Age expiry here is a silent-loss path with no per-message signal,
+    # which is why it is covered by the PF_WORK stream alerts and not by an
+    # advisory.
+    maxAge: 24h
+    discard: new
+    duplicateWindow: 2m
+
+  - name: PF_DLQ
+    description: Full original envelopes of wq work a consumer gave up on
+    subjects:
+      - pf.*.*.*.*.*.dl
+    retention: limits
+    maxAge: 720h
+    discard: old
+    duplicateWindow: 2m
+
+consumers:
+  # The dead-letter reader. The republishing consumer is what puts an envelope on
+  # a .dl subject; this is the durable subscriber that makes a failed delivery
+  # visible instead of leaving PF_DLQ unread.
+  - name: dlq-reporter-observability-v1
+    streamName: PF_DLQ
+    filterSubject: pf.*.*.*.*.*.dl
+    description: Durable reader of the dead-letter record
+
+  # The consumer the end-to-end verification publishes through, named by the
+  # same <component>-<domain>-v<major> rule as any other .ev consumer.
+  - name: verify-workload-v1
+    streamName: PF_EVENTS
+    filterSubject: pf.*.workload.*.*.v1.ev
+    description: Durable consumer the event-backbone e2e test publishes through
+
+# Consumer defaults from the contract. A per-consumer value overrides them.
+consumerDefaults:
+  ackPolicy: explicit
+  maxDeliver: 5
+  ackWait: 30s
+  maxAckPending: 256
+  deliverPolicy: all
+  replayPolicy: instant

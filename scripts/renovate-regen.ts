@@ -77,6 +77,19 @@ export const REGEN_STEPS: { desc: string; cmd: string[] }[] = [
   { desc: "generated doc regions", cmd: ["task", "docs:check", "--", "--fix"] },
 ];
 
+/** What a bump can break that no regeneration fixes.
+ *
+ * A chart that renames a values key in a version bump leaves the old key
+ * inert, and every generated artefact agrees with that silently: helm ignores
+ * the unknown key, so the regenerated snapshot records it as expected output.
+ * Run after the snapshots so the check reads this bump's pinned versions. */
+export const VERIFY_STEPS: { desc: string; cmd: string[] }[] = [
+  {
+    desc: "helm values the bumped charts still declare",
+    cmd: ["task", "upstream:values"],
+  },
+];
+
 export interface RegenIdentity {
   name: string;
   email: string;
@@ -587,7 +600,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  for (const step of REGEN_STEPS) {
+  for (const step of [...REGEN_STEPS, ...VERIFY_STEPS]) {
     console.log(cyan(`==> ${step.desc}: ${step.cmd.join(" ")}`));
     await run(step.cmd);
   }
