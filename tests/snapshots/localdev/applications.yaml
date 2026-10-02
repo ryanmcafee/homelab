@@ -1,4 +1,19 @@
 ---
+# Source: applications/templates/litellm.yaml
+# Namespace for the LiteLLM proxy and its CloudNativePG Cluster. Both run
+# non-root, so baseline is enough.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: litellm
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+
+---
 # Source: applications/templates/namespaces.yaml
 # Namespace: media
 # Created early so config charts and app deployments have a target namespace.
@@ -565,6 +580,13 @@ spec:
               type: RuntimeDefault
 
 ---
+# Source: applications/templates/litellm.yaml
+# Dependencies Application: the 1Password items the proxy reads (master key,
+# salt key, provider API keys). Only where a secret store exists
+# (SECRETS_PROVIDER): without one the chart would render nothing, and localdev
+# seeds the same Secrets in localdev/fakes/secrets.yaml instead.
+
+---
 # Source: applications/templates/oci-repositories.yaml
 # OCI Repository configuration for ArgoCD
 # Single repository secret for TrueCharts OCI registry
@@ -756,7 +778,7 @@ spec:
                       cpu: 500m
                       memory: 512Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 256Mi
               nodeSelector:
                 kubernetes.io/arch: null
@@ -819,6 +841,66 @@ spec:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/litellm.yaml
+# Database Application: a CloudNativePG Cluster (the operator is the
+# cloudnative-pg addon). CNPG generates Secret litellm-db-app whose username
+# and password keys become the chart's database.writer.passwordSecret, so no
+# credential is ever written by us. ArgoCD's built-in Cluster health check
+# makes the proxy's wave wait for a ready database.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm-database
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/litellm-database
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+      # Storage class, size, image pin and sizing are environment facts
+      # (configuration/) and reach the child through this parent (ADR-010).
+      valuesObject:
+        namespace: litellm
+        ambientOptOut: false
+        imageName: ghcr.io/cloudnative-pg/postgresql:17.11
+        instances: 1
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        storageClass: local-path
+        storageSize: 1Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The Cluster CRD comes from the cloudnative-pg addon; if a sync lands before
+    # the CRD is served the apply fails with "no matches for kind Cluster" and
+    # this retries until the operator is up.
     retry:
       limit: 5
       backoff:
@@ -933,9 +1015,6 @@ spec:
                 protocol: tcp
                 targetPort: 9001
             type: NodePort
-        mosquitto:
-          auth:
-            enabled: true
         TZ: "America/New_York"
 
   destination:
@@ -1245,6 +1324,7 @@ spec:
         serviceMesh:
           ambient: true
         admin:
+          bootstrap: true
           email: admin@homelab.local
           name: Admin
         agentPolicy:
@@ -1647,7 +1727,7 @@ spec:
                       cpu: 1000m
                       memory: 1Gi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 512Mi
               nodeSelector:
                 kubernetes.io/arch: null
@@ -1789,7 +1869,7 @@ spec:
                       cpu: 1000m
                       memory: 1Gi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 512Mi
               nodeSelector:
                 kubernetes.io/arch: null
@@ -1923,7 +2003,7 @@ spec:
                       cpu: 500m
                       memory: 512Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 256Mi
               nodeSelector:
                 kubernetes.io/arch: null

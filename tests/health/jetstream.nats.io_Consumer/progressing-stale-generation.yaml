@@ -1,0 +1,20 @@
+# expect: Progressing
+# message: Waiting for NACK to observe generation 2 (observed 1)
+apiVersion: jetstream.nats.io/v1beta2
+kind: Consumer
+metadata:
+  name: verify-workload-v1
+  namespace: nats
+  generation: 2
+spec:
+  durableName: verify-workload-v1
+  streamName: PF_EVENTS
+  maxDeliver: 5
+status:
+  observedGeneration: 1
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: Created
+      message: Consumer successfully created
+      lastTransitionTime: "2026-09-28T00:00:00Z"

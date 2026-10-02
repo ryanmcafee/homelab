@@ -718,7 +718,6 @@ external-dns:
 
   cloudflare:
     apiToken: ""
-    proxied: true
     onePasswordItemPath: vaults/homelab/items/cloudflare
 
   domainFilters:
@@ -1200,7 +1199,11 @@ argo-workflows:
     version: "1.0.18"
 
   server:
-    authMode: server
+    # `server` serves the UI and API with full controller privileges and no
+    # credential at all. The server runs arbitrary containers, so anyone who can
+    # reach the route can execute code in the cluster. `client` makes the caller
+    # supply their own Kubernetes bearer token; SSO replaces it in #51.
+    authMode: client
 
     # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
     route:
@@ -1210,19 +1213,21 @@ argo-workflows:
     resources:
       requests:
         cpu: 50m
-        memory: 32Mi
+        memory: 64Mi
       limits:
         cpu: 200m
-        memory: 48Mi
+        memory: 128Mi
 
   controller:
+    # Informer caches (Workflows, Pods, ConfigMaps, templates) plus the archive
+    # DB pool; 48Mi crash-looped the controller (bugs.md 2026-10-01).
     resources:
       requests:
         cpu: 100m
-        memory: 32Mi
+        memory: 128Mi
       limits:
         cpu: 500m
-        memory: 48Mi
+        memory: 256Mi
 
     # Garbage collection of live objects. Completed workflows stay browsable in
     # the archive (retentionDays) after their TTL removes them from the cluster.
@@ -1305,6 +1310,102 @@ argo-rollouts:
   # status are the supported read paths.
   dashboard:
     enabled: false
+# NATS + JetStream — the platform event bus (docs/event-backbone.md)
+# Sync Waves: 10 nats, 11 nack (the jetstream.nats.io CRDs), 12 nats-config
+# (the stream set). Subjects, retention and delivery guarantees are normative in
+# contracts/events/subjects.v1.yaml and are not re-decided here.
+# ============================================================================
+
+nats:
+  # Runs in Kind too: the event-backbone e2e test publishes and consumes against
+  # it, which is the only way the dead-letter path is shown firing rather than
+  # merely configured.
+  enabled: true
+  namespace: nats
+  url: nats://nats.nats.svc.cluster.local:4222
+
+  chart:
+    name: nats
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "2.15.0"
+
+  monitoring:
+    # Must stay well under 5m: the PF_WORK aging rules gate on
+    # min_over_time(nats_stream_total_messages[5m]), and an empty window drops the
+    # whole expression, so those alerts would silently never fire (MCAA-134).
+    scrapeInterval: 30s
+
+  # Stream sizing is operator-supplied, not contract: a hard-coded 3 means a
+  # single-node fork cannot create any stream (10074).
+  replicas: 1
+
+  # ADR-043's static backend. Identity is operator-supplied, permissions are contract:
+  # contracts/events/bus-principals.v1.yaml declares the grants and
+  # charts/addons/files/nats-accounts.gen.yaml is its expansion. PUBLIC keys only -- the
+  # private seeds reach workloads as Secrets through External Secrets.
+  #
+  # Empty NATS_PRINCIPAL_NKEYS leaves the bus anonymous. Setting it renders the accounts
+  # block, and the server then refuses every client that has no key, NACK and nats-box
+  # included, so every principal a workload runs as has to be listed before it is set.
+  tenant: local
+  principalNkeys: ""
+  systemAccountNkey: ""
+  natsBoxPrincipals: ""
+
+  # Where each principal's PRIVATE seed comes from. Exactly one source, or the accounts block
+  # refuses to render: a public key the server accepts is unusable until its seed reaches the
+  # client. Kind has no vault, so its bootstrap mints the seeds into Secrets directly
+  # (scripts/localdev-kind.ts); homelab delivers them through the 1Password operator.
+  credentials:
+    onePasswordVaultPath: ""
+    bootstrapSeeded: true
+    extraNamespaces: {}
+
+  # Per-account JetStream limits, mandatory rather than advisory (ADR-043 D8). Both store
+  # limits are checked against the SERVER's stores at startup and a limit above what the
+  # server offers is fatal for every account, not just the greedy one -- measured on v2.15.0
+  # against this chart's own rendered nats.conf. `max_memory: 0` is the declared limit for a
+  # file-store-only bus: no memory store is enabled, so a memory-backed stream is refused.
+  # `max_store` sits under the file store below, which is the ADR-043 budget rule at the
+  # account level for the one account homelab renders.
+  accountLimits:
+    max_memory: 0
+    max_store: << 1GB >>
+    max_streams: 16
+    max_consumers: 64
+
+  jetstream:
+    streamReplicas: 1
+    storage:
+      size: 2Gi
+      # Block storage: JetStream's file store is a write-ahead log and needs real
+      # fsync semantics, so it takes the iSCSI SSD class and never an NFS one.
+      className: local-path
+
+  # Kind sizing
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+nack:
+  natsUrl: nats://nats.nats.svc.cluster.local:4222
+
+  chart:
+    name: nack
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "0.35.0"
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
 
 # ============================================================================
 # Istio ambient mesh + Kiali (docs/service-mesh.md)
@@ -1568,7 +1669,7 @@ github-pr-exporter:
   onePasswordItemPath: ""
   scrapeInterval: 2m
   repeatInterval: 24h
-  # Both queries are scoped to the repositories of repoUrl's owner, who is also the reviewer.
+  # Both queries are scoped to the repositories of GITOPS_REPO_URL's owner, who is also the reviewer.
   queries:
     - name: unreviewed
       url: "https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+review%3Anone+user%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100"
@@ -1583,6 +1684,8 @@ github-pr-exporter:
 triage-agent:
   enabled: false
   namespace: triage-agent
+  # Published by .github/workflows/triage-agent-image.yml to the fork's own
+  # ghcr namespace; the image name there is fixed, only the owner varies.
   image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.1"
   repoSlug: "ryanmcafee/homelab"
   workflowUiUrl: "https://workflows.homelab.local"

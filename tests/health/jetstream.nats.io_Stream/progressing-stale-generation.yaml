@@ -1,0 +1,19 @@
+# expect: Progressing
+# message: Waiting for NACK to observe generation 4 (observed 3)
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: pf-work
+  namespace: nats
+  generation: 4
+spec:
+  name: PF_WORK
+  retention: workqueue
+status:
+  observedGeneration: 3
+  conditions:
+    - type: Ready
+      status: "True"
+      reason: Created
+      message: Stream successfully created
+      lastTransitionTime: "2026-09-28T00:00:00Z"
