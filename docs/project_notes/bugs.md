@@ -30,6 +30,12 @@ Each entry should include:
 - **Solution**: Removed the three dead keys from `charts/addons/values.yaml` and `charts/addons/templates/spegel.yaml`. Rendering the upstream chart with the Application's own `spec.source.helm.values` is byte-identical before and after, which is the proof they were inert. Mirroring was already all-registries, so argo-cd's redis was never missing a cache hit
 - **Prevention**: `helm show values <chart> --version <v>` before trusting a values key; translating a dead allowlist to its real key name would have been a regression here. MCAA-434 tracks a CI gate for this class
 
+### 2026-10-01 - argo-workflows workflow-controller CrashLoopBackOff under a 48Mi limit
+- **Issue**: `KubePodCrashLooping` for `argo-workflows-workflow-controller` (container `controller`); while it is down no Workflows are reconciled or archived, so the triage and CI workflows stall
+- **Root Cause**: The homelab render capped the controller at 32Mi request / 48Mi limit (and the server the same) since the block was introduced in 9835d66. The controller holds informer caches for Workflows, Pods, ConfigMaps and WorkflowTemplates plus the Postgres archive pool and needs about 100-250Mi, so it is OOM-killed. Inferred from the config: the pod's `lastState.terminated.reason` and logs could not be read during triage; the other documented cause is an unreachable `argo-workflows-postgres-rw` (docs/runbooks/argo-workflows.md)
+- **Solution**: homelab controller memory request 128Mi, limit 256Mi; server request 64Mi, limit 128Mi (`configuration/templates/helm-addons.tmpl`)
+- **Prevention**: Size Argo controllers for their informer caches; 48Mi is below a Go controller's baseline. Confirm `lastState.terminated.reason` before assuming OOM on a crash loop
+
 ### 2026-09-26 - plex and otel-collector-gateway permanently OutOfSync on their HTTPRoute (#387)
 - **Issue**: After the Envoy Gateway cutover, `plex` and `otel-collector-gateway` stayed `OutOfSync`/`Healthy` with only the HTTPRoute out of sync; `argocd app diff` showed nothing
 - **Root Cause**: The `plex-media-server` and `opentelemetry-collector` chart templates render `backendRefs` with only `name` and `port` and accept no `group`/`kind`, so the API server adds `group: ""`, `kind: Service` and `weight: 1`, which the controller's diff flags on every refresh
