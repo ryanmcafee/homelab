@@ -1,17 +1,33 @@
 {{- with .Values.alertSource }}
 ---
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyExtensionPolicy
 metadata:
-  name: {{ .middlewareName }}
+  name: {{ .policyName }}
   namespace: {{ $.Values.namespace }}
-  annotations:
-    kubernetes.io/ingress.class: {{ .ingressClassName }}
 spec:
-  redirectRegex:
-    regex: ^https?://([^/]+)/graph\?(?:[^#]*&)?g0\.expr=([^&#]*).*$
-    replacement: https://${1}/d/{{ .dashboardUid }}/alert-query?orgId=1&var-expr=${2}
-    permanent: false
+  targetSelectors:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      matchLabels:
+        {{- toYaml .routeLabels | nindent 8 }}
+  lua:
+    - type: Inline
+      inline: |
+        function envoy_on_request(request_handle)
+          local path = request_handle:headers():get(":path") or ""
+          if string.sub(path, 1, 7) ~= "/graph?" then
+            return
+          end
+          local expr = string.match(path, "[?&]g0%.expr=([^&#]*)")
+          if expr == nil then
+            return
+          end
+          request_handle:respond({
+            [":status"] = "302",
+            ["location"] = "/d/{{ .dashboardUid }}/alert-query?orgId=1&var-expr=" .. expr,
+          }, "")
+        end
 ---
 apiVersion: v1
 kind: ConfigMap

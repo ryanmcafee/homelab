@@ -144,9 +144,10 @@ inputs = {
   cmp_image_version = yamldecode(file("${get_terragrunt_dir()}/../../../../configuration/versions.yaml"))["images"]["homelab-cmp"]
   admin_enabled     = true
 
-  # Ingress (enable for production access)
-  server_ingress_enabled = true
-  server_host            = "argocd.${include.env.locals.base_fqdn}"
+  # Off: the Gateway API CRDs do not exist yet at bootstrap; ArgoCD self-management
+  # (charts/bootstrap) renders the HTTPRoute once addons install them.
+  server_route_enabled = false
+  server_host          = "argocd.${include.env.locals.base_fqdn}"
 
   # GitOps Bridge metadata
   # These values are passed to ArgoCD applications via ConfigMap

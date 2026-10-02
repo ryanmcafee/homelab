@@ -1,0 +1,6 @@
+# envoy-gateway-config homelab values. Nothing is committed here: the parent
+# Application passes the name, domain, static IP and sizing through
+# helm.valuesObject from configuration/ (via the CMP). The file has to exist
+# because the parent Application lists values-homelab.yaml.
+
+namespace: envoy-gateway-system

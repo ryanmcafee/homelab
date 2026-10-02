@@ -47,10 +47,10 @@ here touches the homelab cluster: agents may mutate only Kind (ADR-009).
 │  │  1 control-plane + 2 workers, Cilium CNI   │◄─┤ pull-through       │  │
 │  │                                            │  │ caches (docker.io, │  │
 │  │  argocd/   ArgoCD (chart from versions.yaml│  │ ghcr, quay, k8s,   │  │
-│  │            + health Lua from bootstrap)    │  │ lscr) -> ~/.cache  │  │
+│  │            + health Lua from bootstrap)    │  │ lscr, ecr) ~/.cache│  │
 │  │     └─ gitops ─┬─ (bootstrap: not created)   │  └────────────────────┘  │
-│  │                ├─ addons (cilium, traefik, │                          │
-│  │                │   cert-manager, ...)      │  localhost:8080 ArgoCD   │
+│  │                ├─ addons (cilium, envoy-   │                          │
+│  │                │   gateway, cert-manager)  │  localhost:8080 ArgoCD   │
 │  │                └─ applications (plex, *arr,│  localhost:9080/9443     │
 │  │                    mosquitto, ...)         │    (Kind ports 80/443)   │
 │  │  fakes: StorageClass aliases, seeded       │                          │
@@ -152,7 +152,7 @@ NAME                    SYNC STATUS   HEALTH STATUS
 gitops                  OutOfSync     Healthy
 addons                  OutOfSync     Healthy
 cilium                  OutOfSync     Healthy
-traefik-internal        OutOfSync     Healthy
+envoy-gateway           OutOfSync     Healthy
 ...
 ```
 
@@ -182,14 +182,14 @@ On Linux the Kind port mapping (NodePort 30080 to host 8080) serves the UI direc
 | `task localdev:argocd` | `helm upgrade --install prometheus-operator-crds` at `charts.prometheus-operator-crds` (the monitoring CRDs the bootstrap chart installs at wave -1 in homelab; the bootstrap Application is not created in Kind, and kube-prometheus-stack ships no CRDs, ADR-018), then `helm upgrade --install argo-cd` at `charts.argocd` from `versions.yaml` with `localdev/values/argocd-values.yaml` plus one `--set-file` per health script in `charts/bootstrap/files/health/`, apply the root Application `localdev/argocd/gitops-app.yaml` with its placeholder `main` replaced by the PR head (`-- --revision <ref>` or `LOCALDEV_REVISION`; default: the upstream branch of HEAD, or `main` with a warning when the branch is not pushed), log the `argocd` CLI in through its own `kubectl port-forward` to `argocd-server`. Idempotent. | `scripts/localdev-argocd.ts install` |
 | `task localdev:sync` | Sync every Application from the working tree, tier by tier (parent wave, then own wave): git-path apps with `argocd app sync --local <path> --local-repo-root <repo>`, chart apps with a plain `argocd app sync`. A later parent's subtree (applications) is not started until every lower parent (addons) has finished creating and settling its waves, mirroring ArgoCD's own ordering in homelab where applications only starts once addons is Healthy. `-- --warm` stops after addons (the bootstrap Application is not created in localdev); `-- --only a,b` limits it; `-- --dry-run` prints the commands. Failed operations retry 3 times. A git-path app that renders nothing locally is synced plainly when the tracked revision renders nothing either (empty app → Synced/Healthy) and skipped altogether when its path does not exist on that revision (`git cat-file -e origin/<rev>:<path>`, the `new-empty` case: only reachable when the root fell back to `main` because the branch is not pushed; `wait`, `report` and `verify LEVEL=2` treat it as complete). | `scripts/localdev-argocd.ts sync` |
 | `task localdev:wait` | Poll until every Application is Healthy with a Succeeded operation (default 20 min); on timeout run diagnose and exit 1. `-- --require-synced` also demands Synced (off by default, see below). | `scripts/localdev-argocd.ts wait` |
-| `task localdev:diagnose` | For every Application that is not Healthy/Succeeded: conditions, operation message, every managed resource with its health (`-` when ArgoCD reports none), then per namespace (each unhealthy Application's destination plus its unhealthy resources' namespaces, `argocd` last) the recent events, describe + logs of pods not Running, a statefulsets/deployments/jobs table and `kubectl describe` of each unhealthy custom resource. | `scripts/localdev-argocd.ts diagnose` |
+| `task localdev:diagnose` | For every Application that is not Healthy/Succeeded: conditions, health and operation message (`(none reported by ArgoCD)` when the field is empty — the field is always printed), the failed sync tasks with their own messages, a health roll-up naming which resources are Degraded and which carry `(no health check registered)`, every managed resource with its health, then per namespace (each unhealthy Application's destination plus its unhealthy resources' namespaces, `argocd` last) the recent events, describe + logs of pods not Running, a statefulsets/deployments/jobs table, and for each unhealthy custom resource its full `.status` (`kubectl get -o json`, printed head-first so conditions survive) plus a head+tail of `kubectl describe`. | `scripts/localdev-argocd.ts diagnose` |
 | `task localdev:report` | Markdown report of the loop: level-2 verdict (`-- --verify-json verify-level2.json`), a table of every Application (health, sync, last operation, vs the base branch) and one `argocd app diff <app> --revision <base>` per git-path Application (`-- --base <ref>`, default `main`; `-` base, `+` this PR; chart-sourced Applications are compared on their parent). `-- --out <file>`, `--no-diff`, `--max-diff-bytes 0` for full diffs. Read-only; CI posts it on PRs as the `kind-preview` comment with `--base` set to the PR's base branch. | `scripts/localdev-argocd.ts report` |
 | `task drill:restore` | kind + argocd + `sync --warm` + `test:drill`: the CloudNativePG backup/restore drill in `tests/drills/` (`.github/workflows/restore-drill.yml` runs it weekly). `task test:drill` alone on a warm cluster. | |
 | `task localdev:up` | kind + argocd + sync. | |
 | `task localdev:warm` | kind + argocd + `sync --warm`: operators and CRDs up, applications left for a later `task localdev:sync`. | |
 | `task localdev:ci` | kind + argocd + sync + wait + `test:e2e`. What the `kind-argocd` job in `tilt-ci.yml` runs (the workflow keeps its historical file name). | |
 | `task localdev:ui` | `kubectl port-forward` to `argocd-server` so the UI is on http://localhost:8080 (needed on macOS, optional on Linux). | |
-| `task localdev:traefik` | `kubectl port-forward` to Traefik internal on localhost:9080 / 9443, for `curl -H 'Host: <app>.homelab.local'` from the host. | |
+| `task localdev:gateway` | `kubectl port-forward` to the `envoy-internal` Gateway Service on localhost:9080 / 9443, for `curl --resolve <app>.homelab.local:9443:127.0.0.1` from the host. | |
 | `task localdev:fakes` | Re-apply `localdev/fakes/`. | `scripts/localdev-kind.ts fakes` |
 | `task localdev:registry -- up\|down\|status` | Manage the pull-through caches. | `scripts/localdev-kind.ts registry` |
 | `task localdev:down` | Delete the cluster (stops a legacy Tilt session first if one is running); `-- --purge-cache` also removes the caches and their directory. | `scripts/localdev-kind.ts down` |
@@ -216,7 +216,7 @@ the cluster for this; use the port-forward tasks:
 
 ```bash
 task localdev:ui        # ArgoCD UI on http://localhost:8080
-task localdev:traefik   # Traefik internal on http://localhost:9080 and https://localhost:9443
+task localdev:gateway   # envoy-internal on http://localhost:9080 and https://localhost:9443
 ```
 
 Everything that matters (smoke hooks, e2e tests, `task verify LEVEL=2`) runs in-cluster
@@ -272,13 +272,20 @@ provides what Kind lacks so every Application reaches Healthy:
 ### Registry pull-through caches
 
 `task localdev:kind` starts one `registry:2` container per upstream (`docker.io`,
-`ghcr.io`, `quay.io`, `registry.k8s.io`, `lscr.io`) on the `kind` Docker network, named
-`kind-registry-<name>`, with blobs under `$HOMELAB_KIND_CACHE_DIR` (default
-`$XDG_CACHE_HOME/homelab-kind-registry`, i.e. `~/.cache/homelab-kind-registry`). It writes
-`/etc/containerd/certs.d/<host>/hosts.toml` into every node pointing pulls at the cache
-with the upstream as fallback, so an empty, stopped or purged cache only costs pull time.
-Recreating the cluster keeps the cache; `task localdev:down -- --purge-cache` removes it.
-CI restores the same directory with `actions/cache`. `--no-registry` skips all of it.
+`ghcr.io`, `quay.io`, `registry.k8s.io`, `lscr.io`, `ecr-public.aws.com`) on the `kind`
+Docker network, named `kind-registry-<name>`, with blobs under `$HOMELAB_KIND_CACHE_DIR`
+(default `$XDG_CACHE_HOME/homelab-kind-registry`, i.e. `~/.cache/homelab-kind-registry`).
+It writes `/etc/containerd/certs.d/<host>/hosts.toml` into every node pointing pulls at the
+cache with the upstream as fallback, so an empty, stopped or purged cache only costs pull
+time. Recreating the cluster keeps the cache; `task localdev:down -- --purge-cache` removes
+it. CI restores the same directory with `actions/cache`. `--no-registry` skips all of it.
+
+Every registry the ArgoCD bootstrap pulls from must be in that list. The argo-cd chart
+takes redis from `ecr-public.aws.com/docker/library/redis` and everything else from
+`quay.io`/`ghcr.io`; while ECR Public was missing, `argocd-redis` was the one ArgoCD pod
+pulling straight from the internet on every run, and a slow or throttled pull surfaced as
+an `ImagePullBackOff` that timed out `task localdev:argocd` before any Application existed.
+`scripts/localdev-kind_test.ts` pins the chart's image hosts against the upstream table.
 
 ### Cilium in Kind
 
@@ -309,7 +316,7 @@ the release as a no-op. `tests/e2e/cilium-netpol` proves NetworkPolicy enforceme
   `smoke.enabled: false` opts out (mosquitto has no HTTP).
 - **Chainsaw e2e** (`tests/e2e/<name>/chainsaw-test.yaml`): assert the Applications are
   Healthy/Succeeded, then exercise the feature from inside the cluster (curl through the
-  Traefik Service with `Host: <app>.homelab.local`, a TCP connect for mosquitto, a
+  `envoy-internal` Service with `<app>.homelab.local` as SNI and Host, a TCP connect for mosquitto, a
   CloudNativePG Cluster, a NetworkPolicy). `tests/e2e/README.md` has the layout and the
   recipe for a new app. Paperclip runs in Kind too (operator, CloudNativePG `Cluster`
   `paperclip-postgres` on local-path, `Instance`); its Secrets `paperclip-auth`,
@@ -336,7 +343,7 @@ the release as a no-op. `tests/e2e/cilium-netpol` proves NetworkPolicy enforceme
 6. Commit; CI re-runs level 0 and the whole loop
 ```
 
-### Example: Modify Traefik Configuration
+### Example: Modify Envoy Gateway Configuration
 
 **Step 1**: Edit the source, not the generated file
 
@@ -347,11 +354,14 @@ the release as a no-op. `tests/e2e/cilium-netpol` proves NetworkPolicy enforceme
 
 ```yaml
 # configuration/templates/helm-addons.tmpl, localdev branch
-traefikExternal:
-  resources:
-    requests:
-      cpu: 100m  # Changed from 50m
-      memory: 256Mi  # Changed from 128Mi
+envoy-gateway:
+  gateways:
+    internal:
+      config:
+        resources:
+          requests:
+            cpu: 100m  # Changed from 50m
+            memory: 128Mi  # Changed from 64Mi
 ```
 
 **Step 2**: Regenerate the committed values file and check it renders
@@ -364,8 +374,8 @@ task verify:text              # level 0
 **Step 3**: Sync the working tree into Kind
 
 ```bash
-task localdev:sync -- --only traefik-external
-kubectl --context kind-homelab-localdev -n traefik get pods -o yaml | rg -A5 'resources:'
+task localdev:sync -- --only envoy-gateway-config
+kubectl --context kind-homelab-localdev -n envoy-gateway-system get pods -l gateway.envoyproxy.io/owning-gateway-name=envoy-internal -o yaml | rg -A5 'resources:'
 ```
 
 **Step 4**: Verify and commit both files together
@@ -373,7 +383,7 @@ kubectl --context kind-homelab-localdev -n traefik get pods -o yaml | rg -A5 're
 ```bash
 task verify:text LEVEL=2
 git add configuration/templates/helm-addons.tmpl charts/addons/values-localdev.yaml tests/snapshots
-git commit -m "feat(traefik): raise Kind resource requests"
+git commit -m "feat(envoy-gateway): raise Kind resource requests"
 ```
 
 ### Example: Add a New Application
@@ -448,26 +458,38 @@ argocd app diff <app> --revision main   # this PR vs main (task localdev:report 
 argocd app sync <app> --local charts/<path> --local-repo-root . --prune   # what task localdev:sync runs
 ```
 
+Reading a `Degraded` Application in that output, in order:
+
+1. **`resource health:`** — the roll-up. `Degraded (1): …` names the resource to look at.
+   `(no health check registered)` means ArgoCD has no health Lua for that kind, so its
+   line says nothing about whether it is actually fine.
+2. **`failed sync tasks:`** — the per-task messages behind `one or more synchronization
+   tasks completed unsuccessfully`. The parent Application's own message never carries them.
+3. **`health message: (none reported by ArgoCD)`** — the field exists and ArgoCD left it
+   empty. This is a fact about ArgoCD, not about the tool: the resource's own `.status`
+   (printed below, conditions first) is where the reason is.
+
 ### Kubectl
 
 ```bash
 K="kubectl --context kind-homelab-localdev"
 $K get pods -A
 $K -n argocd get applications -o wide
-$K describe pod -n traefik <pod>
-$K logs -n traefik <pod> --all-containers --previous
+$K describe pod -n envoy-gateway-system <pod>
+$K logs -n envoy-gateway-system <pod> --all-containers --previous
 $K get events -n <ns> --sort-by='.lastTimestamp' | tail -30
 $K run -it --rm debug --image=nicolaka/netshoot --restart=Never -- bash
 ```
 
 ### Reaching an app from the host
 
-Traefik has no LoadBalancer in Kind, so port-forward the Traefik Service and send the
-`Host` header (or port-forward the app's own Service):
+The Gateway Services are ClusterIP in Kind (no load balancer), so port-forward the
+`envoy-internal` Service (or the app's own Service). The https listener selects on SNI
+`*.homelab.local`, so resolve the name to localhost instead of only setting `Host`:
 
 ```bash
-task localdev:traefik   # Traefik internal on localhost:9080 / 9443 (keep it running)
-curl -sk -H 'Host: sonarr.homelab.local' https://localhost:9443/ping
+task localdev:gateway   # envoy-internal on localhost:9080 / 9443 (keep it running)
+curl -sk --resolve sonarr.homelab.local:9443:127.0.0.1 https://sonarr.homelab.local:9443/ping
 ```
 
 On Linux the Kind mappings of container ports 80/443 to host 9080/9443 also work without
@@ -496,12 +518,12 @@ tier table printed by the script names the app and its operation phase.
 **Kind cluster out of resources**: `docker stats`; raise Docker Desktop CPU/RAM; or use
 `task localdev:warm` and sync only the applications you work on with `--only`.
 
-**Ports in use**: host 8080 (ArgoCD, `task localdev:ui`), 9080/9443 (Traefik, `task
-localdev:traefik`); ArgoCD NodePort 30080, mosquitto NodePorts 31883/31901, spegel 30021
+**Ports in use**: host 8080 (ArgoCD, `task localdev:ui`), 9080/9443 (`envoy-internal`, `task
+localdev:gateway`); ArgoCD NodePort 30080, mosquitto NodePorts 31883/31901, spegel 30021
 (and 10350 if the legacy Tilt UI is running).
 
 **`localhost:8080` or `:9080` hangs on macOS**: expected with Cilium on Docker Desktop;
-use `task localdev:ui` / `task localdev:traefik` ([Host ports on macOS](#host-ports-on-macos)).
+use `task localdev:ui` / `task localdev:gateway` ([Host ports on macOS](#host-ports-on-macos)).
 
 ---
 
@@ -514,35 +536,44 @@ use `task localdev:ui` / `task localdev:traefik` ([Host ports on macOS](#host-po
 | Job | What it runs | Required |
 |-----|--------------|----------|
 | `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, task, bun), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 45 minute budget. | yes |
-| `kind-direct` | Legacy: `task localdev:kind -- --no-registry`, `tilt ci --timeout 15m` with the direct-mode Tiltfile, asserts the Traefik and cert-manager Deployments. Kept while `localdev/Tiltfile` exists; not the loop. | |
+| `kind-direct` | Legacy: `task localdev:kind -- --no-registry`, `tilt ci --timeout 15m` with the direct-mode Tiltfile, asserts the Envoy Gateway controller and cert-manager Deployments and the Gateway API CRDs (Gateways `Programmed` is checked by the `envoy-gateway` chainsaw suite in `kind-argocd`). Kept while `localdev/Tiltfile` exists; not the loop. | |
 | `yaml-lint` | `yamllint` over `charts/`, `localdev/`, `tests/e2e`, `tests/health` | |
 
 Level 0 runs separately in `.github/workflows/verify.yml`.
 
 ### The cold fork path (`.github/workflows/fork-path-cold.yml`)
 
-`tilt-ci.yml` proves the loop converges, but it does not measure what a newcomer experiences,
-for two reasons worth stating plainly: it runs `task localdev:ci`, not the `task localdev:up`
-the quickstart above puts first, and it restores the `kind-registry-*` pull-through cache, so
-its wall clock is a lower bound rather than a cold clone.
+`tilt-ci.yml` proves the loop converges, but its wall clock is not what a newcomer experiences:
+it runs `task localdev:ci`, which is `localdev:up` -> `localdev:wait` -> `test:e2e`, not the
+`task localdev:up` the quickstart above puts first. The extra `test:e2e` alone makes the two
+durations incomparable.
 
-`fork-path-cold.yml` closes both gaps. It runs on demand (`workflow_dispatch`), weekly, and on
+The `kind-registry-*` cache is not a second reason, despite what this section used to say. Its
+restore missed on all seven consecutive level-2 runs sampled on 2026-09-29, so tilt-ci is no
+warmer than this job; see [homelab#512](https://github.com/ryanmcafee/homelab/issues/512).
+
+`fork-path-cold.yml` closes that gap. It runs on demand (`workflow_dispatch`), weekly, and on
 a pull request that edits the workflow itself — never on an ordinary pull request, because a
 cold uncached run pulls every image from upstream and does not belong on the critical path.
 
 | Job | What it runs | Decides the run |
 |-----|--------------|-----------------|
 | `stranger-bootstrap` | `docs/tooling.md` verbatim on a clean runner: the `mise.run` installer, `mise trust && mise install`, `task validate`. Every step `continue-on-error`; the Job Summary reports which documented command failed. | no |
-| `cold-fork-path` | No `actions/cache` step at all, and it fails if a cache directory already exists. Then `task localdev:up` → `task localdev:wait` → `task localdev:report` → `task localdev:down`, each timed, followed by an assertion that `kind get clusters` no longer lists `homelab-localdev`. | yes |
+| `cold-fork-path` | No `actions/cache` step at all, and it fails if a cache directory already exists. Then `task localdev:up` -> `task localdev:wait` -> `task localdev:report` -> `task localdev:down`, each timed, followed by an assertion that `kind get clusters` no longer lists `homelab-localdev`. No step is `continue-on-error`, so any of the three readme commands regressing turns the check red. On failure a `Diagnostics` step runs before teardown, because `localdev:down` deletes the cluster on every outcome. | yes |
 
 Two things to read out of its Job Summary:
 
-- **Cold time to first success** = `localdev:up` + `localdev:wait`. This is the number to quote
-  for the fork path. Do not quote tilt-ci's duration for it.
-- `localdev:wait` is timed separately on purpose. `task localdev:up` is `kind` → `argocd` →
+- **Cold time to first success** = `localdev:up` + `localdev:wait`. Quote this for the fork path
+  rather than tilt-ci's duration, because tilt-ci times a different command, not because it is
+  warmer. Measured, cold, `up` + `wait`: **18m55s** (2026-09-25), **21m03s** (2026-09-27),
+  **23m04s** (2026-09-29). Three runs is a range, not a trend; no cold-vs-cached pair exists
+  while the cache is broken.
+- `localdev:wait` is timed separately on purpose. `task localdev:up` is `kind` -> `argocd` ->
   `sync`; it returns when the last wave is synced, **not** when every Application reports
-  Healthy. `localdev:ci` appends `localdev:wait`, which is why CI sees convergence and a
-  newcomer following the quickstart does not, until they wait or open the UI.
+  Healthy. In practice that gap has been about a second: `localdev:wait` cost **1s** on all
+  three cold runs, so `localdev:up` had already left everything Healthy. The step stays because
+  a second is the measurement, not a guarantee -- an Application that converges slowly would
+  show up here and nowhere else.
 
 This is fork-ability check 3 in [`docs/contracts/fork-ability.md`](contracts/fork-ability.md)
 partly mechanised: it replaces the "does the documented command still work, uncached" half. The
@@ -611,9 +642,9 @@ thin wrapper: `task localdev:tilt:argocd` (`tilt up -- --mode=argocd`) runs
 `task localdev:argocd` on start and re-runs `task localdev:sync` whenever `charts/` or
 `configuration/` change, with `argocd-wait` / `argocd-diagnose` as manual triggers
 (`tilt trigger <resource>`); plain `task localdev:tilt` (direct mode) installs
-local-path-provisioner, Traefik and cert-manager into Kind with `helm_resource` and no
+local-path-provisioner, the Envoy Gateway controller and cert-manager into Kind with `helm_resource` and no
 ArgoCD, which is what the `kind-direct` CI job still exercises. Both need `task localdev:kind`
-first, the direct mode conflicts with the ArgoCD-managed `traefik` namespace, and the Tilt UI
+first, the direct mode conflicts with the ArgoCD-managed `envoy-gateway-system` namespace, and the Tilt UI
 is on http://localhost:10350. Prefer `task localdev:sync` and `task localdev:wait`;
 `tilt down` leaves the cluster and everything ArgoCD deployed in place.
 

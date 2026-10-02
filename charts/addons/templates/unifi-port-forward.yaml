@@ -81,6 +81,12 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      # The 1Password item path comes from this parent's unifi-port-forward
+      # values (configuration/ UNIFI_PORT_FORWARD_1P_PATH via the CMP), so a
+      # fork's key reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        unifi:
+          onePasswordItemPath: {{ (index .Values "unifi-port-forward" "onePasswordItemPath") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: port-forwarding

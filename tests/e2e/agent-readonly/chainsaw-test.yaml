@@ -119,6 +119,12 @@ spec:
                 # shellcheck disable=SC2086
                 check yes $who -- list certificates.cert-manager.io -A
                 # shellcheck disable=SC2086
+                check yes $who -- list httproutes.gateway.networking.k8s.io -A
+                # shellcheck disable=SC2086
+                check yes $who -- list envoyproxies.gateway.envoyproxy.io -A
+                # shellcheck disable=SC2086
+                check no $who -- patch httproutes.gateway.networking.k8s.io -n media
+                # shellcheck disable=SC2086
                 check no $who -- get secrets -A
                 # shellcheck disable=SC2086
                 check no $who -- get secrets -n agent-access

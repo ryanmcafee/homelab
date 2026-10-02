@@ -19,11 +19,12 @@ All four are rendered by `charts/applications/templates/paperclip.yaml`, gated o
 | 13 | `paperclip-database` | `charts/paperclip-database` | CloudNativePG `Cluster` `paperclip-postgres`: 1 instance, image `ghcr.io/cloudnative-pg/postgresql:17.11` (`images.cloudnative-pg-postgresql`), `STORAGE_CLASS_ISCSI_SSD` (iSCSI block on the SSD pool; NFS classes fail initdb with "wrong ownership", bugs.md 2026-09-15) / 10Gi (local-path / 1Gi in Kind), PodMonitor on. CNPG generates Secret `paperclip-postgres-app`; its `uri` key is the app's `DATABASE_URL` |
 | 14 | `paperclip` | `charts/paperclip` | `paperclip.inc/v1alpha1` `Instance` `paperclip` + PostSync smoke Job `smoke-paperclip` |
 
-The `Instance`: image `ghcr.io/paperclipai/paperclip` at `images.paperclip` (2026.916.1);
+The `Instance`: image `ghcr.io/paperclipai/paperclip` at `images.paperclip` (sha-d3e0f0a);
 `database.mode: external` with `externalURLSecretRef {paperclip-postgres-app, uri}`;
-`deployment.mode: authenticated`, `exposure: private` (the instance sits behind the internal Traefik only; `public` cannot be onboarded by operator 0.19.1 with app 2026.831+, see the values comment), `publicURL: https://paperclip.<domain>`;
+`deployment.mode: authenticated`, `exposure: private` (the instance sits behind the `envoy-internal` Gateway only; `public` cannot be onboarded by operator 0.19.1 with app 2026.831+, see the values comment), `publicURL: https://paperclip.<domain>`;
 admin bootstrapped once from `PAPERCLIP_ADMIN_EMAIL` + `ADMIN_PASSWORD`, `disableSignUp: false` for now (the bootstrap Job signs the admin up through the same API, see the values comment and bugs.md 2026-09-15; the instance has reported `status.bootstrap` since 2026-09-15, so flipping it back to `true` is an open follow-up);
-Ingress class `internal` with cert-manager `letsencrypt` and external-dns, TLS Secret `paperclip-tls`;
+`admin.bootstrap: false` in homelab, so no `spec.auth.adminUser` is rendered there: operator 0.19.1 re-creates the bootstrap Job while `adminUser` is in the spec, even after the admin exists, and every re-run failed (bugs.md 2026-09-30). Kind keeps `bootstrap: true` because its database starts empty; a fresh homelab database needs `bootstrap: true` in `helm-apps.tmpl` for one sync;
+`spec.networking.httpRoute` on the `https` listener of `envoy-internal` with external-dns (TLS is the Gateway's wildcard certificate, no per-app Secret);
 Service `paperclip` port 3100, health path `/api/health`; the operator's default NetworkPolicy stays
 enabled; `security.seLinuxRelabel: false` (the operator's default privileged relabel init container is rejected by the namespace's PodSecurity baseline, and chcon has no purpose on Talos or NFS); Instance metrics off (the OTEL preload and collector do not exist here); persistence 10Gi
 on `STORAGE_CLASS_ISCSI_SSD` (block storage: the server refuses a secrets directory not owned by uid 1000, which rules out the NFS classes; the volume is `/paperclip`, the container's `HOME`, so the bundled `claude`
@@ -48,7 +49,9 @@ kubectl label node <node> paperclip.homelab/pin=true
 kubectl -n paperclip rollout restart statefulset paperclip
 ```
 
-The pin goes away once upstream drops the volume from the Job or gives it pod affinity.
+The pin goes away once upstream drops the volume from the Job or gives it pod affinity. With
+`admin.bootstrap: false` (homelab since 2026-09-30) the Job is not rendered at all, so the pin only
+matters again for a one-sync bootstrap of a fresh database.
 
 ## Configuration keys
 
@@ -59,6 +62,10 @@ The pin goes away once upstream drops the volume from the Job or gives it pod af
 | `PAPERCLIP_AUTH_1P_PATH` | `secrets.schema.yaml` + `defaults.yaml` | `vaults/homelab/items/paperclip-auth` |
 | `PAPERCLIP_API_KEYS_1P_PATH` | `secrets.schema.yaml` + `defaults.yaml` | `vaults/homelab/items/paperclip-api-keys` |
 | `PAPERCLIP_EXPORTER_1P_PATH` | `secrets.schema.yaml` + `defaults.yaml` | `vaults/homelab/items/paperclip-exporter` |
+| `PAPERCLIP_DOTFILES_REPO_URL`, `_REF`, `_CLAUDE_DIR`, `_PROFILE`, `_SETUP_COMMAND` | `applications.schema.yaml` | optional; see [Agent Claude Code setup from dotfiles](#agent-claude-code-setup-from-dotfiles) |
+| `PAPERCLIP_DOTFILES_1P_PATH` | `secrets.schema.yaml` | optional; only for a private dotfiles repository |
+| `PAPERCLIP_MCP_CODESEARCH` | `applications.schema.yaml` | `false`; `true` installs codesearch and registers it as an MCP server |
+| `PAPERCLIP_CODESEARCH_REPO`, `PAPERCLIP_CODESEARCH_VERSION` | `applications.schema.yaml` | `https://github.com/ryanmcafee/codesearch` (a public fork of flupkede/codesearch with extra features, Linux builds) at `tools.codesearch`; set both to use another repository |
 | `STORAGE_CLASS_ISCSI_SSD` | `kubernetes.schema.yaml` + `defaults.yaml` | `democratic-csi-iscsi` (block storage for the database; `local-path` in Kind) |
 | `charts.paperclip-operator`, `images.paperclip`, `images.cloudnative-pg-postgresql`, `images.bun` | `configuration/versions.yaml` | Renovate-managed pins |
 
@@ -71,6 +78,7 @@ The pin goes away once upstream drops the volume from the Job or gives it pod af
 | `paperclip-auth` | `op://homelab/paperclip-auth` | `BETTER_AUTH_SECRET`, `ADMIN_PASSWORD` | `spec.auth.secretRef`, `spec.auth.adminUser.passwordSecretRef` |
 | `paperclip-api-keys` | `op://homelab/paperclip-api-keys` | `CLAUDE_CODE_OAUTH_TOKEN` (subscription, the default); `ANTHROPIC_API_KEY` only with `adapters.apiKeys.anthropic.enabled`, `OPENAI_API_KEY` only with `adapters.apiKeys.openai.enabled` | the chart's `spec.env` (one optional `secretKeyRef` per enabled key); never the operator's `spec.adapters.apiKeysSecretRef` |
 | `paperclip-exporter` | `op://homelab/paperclip-exporter` | `PAPERCLIP_API_KEY` (a board API key) | the agent health exporter (`templates/exporter.yaml`, [paperclip-agents.md](../runbooks/paperclip-agents.md)); optional, so a missing item only sets `paperclip_up 0` |
+| `paperclip-dotfiles` | `PAPERCLIP_DOTFILES_1P_PATH` (unset by default) | `GIT_TOKEN` (read-only token for a private dotfiles repository) | the `dotfiles` init container, as an HTTP header; never written to disk |
 | `paperclip-postgres-app` | none (generated by CloudNativePG) | `uri` and friends | `spec.database.externalURLSecretRef` |
 
 ## Agent credentials: API keys or subscriptions
@@ -178,11 +186,51 @@ Kind seeds all three keys as placeholders in `localdev/fakes/secrets.yaml`; with
 their default only `CLAUDE_CODE_OAUTH_TOKEN` is wired, and flipping either one in Kind exercises
 that provider's wiring alone. No agent runs there.
 
+## Agent Claude Code setup from dotfiles
+
+Agents run Claude Code inside `paperclip-0` with `HOME=/paperclip` (the data volume). Set
+`PAPERCLIP_DOTFILES_REPO_URL` to any dotfiles repository and the chart adds a `dotfiles`
+init container (`charts/paperclip/templates/dotfiles.yaml`, `files/paperclip-dotfiles.ts`,
+run by the image's Node.js) that, on every pod start:
+
+1. clones or updates the repository at `PAPERCLIP_DOTFILES_REF` into `~/.dotfiles`;
+2. installs bun (`images.bun`) and, with `PAPERCLIP_MCP_CODESEARCH=true`, codesearch
+   (`PAPERCLIP_CODESEARCH_REPO` at `PAPERCLIP_CODESEARCH_VERSION`, by default
+   `tools.codesearch`) into `~/.local/bin`, which is prepended to the server's `PATH`;
+3. runs `PAPERCLIP_DOTFILES_SETUP_COMMAND` in the checkout (with `DOTFILES_DIR`,
+   `DOTFILES_PROFILE` = `PAPERCLIP_DOTFILES_PROFILE`);
+4. symlinks every entry of `PAPERCLIP_DOTFILES_CLAUDE_DIR` into `~/.claude` (runtime state
+   such as `projects/` and `sessions/` stays; a real file it replaces is kept as
+   `<name>.pre-dotfiles-<timestamp>`);
+5. adds the marketplaces and installs the plugins `~/.claude/settings.json` enables
+   (claude-mem, for example, arrives this way);
+6. registers `dotfiles.mcpServers` at user scope (codesearch runs `codesearch mcp`, which
+   indexes the agent's working repository on first use).
+
+A failing step fails the init container, so a broken repository shows up as
+`Init:CrashLoopBackOff` rather than as agents silently running without the setup. Hooks in
+the repository run inside the pod: anything macOS-only (`osascript`, `pbcopy`) fails there.
+
+A dotfiles repository whose `claude/` directory mirrors `~/.claude` and renders
+`settings.json` from a profile (the layout of this repository's author) uses:
+
+```yaml
+PAPERCLIP_DOTFILES_REPO_URL: https://github.com/<you>/dotfiles.git
+PAPERCLIP_DOTFILES_PROFILE: personal
+PAPERCLIP_DOTFILES_SETUP_COMMAND: "ln -sfn profiles/$DOTFILES_PROFILE claude/profile && bun claude/scripts/render-settings.ts"
+PAPERCLIP_DOTFILES_1P_PATH: vaults/homelab/items/paperclip-dotfiles
+PAPERCLIP_MCP_CODESEARCH: "true"
+```
+
+A repository that commits `settings.json` directly needs no setup command. For a private
+repository, create the 1Password item first (a fine-grained token with read access to that
+repository only, field `GIT_TOKEN`); the init container waits for the Secret.
+
 ## Operate
 
 - **First login**: open `https://paperclip.<domain>` and sign in with `PAPERCLIP_ADMIN_EMAIL` and
   the `ADMIN_PASSWORD` field of `paperclip-auth`. Self-service sign-up is still **enabled**
-  (`auth.disableSignUp: false`, the bootstrap workaround); only the internal Traefik reaches the
+  (`auth.disableSignUp: false`, the bootstrap workaround); only the `envoy-internal` Gateway reaches the
   instance, so the exposure is LAN/tailnet-only until the follow-up flips it back.
 - **Rotate `BETTER_AUTH_SECRET`**: edit the field in the 1Password item; the operator's
   `OnePasswordItem` sync updates the Secret. Then restart the workload, which invalidates every
@@ -192,9 +240,10 @@ that provider's wiring alone. No agent runs there.
   kubectl -n paperclip rollout restart statefulset paperclip
   ```
 
-- **Reset the admin password**: the bootstrap Job runs once, so for an existing admin change the
-  password in the app UI. The `ADMIN_PASSWORD` value in 1Password only matters before the first
-  bootstrap or for a fresh database.
+- **Reset the admin password**: homelab renders no bootstrap Job (`admin.bootstrap: false`), so for
+  an existing admin change the password in the app UI. The `ADMIN_PASSWORD` value in 1Password only
+  matters for a fresh database, bootstrapped by setting `bootstrap: true` for one sync and back to
+  `false` once `status.bootstrap` appears.
 - **Bump the image**: Renovate opens a PR on `images.paperclip`; `upgrade.yml` posts the rendered
   diff and the Kind loop proves the rollout. Never edit the chart files by hand.
 - **Database (CloudNativePG)**:
@@ -226,9 +275,13 @@ task prod:diff -- paperclip
 
 ## Follow-ups
 
-- Flip `auth.disableSignUp` back to `true` (bugs.md 2026-09-15): the instance has reported
-  `status.bootstrap` since 2026-09-15, so the Job short-circuits and the workaround is no longer
-  needed. Verify the operator does not re-run the bootstrap Job on the changed spec hash first
+- Flip `auth.disableSignUp` back to `true` (bugs.md 2026-09-15): the Job does not short-circuit,
+  the operator re-ran it every ~70 minutes while `adminUser` was rendered (bugs.md 2026-09-30).
+  Homelab no longer renders `adminUser`, so there is no Job left for the flag to block there; Kind
+  still bootstraps and needs `false` (or a per-set value) until upstream gates the env var
+- Confirm on Kind whether operator 0.19.1 deletes an existing `paperclip-bootstrap` Job when
+  `adminUser` is removed or only stops re-creating it; if it leaves it, the failed homelab Job has
+  to be removed once after the `admin.bootstrap: false` rollout
 - CNPG `ScheduledBackup` + `ObjectStore` for `paperclip-postgres` once an S3-compatible target exists in production
 - `spec.adapters.cloudSandbox` (in-cluster agent sandboxes) and inference proxy
 - Google OAuth login (`spec.auth.google`) reusing the `google-oauth` 1Password item

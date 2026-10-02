@@ -63,7 +63,10 @@ EOF
 inputs = {
   cluster_name = include.env.locals.cluster_name
   environment  = include.env.locals.environment
-  base_fqdn    = "local"
+  # Was the literal "local", which rendered argocd.local while every other
+  # localdev consumer read ARGOCD_HOSTNAME=argocd.homelab.local from the
+  # ConfigSet. Same source as the rest of the tree now.
+  base_fqdn = include.env.locals.base_fqdn
 
   # Git repository
   repo_url        = include.env.locals.repo_url
@@ -76,7 +79,7 @@ inputs = {
   admin_enabled     = true
 
   # No ingress for local dev (use port-forward)
-  server_ingress_enabled = false
+  server_route_enabled = false
 
   # Local dev metadata
   custom_metadata = {

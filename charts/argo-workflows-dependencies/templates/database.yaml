@@ -1,0 +1,34 @@
+{{- with .Values.database }}
+{{- if .enabled }}
+---
+# Workflow archive. The controller creates its tables on first connect and
+# deletes archived workflows older than persistence.archiveTTL.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  instances: {{ .instances }}
+  {{- with .imageName }}
+  imageName: {{ . | quote }}
+  {{- end }}
+  primaryUpdateStrategy: unsupervised
+  storage:
+    {{- with .storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+    size: {{ .storageSize }}
+  bootstrap:
+    initdb:
+      database: {{ .database }}
+      owner: {{ .owner }}
+  resources:
+    {{- toYaml .resources | nindent 4 }}
+  monitoring:
+    enablePodMonitor: {{ .monitoring.enablePodMonitor }}
+  postgresql:
+    parameters:
+      {{- toYaml .postgresql.parameters | nindent 6 }}
+{{- end }}
+{{- end }}

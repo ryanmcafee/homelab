@@ -1,0 +1,33 @@
+---
+# Source: litellm-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: litellm-master-key-secret
+  namespace: litellm
+spec:
+  itemPath: "vaults/homelab/items/litellm-master-key"
+
+---
+# Source: litellm-dependencies/templates/secrets.yaml
+# Separate item from the master key on purpose: LITELLM_SALT_KEY encrypts every
+# provider credential stored in the database, so rotating it silently
+# invalidates all of them. The master key is rotatable; keeping the two apart
+# stops one rotation from touching the other.
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: litellm-salt-key
+  namespace: litellm
+spec:
+  itemPath: "vaults/homelab/items/litellm-salt-key"
+
+---
+# Source: litellm-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: litellm-api-keys
+  namespace: litellm
+spec:
+  itemPath: "vaults/homelab/items/litellm-api-keys"

@@ -38,8 +38,8 @@ variable "admin_enabled" {
   default     = true
 }
 
-variable "server_ingress_enabled" {
-  description = "Enable ingress for ArgoCD server"
+variable "server_route_enabled" {
+  description = "Enable the ArgoCD server HTTPRoute on the internal Envoy Gateway"
   type        = bool
   default     = false
 }

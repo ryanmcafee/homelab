@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/identity.principal.issued.v1.schema.json",
+  "title": "identity.principal.issued v1 data",
+  "description": "A principal was issued credentials. AUDIT RECORD: this type is sourced into PF_AUDIT and kept 365 days. It carries the FACT of issuance and never the credential itself. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "principalId",
+    "principalType",
+    "issuer"
+  ],
+  "properties": {
+    "principalId": {
+      "type": "string",
+      "description": "Stable opaque identifier for the principal. Not an email address and not a name.",
+      "maxLength": 128
+    },
+    "principalType": {
+      "type": "string",
+      "enum": [
+        "human",
+        "service",
+        "ai-agent"
+      ],
+      "description": "Kind of principal. `ai-agent` is a first-class type, not a service account with a convention."
+    },
+    "issuer": {
+      "type": "string",
+      "description": "Identity center that issued it, as an operator-supplied issuer URI. Never a hard-coded provider.",
+      "maxLength": 512
+    },
+    "credentialRef": {
+      "type": "string",
+      "description": "Reference to where the credential lives (e.g. a secret store path). NEVER the credential material \u2014 an audit stream holding secrets is a 365-day breach.",
+      "maxLength": 512
+    },
+    "scopes": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "string",
+        "description": "Granted scope.",
+        "maxLength": 128
+      },
+      "description": "Scopes granted at issuance."
+    },
+    "expiresAt": {
+      "type": "string",
+      "description": "RFC3339 expiry. Absent means non-expiring, which is itself an auditable fact.",
+      "format": "date-time"
+    }
+  }
+}

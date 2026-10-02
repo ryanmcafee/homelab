@@ -12,7 +12,7 @@ global:
   # Environment identifier
   environment: localdev
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: homelab.local
 
   # Git repository for local charts
@@ -151,24 +151,20 @@ plex:
       readOnly: false
   # (dev-dri mount is also added by plex.yaml — see note above.)
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the external Gateway (GATEWAY_EXTERNAL);
+  # Cloudflare CNAMEs the hostname to the Gateway's target, EXTERNAL_DNS_DEFAULT_TARGET.
+  httpRoute:
     enabled: true
-    ingressClassName: external
-    url: "https://plex.homelab.local"
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt
       external-dns.alpha.kubernetes.io/hostname: plex.homelab.local
-      external-dns.alpha.kubernetes.io/target: homelab-dev.duckdns.org
-    hosts:
-      - host: plex.homelab.local
-        paths:
-          - path: /
-            pathType: Prefix
-    tls:
-      - secretName: plex-tls
-        hosts:
-          - plex.homelab.local
+    parentRefs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: envoy-external
+        namespace: envoy-gateway-system
+        sectionName: https
+    hostnames:
+      - plex.homelab.local
 
   # Environment variables
   extraEnv:
@@ -213,7 +209,7 @@ sonarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: 512Mi
               limits:
                 cpu: 1000m
@@ -245,22 +241,20 @@ sonarr:
       type: emptyDir
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: sonarr.homelab.local
-      hosts:
-        - host: sonarr.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: sonarr-tls
-          hosts:
-            - sonarr.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - sonarr.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -304,7 +298,7 @@ radarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: 512Mi
               limits:
                 cpu: 1000m
@@ -336,22 +330,20 @@ radarr:
       type: emptyDir
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: radarr.homelab.local
-      hosts:
-        - host: radarr.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: radarr-tls
-          hosts:
-            - radarr.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - radarr.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -415,22 +407,20 @@ prowlarr:
       storageClass: local-path
       size: 1Gi
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: prowlarr.homelab.local
-      hosts:
-        - host: prowlarr.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: prowlarr-tls
-          hosts:
-            - prowlarr.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - prowlarr.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -503,22 +493,20 @@ nzbget:
       type: emptyDir
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: nzbget.homelab.local
-      hosts:
-        - host: nzbget.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: nzbget-tls
-          hosts:
-            - nzbget.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - nzbget.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -562,7 +550,7 @@ tautulli:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: 256Mi
               limits:
                 cpu: 500m
@@ -574,22 +562,20 @@ tautulli:
       storageClass: local-path
       size: 1Gi
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: tautulli.homelab.local
-      hosts:
-        - host: tautulli.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: tautulli-tls
-          hosts:
-            - tautulli.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - tautulli.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -633,7 +619,7 @@ lazylibrarian:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: 256Mi
               limits:
                 cpu: 500m
@@ -657,22 +643,20 @@ lazylibrarian:
       type: emptyDir
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: lazylibrarian.homelab.local
-      hosts:
-        - host: lazylibrarian.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: lazylibrarian-tls
-          hosts:
-            - lazylibrarian.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - lazylibrarian.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -732,22 +716,20 @@ homeassistant:
       storageClass: local-path
       size: 1Gi
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: homeassistant.homelab.local
-      hosts:
-        - host: homeassistant.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: homeassistant-tls
-          hosts:
-            - homeassistant.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - homeassistant.homelab.local
 
   TZ: America/New_York
 
@@ -832,11 +814,6 @@ mosquitto:
           targetPort: 9001
           nodePort: 31901
           protocol: tcp
-
-  # Authentication configuration
-  mosquitto:
-    auth:
-      enabled: true
 
   TZ: America/New_York
 
@@ -978,6 +955,7 @@ paperclip:
       authItemPath: vaults/homelab/items/paperclip-auth
       apiKeysItemPath: vaults/homelab/items/paperclip-api-keys
       exporterItemPath: vaults/homelab/items/paperclip-exporter
+      dotfilesItemPath: ""
 
   # charts/paperclip-database: CloudNativePG Cluster paperclip-postgres. The image is
   # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.
@@ -999,18 +977,24 @@ paperclip:
         memory: 512Mi
 
   # charts/paperclip: the paperclip.inc Instance (external database mode,
-  # authenticated, private exposure behind the internal Traefik).
+  # authenticated, private exposure behind the internal Gateway).
   instance:
     image:
       repository: ghcr.io/paperclipai/paperclip
-      tag: "2026.916.1"
-    # Bootstrapped once by the operator's admin-seed Job; the password is the
-    # ADMIN_PASSWORD field of the paperclip-auth item.
+      tag: "sha-d3e0f0a"
+    # Seeded by the operator's admin-seed Job; the password is the ADMIN_PASSWORD
+    # field of the paperclip-auth item. Homelab's admin exists since 2026-09-15,
+    # so bootstrap is off there (operator 0.19.1 re-runs the Job while adminUser
+    # is rendered, bugs.md 2026-09-30); set it true for one sync on a fresh
+    # database. Kind starts from an empty database every time and keeps it on.
     admin:
+      bootstrap: true
       email: admin@homelab.local
       name: Admin
-    ingress:
-      className: internal
+    route:
+      gateway:
+        name: envoy-internal
+        namespace: envoy-gateway-system
     persistence:
       size: 1Gi
       # Block storage, like the database: the server asserts that its secrets
@@ -1036,3 +1020,50 @@ paperclip:
     enabled: true
     url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
     expect: ["200"]
+
+# ============================================================================
+# LiteLLM - OpenAI-compatible LLM gateway (componentized chart + CloudNativePG)
+# Sync Waves: 10 namespace, 11 litellm-dependencies, 12 litellm-database
+# (issue #424); the proxy itself follows in a later wave.
+# ============================================================================
+# Runs wherever CloudNativePG runs (both environments). The three 1Password
+# items only render with a secret store; Kind seeds the same Secrets from
+# localdev/fakes/secrets.yaml. Derived values reach the child charts through
+# the parent Applications' helm.valuesObject (ADR-010).
+
+litellm:
+  enabled: true
+  namespace: litellm
+  hostname: litellm.homelab.local
+
+  # charts/litellm-dependencies: 1Password items -> Secrets
+  # litellm-master-key-secret (field master-key), litellm-salt-key (field
+  # salt-key) and litellm-api-keys (one field per provider credential). Field
+  # names in 1Password must equal these keys. The salt key is a separate item
+  # because rotating it makes every credential already stored in the database
+  # undecryptable, while the master key is safe to rotate.
+  dependencies:
+    onePassword:
+      enabled: false
+      masterKeyItemPath: vaults/homelab/items/litellm-master-key
+      saltKeyItemPath: vaults/homelab/items/litellm-salt-key
+      apiKeysItemPath: vaults/homelab/items/litellm-api-keys
+
+  # charts/litellm-database: CloudNativePG Cluster litellm-db. The image is
+  # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.
+  database:
+    instances: 1
+    imageName: "ghcr.io/cloudnative-pg/postgresql:17.11"
+    # Block storage: PostgreSQL refuses a data directory whose files are not
+    # owned by uid 26, which is what every file on the NFS classes looks like
+    # (mapall). STORAGE_CLASS_SSD is NFS on the SSD pool; this is iSCSI on it.
+    storageClass: local-path
+    # Kind sizing: local-path volume, small footprint
+    storageSize: 1Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi

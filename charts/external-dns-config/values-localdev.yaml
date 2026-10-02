@@ -1,0 +1,13 @@
+# external-dns-config — local development overrides
+#
+# Kind has no 1Password Connect credentials, so there is no Cloudflare token
+# and no UniFi credential to fetch. The chart now fails the render when a
+# provider is enabled without an item path, so the Cloudflare producer is
+# disabled outright rather than left enabled with the empty EXTERNAL_DNS_1P_PATH
+# default. UniFi is already disabled by default and stays that way.
+
+cloudflare:
+  enabled: false
+
+unifi:
+  enabled: false

@@ -175,7 +175,7 @@ export const CASES: SelftestCase[] = [
   },
   {
     id: "deps-main-config",
-    description: "deps-main-config pattern (traefik-external shape)",
+    description: "deps-main-config pattern (grafana-config shape)",
     apps: [DEPS_MAIN_CONFIG],
   },
   {

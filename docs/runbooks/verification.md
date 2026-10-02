@@ -9,7 +9,7 @@ production (ADR-009). The production feedback loop is tracked in
 
 | Level | Command | Needs | Adds |
 |---|---|---|---|
-| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy |
+| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy, ADR record, event contract |
 | 1 | `task verify LEVEL=1` | a Kind cluster (`task localdev:kind` is enough) | server-side dry run of every localdev chart |
 | 2 | `task verify LEVEL=2` | the synced loop (`task localdev:up` or `localdev:ci`) | ArgoCD Application state, chainsaw e2e suite |
 
@@ -37,6 +37,13 @@ with one line per problem. `pr-contract.yml` runs level 0 on the PR head (see "A
 contract" below); `verify.yml` runs it on the merge result and uploads the JSON as the
 `verify-level0` artifact.
 
+Only the `pr-contract.yml` job — "Verification claim matches level 0" — is a **required**
+status check on `main`. `verify.yml`'s merge-result run reports but does not block, so a
+failure that exists only in the merge result (the ADR-number collision of ADR-039 is the
+clearest case) shows red in the checks list without stopping the merge. Rebasing the branch
+turns it into a head failure, which does block. Treat a red merge-result level 0 as a
+merge blocker even though GitHub will not.
+
 ## What level 0 checks
 
 | Check name | What it proves | Fix when it fails |
@@ -55,8 +62,24 @@ contract" below); `verify.yml` runs it on the merge result and uploads the JSON 
 | `gitops/<env>/ssa` | Charts on the huge-CRD list (`tests/gitops/huge-crd-charts.yaml`) use `ServerSideApply=true`. Reports `skip`, not `pass`, when the list is empty. | Add the sync option. |
 | `gitops/<env>/unique-names` | No duplicate Application `namespace/name`. | Rename. |
 | `versions/<env>` | Every chart-sourced Application (`spec.source.chart` or `spec.sources[].chart`) renders the `targetRevision` that `configuration/versions.yaml` `charts:` pins for it (key mapped by chart name, Renovate `depName` or Application name; exact string match; a chart with no mapped key must equal some `charts:` value). Drift listed with a reason in `tests/gitops/version-drift.yaml` is allowed; an entry whose revision no longer renders, whose drift was fixed, or (full render only, `versions/registry`) that matches no Application fails. | Make the export template emit `chart.version` from `.Versions.Charts`, or register the drift with a reason; remove stale entries. |
+| `runbooks/coverage` | Every alerting rule the render ships is named in some `docs/runbooks/*.md`. Reads the render, not the templates, so a rule added through a values file is covered the same as one added through a template, and both `additionalPrometheusRulesMap` entries inside an Application's Helm values and standalone `PrometheusRule` objects are collected. Environments are unioned — an alert that only renders for homelab still pages an operator. A render with **no** alert at all, or an empty `docs/runbooks/`, fails rather than passes: a green from a scan that saw nothing would cover every future alert too. | Add a section to the runbook for that component naming the alert, what the operator should check, and what action resolves it. Matching is by exact token, so the runbook must spell the alert name as the rule does. |
 | `snapshot/<env>/<chart>` | The render is byte-identical to `tests/snapshots/<env>/<chart>.yaml`. | Review the diff; if intended run `task test:snapshot -- --update` and commit. |
 | `policy/<env>` | conftest policies in `tests/policy/` pass (finalizers, sync waves, SSA, automated sync, no `:latest`, resources on every container, no inline secrets, hostnames under the configured domain). | Fix the chart, or add `homelab.<DOMAIN>/policy-exempt: "<rule-id>"` plus `homelab.<DOMAIN>/policy-exempt-reason` on the object. |
+| `decisions/adr-record` | `docs/project_notes/decisions.md` exists, parses, and contains at least one ADR. Emitted **instead of** the two checks below when the parse cannot be trusted — an unterminated fence hides every heading under it, and a record with no ADRs would otherwise report "0 ADRs, no duplicate number" as a green. | The finding names the line. Close (or delete) the stray fence; a record with no ADR heading is a wrong path or a truncated file, not a passing record. |
+| `decisions/adr-format` | Every ADR heading in `docs/project_notes/decisions.md` is `### ADR-NNN: <title>` — three digits, heading depth three, at most three spaces of indent (four is a code block and is not read). A heading that names *no* number (`## ADR numbering conventions`) is prose and is not checked; one that names a number at any other depth (`#### ADR-034 rollout notes`) **is** a failure, because it is byte-adjacent to the placeholder shape below and the two cannot be told apart. | Fix the heading — a sub-heading inside an ADR body must not repeat the number. A number you intend to use goes in a blockquote above the next real ADR, never in a heading: a placeholder heading merges cleanly over the real ADR of that number and deletes it (ADR-039). |
+| `decisions/adr-numbers` | No ADR number is defined twice. Branches that each appended "the next number" merge without a conflict, so this is the only thing that sees the duplicate. | `findings` names every line. The number belongs to whichever ADR merged first: renumber the one this branch adds to the next free number, keep its body byte-identical, and update the citations that name the old number (ADR-039). |
+| `contracts/events` | `bun scripts/contract-check.ts check` passes: `contracts/events/` is internally consistent and compatible with its baseline. Includes `stream-source-same-origin` -- two `sources` entries from one origin stream collide on the NATS exporter's `source_name` label and make `/metrics` return HTTP 500 (ADR-044). `bun` missing fails the check rather than skipping it. | Fix the rule each finding names (`task contracts:check` reproduces it); after a deliberate additive change, `task contracts:baseline`. |
+
+**When a duplicate ADR number reaches `main`.** The `decisions/*` checks read the
+repository, not the branch, so a duplicate that lands turns the required check red on
+**every** open pull request until `main` is fixed — including an urgent one. The path back
+is fix-forward and takes seconds: renumber the later of the two headings on `main` (one
+heading line, body byte-identical, citations in the same commit) and every PR goes green on
+its next run. If even that is blocked, the repository owner can merge past the required
+check — `main`'s legacy protection is `enforcement_level: non_admins`, and the ruleset has
+`bypass_actors: []`, so no agent and no non-admin contributor can — and the reason goes in
+the merging issue. That is the only bypass; there is no per-file exemption annotation for
+the ADR checks the way `policy-exempt` works for conftest.
 
 Level 0 renders a third environment, `homelab-preview`: the homelab two-stage render of
 `charts/applications` alone in preview mode (`global.preview.pr=123`, every app in
@@ -150,8 +173,35 @@ same report (`--no-diff`, `--max-diff-bytes 0` for full diffs); it only reads.
 | `task test:config` | Template ↔ schema ↔ `versions.yaml` contract tests (`internal/config/contract_test.go`). |
 | `task test:cmp-parity` | Runs the pinned `ghcr.io/ryanmcafee/homelab-cmp:<tag>` image with Docker and diffs its `config export` against source. Fails when the image tag lags the Go source. A tag bumped in the change under test is not a failure: `cmp-image.yml` pushes the image only on a merge to `main`, so when the pull reports the tag is unknown the script compares it with `--base-ref` (default `origin/main`) and passes if this change bumped it, failing if the tag is unchanged and the image is genuinely absent. The image is published for `linux/amd64` and `linux/arm64`, so it runs natively on an Apple Silicon workstation; `--platform` stays available for testing a tag published before multi-arch (anything at or below `0.1.12`), which is amd64 only. |
 | `task schemas:vendor` / `task schemas:check` | Regenerate or verify `tests/schemas/` from the chart versions in `configuration/versions.yaml`. |
+| `task docs:embedme` / `task docs:embedme:verify` | Regenerate or verify the snippets embedded in `Claude.md` (today only the `configuration/versions.yaml` block). Verify runs in the `policy` CI job, so a bump that moves `versions.yaml` without regenerating turns it red. |
 | `task gpu:toggle-test` | GPU vendor toggle harness (`scripts/toggle-test.ts`); uses the same Kubernetes version and vendored schemas. |
 | `task ci:test` | Everything above that needs no cluster: the local equivalent of the `verify.yml` jobs. |
+| `task pr:refresh` | Bring a stale PR branch up to date with its base without hand-merging the files every PR touches. See [Bringing a stale PR up to date](#bringing-a-stale-pr-up-to-date). |
+
+## Bringing a stale PR up to date
+
+Most PR conflicts here are not disagreements. On 2026-10-02, 29 of 86 open PRs conflicted
+with their base, and the files behind it were this runbook (7 PRs), `readme.md` and
+`.github/homelab.svg` (6 each), `docs/project_notes/bugs.md`, `issues.md` and the golden
+snapshots (4 each): concurrent PRs appending at the same spot, or both moving a count
+`docs:check` computes anyway. `task pr:refresh` merges the base into the checked-out PR
+branch and resolves exactly those:
+
+| Conflict | Resolution |
+|---|---|
+| `bugs.md`, `issues.md`, this runbook | `.gitattributes` `merge=union` keeps both sides' lines. The merge runs with the **base** branch's attributes (`git --attr-source`), so a branch cut before `.gitattributes` existed gets them too. The run lists every file union resolved: two edits to the same line come out as two lines, not a conflict, so read them. |
+| `tests/snapshots/`, `tests/schemas/`, `values-localdev.yaml` | Take the base side, then regenerate (renovate-regen's steps). |
+| `readme.md`, `.github/homelab.svg`, `docs/applications.md`, `docs/networking.md` | A hunk whose sides differ only in numbers `docs:check` owns (or that sits in a `docs-check` region) takes the base side and `docs:check --fix` rewrites it. The SVG suite counter is not fixable, so a file still drifting is retried with the PR side; when neither is true (both sides added a suite) the run stops for a hand fix. |
+| Anything else | Left conflicted. Resolve, `git add`, then `task pr:refresh -- --continue`. |
+
+It then runs level 0 and commits the merge only when it passes (`--no-verify` when the
+failure predates the merge). A stacked PR merges its own base:
+`task pr:refresh -- --base origin/<base-branch>`; `--dry-run` classifies the conflicts and
+writes nothing; `--push` pushes after the commit. It refuses `renovate/*` branches: a merge
+commit there stops Renovate rebasing the branch for good, so tick the PR's rebase checkbox.
+
+GitHub's merge button and "Update branch" ignore `.gitattributes` merge drivers, so a PR
+can still show "conflicts" on github.com that `task pr:refresh` resolves locally.
 
 ## Tooling
 
@@ -188,8 +238,8 @@ change as a patch that `git apply` accepts; nothing is written).
 | Pattern | Modelled on | Generates |
 |---|---|---|
 | `operator` | cloudnative-pg | one Application (addons, wave 10); the CRD group in `tests/gitops/crd-providers.yaml` (and `huge-crd-charts.yaml` with `--huge-crds`), a `tests/schemas/sources.yaml` source, Ready-condition health Lua + fixtures per `--crd-kinds` |
-| `helm` | sonarr | one Application (applications, wave 13) with an Ingress on `<name>.<domain>` (new `<NAME>_HOSTNAME` schema key) and a PostSync smoke hook; TrueCharts charts join the Renovate group |
-| `deps-main-config` | traefik-external | `<name>-dependencies` < `<name>` < `<name>-config`, child charts fed through `helm.valuesObject` (ADR-010) |
+| `helm` | sonarr | one Application (applications, wave 13) with an HTTPRoute on `<name>.<domain>` (new `<NAME>_HOSTNAME` schema key, `sectionName: https`) and a PostSync smoke hook; TrueCharts charts join the Renovate group |
+| `deps-main-config` | grafana-config | `<name>-dependencies` < `<name>` < `<name>-config`, child charts fed through `helm.valuesObject` (ADR-010) |
 
 Every pattern also writes the placeholder block in `charts/<tier>/values.yaml`, the real values
 in `configuration/templates/helm-*.tmpl`, the `versions.yaml` pin with its Renovate marker,
@@ -253,9 +303,32 @@ homelab,localdev`: kubeconform validates every custom resource this repository r
 against the new CRD schemas. The result and the list of files the bump needs regenerated
 are appended to the report. Nothing is committed.
 
+**Undeclared helm values.** `task upstream:values` fails when an Application sets a
+`spec.source.helm` key path that its pinned chart does not declare. Almost no chart ships
+a `values.schema.json`, so helm accepts an unknown key in silence: the render succeeds,
+kubeconform passes, the snapshot records the dead key as expected output and ArgoCD
+reports Synced. A version bump that renames a key is exactly this shape, which is why the
+check runs here and not in `pr-contract.yml` (which skips `renovate/*` heads); it pulls
+every pinned chart, so it cannot be level 0, which is network-free by contract.
+`task renovate:regen` runs it too, after regenerating the snapshots.
+
+The check pulls each chart with `helm pull --untar` and collects the key paths the chart
+*and its vendored dependencies* declare. Three rules keep it usable without blunting it:
+a dependency's values count at the root when it is a `type: library` chart (that is where
+TrueCharts' `common` declares `TZ`, `workload` and `persistence`) and under its alias or
+name otherwise (kube-prometheus-stack's `grafana`); a values.yaml whose only top-level key
+is underscore-prefixed is unwrapped (istio's `_internal_defaults_do_not_set`); and an
+upstream default of `{}` or null declares everything below it, so `resources: {}` accepts
+`resources.limits.cpu`. What those cannot settle goes in
+`tests/gitops/upstream-values-allowlist.yaml`, keyed by chart and path prefix, with a
+reason — and an entry that stops matching anything fails the gate, so a key upstream has
+since declared cannot sit there forever. An allowlist entry is never the place for a key
+the chart does not read: that is the defect the gate exists to find.
+
 **Automerge gate.** On `renovate/*` branches the job sets the commit status
 `upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
-only when every `upgrade/*` check is `unchanged` and revalidation passed, otherwise
+only when every `upgrade/*` check is `unchanged`, revalidation passed and no Application
+sets a helm value its chart does not declare, otherwise
 `failure` ("rendered manifests changed — human review required, automerge blocked").
 `renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
 (`kindest/node`, majors, infrastructure tools and ksops stay manual) and patch bumps
@@ -266,10 +339,12 @@ a bump whose upstream render changes anything (an image tag, a CRD) waits for a 
 reads the `upgrade-diff` comment.
 
 **Regeneration bot (optional).** A chart bump also needs the committed localdev values,
-`tests/schemas` and `tests/snapshots` regenerated; until then the `level-0`, `schemas` and
-`snapshot` jobs in `verify.yml` stay red. The `regenerate` job in `upgrade.yml` does that
+`tests/schemas`, `tests/snapshots` and the `configuration/versions.yaml` block embedded in
+`Claude.md` regenerated; until then the `level-0`, `schemas`, `snapshot` and `policy` jobs
+in `verify.yml` stay red. `task docs:embedme` is the fix for the `policy` one, which fails
+as `docs:embedme:verify`. The `regenerate` job in `upgrade.yml` does all of it
 on `renovate/*` branches and pushes one commit, `chore(deps): regenerate snapshots,
-schemas and localdev values`, authored by `homelab-regen-bot
+schemas, localdev values and embedded snippets`, authored by `homelab-regen-bot
 <homelab-regen-bot@users.noreply.github.com>`, with a GitHub App token. This supersedes
 the "no auto-commit" stance of the `snapshot` job for this bot only, and it answers that
 stance's three reasons: an App-token push triggers the other workflows (a `GITHUB_TOKEN`
@@ -282,10 +357,183 @@ create a GitHub App owned by the repository owner with repository permission
 **Contents: read and write**, install it on this repository only, and store its App ID and
 a private key as the Actions secrets `HOMELAB_BOT_APP_ID` and `HOMELAB_BOT_PRIVATE_KEY`.
 
-To accept a bump without the bot: run `task config:export:localdev`, `task
-schemas:vendor` and `task test:snapshot -- --update` on the branch and commit, or commit
-the `snapshots-regenerated` artifact of the `snapshot` job, which also posts its own
-`snapshot-diff` comment with the in-repository manifest diff.
+**Accepting a bump without the bot: `task renovate:regen`.** This is the path that matters
+when the secrets are not set, and the author of the commit it makes is not a detail.
+`gitIgnoredAuthors` lists exactly one address. A commit ahead of the base branch by anybody
+else makes Renovate treat the branch as human-edited and **stop rebasing it permanently** —
+`rebaseWhen: 'behind-base-branch'` does not help, because Renovate never looks at the branch
+again. Measured on 2026-09-26: of the five open `renovate/*` PRs, the two carrying only
+Renovate's own commits were rebased to 0-behind within ~70 minutes of `main` moving, and all
+three carrying a regeneration commit pushed under a personal address had been stuck for up
+to two days, 19, 19 and 10 commits behind.
+
+`task renovate:regen` runs `config:export:localdev`, `schemas:vendor`, `test:snapshot --
+--update`, `docs:check -- --fix` (a chart bump also moves the readme version badges and
+the addons table) and `docs:embedme` (it moves the `versions.yaml` block embedded in
+`Claude.md`), then commits the result with both the author and the committer set to
+`REGEN_BOT_NAME <REGEN_BOT_EMAIL>` from `upgrade.yml` — the same identity CI would have used —
+and verifies both on the commit it just made. It refuses to run when:
+
+| Guard | Why |
+|---|---|
+| `renovate-regen/identity-parity` | `upgrade.yml`'s `REGEN_BOT_EMAIL` is not in `renovate.json5`'s `gitIgnoredAuthors`. Three places have to agree and nothing else checks that they do; `scripts/renovate-regen_test.ts` asserts it against the real files, so drift fails `task test:scripts` instead of silently orphaning every future branch. |
+| `renovate-regen/branch-scope` | HEAD is not a `renovate/*` branch. Signing a human PR's commit as the bot would invite Renovate to force-push over real work. Bypass: `-- --any-branch`, with the reason in the commit or PR body. |
+| `renovate-regen/generated-only` | Regeneration touched a file outside the generated set. No bypass: commit that file separately under your own author — which keeps the branch out of Renovate's hands, and for a real change that is the correct outcome. |
+| `renovate-regen/clean-tree` | The working tree was already dirty, so the commit would not be regeneration output alone. |
+| `renovate-regen/commit-identity` | The commit it just made does not carry the bot address as *both* author and committer. Fires after the commit, so the branch is still recoverable with one `--amend`; no bypass, because a commit that fails it is exactly the commit that orphans the branch. Where a wrapper pins the committer, the error points at the API form below. |
+| `renovate-regen/deployed-major` | `task renovate:deployed-major` read a deployed Renovate of `44.x` or later out of an open `renovate/*` PR body while this repository still treats a committer mismatch as advisory. Fires on the version, not on a commit: past 44 every rebase under a foreign identity orphans its branch while changing no bytes, so the regime has to move with the deployment. Also fires when the version cannot be read at all — an unmeasurable version is not evidence of a pre-44 deployment. Bypass: pin `RENOVATE_MAJOR` to the version you actually measured, and say where you measured it. |
+
+Do **not** "fix" the orphaning by adding a personal address to `gitIgnoredAuthors`. It would
+let Renovate force-push over genuine human edits to a bump branch, and it hard-codes one
+operator's address into a config every fork inherits: a forker's regeneration commits carry
+*their* address, so the entry would only ever work on one repository. The test asserts every
+`gitIgnoredAuthors` entry is a generic `@users.noreply.github.com` bot address for that
+reason.
+
+**Which addresses Renovate reads depends on its major version, so write commits that satisfy
+both.** `isBranchModified()` walks every commit in `origin/<base>..origin/<branch>` and
+removes the git author and every `gitIgnoredAuthors` entry; if an address is left, the branch
+is human-edited and Renovate stops touching it
+([`lib/util/git/index.ts`](https://github.com/renovatebot/renovate/blob/main/lib/util/git/index.ts)).
+What it collects per commit changed at the 43 → 44 major:
+
+| deployed Renovate | addresses read | `gitIgnoredAuthors` matching | manual regeneration form to use |
+| --- | --- | --- | --- |
+| **43.x** (43.163.0 and earlier) | `%ae` only | exact literal only | either; the git form below is sufficient because the committer is ignored |
+| **44.x** (44.0.0 and later) | `%ae` **and** `%ce` | literal, regex or glob | **the API form below is the default.** It is the only form that lands `%ce` where a credential wrapper pins the committer, and a rebase rewrites every committer |
+
+Do not take the deployed version from this table, from a chart value, or from memory — **read
+it**, with `task renovate:deployed-major`. It decodes the base64 `renovate-debug` comment at
+the foot of every Renovate PR body (JSON with `createdInVer`/`updatedInVer`; `updatedInVer` is
+the version that last ran) and fails as `renovate-regen/deployed-major` the moment the
+deployed major reaches 44 while this repository is still driving the 43 regime. It takes the
+*highest* major across every open `renovate/*` PR, because an abandoned branch keeps
+advertising the version that abandoned it and a stale body must not mask a live upgrade. It
+fails closed when no blob is readable: an unmeasurable version is not evidence of 43.x.
+
+It also fails closed on an empty *listing*, which is the failure that looks like success. In
+CI the check only runs on a `renovate/*` head, so the PR it is running on must appear among
+the open `renovate/*` PRs it lists; when `GITHUB_HEAD_REF` is set and that head is missing,
+the listing was truncated or read with a token lacking `pull-requests: read` — returning `[]`
+with a `200` — and the check fails instead of emitting its "no Renovate PRs open" notice. The
+notice path survives only for a local run or a fork where Renovate writes no PRs at all, and
+there the gate has nothing to protect.
+
+On 2026-09-26 that check read **43.110.14**, so only the author counted, and the Dependency
+Dashboard's *PR Edited (Blocked)* section agreed independently: branches whose only foreign
+address was the committer were listed under *Open*, and the one branch with a foreign
+**author** was the only entry under *Blocked*. Re-run the same natural experiment in the
+opposite direction after the upgrade — a branch rebased under a foreign identity must then
+appear under *PR Edited (Blocked)*.
+
+Two consequences that are easy to get wrong in opposite directions:
+
+- On **44.x**, `--author` alone is not enough, and a **rebase** re-commits every commit and so
+  rewrites every committer — rebasing a `renovate/*` branch under your own identity would
+  orphan it while changing nothing.
+- On **43.x**, the committer is ignored, so a committer-only mismatch is *not* an orphaning
+  event and must not be reported as one. Repairing it costs a full CI cycle per branch and
+  buys nothing until the 44 upgrade lands.
+
+**The API form is the default for manual regeneration; the git form below is the
+ordinary-machine variant.** That ordering is deliberate: the git form's outcome depends on
+whether your environment has a credential wrapper, and it is inert-or-correct on 43.x but
+silently wrong on 44.x, whereas the API form takes both addresses as explicit fields and so
+lands the same commit under either regime and on either kind of machine. Use the git form when
+you have already read `%ce` back on that machine and seen it land.
+
+On an ordinary machine, then, set both and read them back — never one without the other:
+
+```sh
+git -c user.name=homelab-regen-bot \
+    -c user.email=homelab-regen-bot@users.noreply.github.com \
+    commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>" \
+    -m 'chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets'
+git log -1 --format='%ae %ce'   # both must be homelab-regen-bot@users.noreply.github.com
+```
+
+`-c user.email` is what carries the *committer*; `--author` is the only form that survives a
+credential wrapper exporting `GIT_AUTHOR_EMAIL`. Neither alone is sufficient, which is why
+the recipe uses both and why the read-back is part of it rather than advice.
+
+Measured on the agent runner, one repository, one tree, three invocations, all exiting `0`:
+
+| invocation | author | committer |
+|---|---|---|
+| `git -c user.email=homelab-regen-bot@… commit` | operator | operator |
+| `GIT_COMMITTER_EMAIL=homelab-regen-bot@… git commit --author "…"` | **bot** | operator |
+| `git commit --author "homelab-regen-bot <…>"` | **bot** | operator |
+
+`upgrade.yml` uses the `-c user.email` form and is right to: CI has no wrapper, so it lands
+both. Where a wrapper pins the committer — the Paperclip agent runner strips and re-sets
+`GIT_COMMITTER_*` for every invocation — **no git invocation can win**, and the API is the
+only path that takes both as explicit fields:
+
+```sh
+gh api -X PUT "repos/$OWNER/$REPO/contents/$PATH" -f branch="$BRANCH" \
+  -f message='chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets' \
+  -f content="$(base64 -w0 "$PATH")" -f sha="$BLOB_SHA" \
+  -f 'author[name]=homelab-regen-bot' \
+  -f 'author[email]=homelab-regen-bot@users.noreply.github.com' \
+  -f 'committer[name]=homelab-regen-bot' \
+  -f 'committer[email]=homelab-regen-bot@users.noreply.github.com'
+```
+
+Verified 2026-09-26 on a throwaway branch: the resulting commit reads back
+`author.email == committer.email == homelab-regen-bot@users.noreply.github.com`. It needs no
+secret and no personal address. One request per file, so it suits a two-or-three-file
+regeneration, not a snapshot sweep.
+
+You can also commit the `snapshots-regenerated` artifact of the `snapshot` job, which posts
+its own `snapshot-diff` comment with the in-repository manifest diff — but commit it the same
+way, and read `%ce` back.
+
+`task test:scripts` enforces all of that as `renovate-regen/runbook-authorship`: this runbook
+has to show the `--author` form, a `-c user.email` form, the `%ce` read-back, the
+`committer[email]` fallback — each carrying the address `upgrade.yml` declares — and the
+Renovate major at which the committer starts counting, so the table above cannot quietly rot
+past the upgrade. If a documentation change turns that check red, replace the recipe rather
+than deleting the test — there is no bypass, because the copy-pasted command *is* the product
+here.
+
+`task renovate:regen` runs the same check on its own commit as
+`renovate-regen/commit-identity`. A wrong **author** fails it; a wrong **committer** prints a
+warning naming the 44 boundary and does not fail, because on the deployed 43.x the commit is
+genuinely fine and a gate that rejects its own correct output is worse than no gate.
+
+**Moving to the 44 regime.** Do not wait to remember: `task renovate:deployed-major` is the
+trigger, and it goes red as `renovate-regen/deployed-major` on the first Renovate run after the
+`ghcr.io/renovatebot/charts/renovate` bump lands (it sits in the Dependency Dashboard's
+rate-limited *Container images* group, so the date is Renovate's, not yours). When it does:
+
+1. Run `task renovate:regen -- --committer-strict`, or set `RENOVATE_MAJOR` to the version the
+   check printed, so a committer mismatch becomes `renovate-regen/commit-identity`'s error
+   rather than its warning. `RENOVATE_MAJOR` is the honest input — it holds a version somebody
+   measured; `--committer-strict` is for a dry run of the far side of the boundary.
+2. Regenerate by hand through the API form above only. On a runner whose wrapper pins the
+   committer, no git invocation can produce a commit that Renovate 44 still manages.
+3. Audit every open `renovate/*` branch for a commit whose committer is not
+   `REGEN_BOT_EMAIL`: past 44 those are orphaned, and the upgrade orphans them retroactively
+   because `isBranchModified()` re-reads the whole branch. Repair one without changing a byte
+   with `POST /repos/{owner}/{repo}/git/commits`, passing the existing head's `tree` and
+   `parents` and setting `committer` equal to `author`, then move the ref. Confirm the tree SHA
+   is unchanged before and after — a rebase would change it and cost a full CI cycle.
+4. Confirm it took, from Renovate rather than from this document: a branch rebased under a
+   foreign identity must appear under *PR Edited (Blocked)* on the Dependency Dashboard, which
+   publishes a live `isBranchModified()` readout.
+
+Under a `strict` base branch none of this is cosmetic: an orphaned branch is never rebased
+again, so it can never be up to date, so it can never merge — and no agent can undo that.
+
+**What the bot buys, and why it is not optional under a strict base branch.** Without it,
+regeneration is manual, and every manual regeneration freezes its branch until somebody
+rebases it again — a closed loop. `task renovate:regen` keeps the branch Renovate-managed,
+but Renovate *drops* an ignored author's commits when it rebases, and with no bot to remake
+them the branch goes red on snapshot drift until a human regenerates again. So the loop
+closes either way; only the bot (which regenerates on every new head automatically) breaks
+it. If `main` ever requires branches to be up to date before merging ("Require branches to be
+up to date", `strict`), that loop stops being cosmetic drift and becomes a permanent merge
+block, so configure the bot **before** flipping it.
 
 ## Agent contract
 
@@ -379,3 +627,12 @@ Write the configuration key in angle brackets, as
 [`tailscale-dns.md`](tailscale-dns.md) does with `<GATEWAY_IP>/32`. The reserved ranges are
 spent on the example ConfigSets: each `configuration/environments/*.yaml.example` owns one
 outright, which `go test ./internal/config/` enforces, so a runbook cannot borrow one.
+(RFC 5737 `198.51.100.0/24` and `192.0.2.0/24`, `REPLACEME` / `REPLACEME-*` labels,
+`example.com`, loopback, `.local`): any other value on a PII-shaped key fails. A new placeholder
+convention must be added to the allowlist in `internal/config/guard.go`. Widen or narrow the
+scope with `--paths`.
+
+The allowlist is deliberately all documentation-reserved space. The `192.168.1.x` range was listed until
+MCAA-79 and is now excluded on purpose: it is the most common home LAN subnet, so for a forker
+running on it the guard could not tell their real `GATEWAY_IP` from the template's placeholder.
+Re-adding it would restore that collision for exactly the users the check protects.

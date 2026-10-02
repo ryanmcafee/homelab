@@ -12,25 +12,33 @@
  *   configuration/versions.yaml            tool and chart versions (badge row)
  *   charts/addons/templates/*.yaml         addon count (one template = one addon)
  *   charts/applications/templates/*.yaml   application count
- *   tests/snapshots/homelab/*.yaml         ArgoCD Applications, ingress inventory
- *                                          (class + host per Application), chart
+ *   tests/snapshots/homelab/*.yaml         ArgoCD Applications, route inventory
+ *                                          (Gateway + host per Application), chart
  *                                          versions, PostSync smoke Jobs
+ *   tests/snapshots/localdev/*.yaml        Applications the Kind loop syncs
  *   tests/e2e/<suite>/chainsaw-test.yaml   chainsaw suite count and names
  *
  * Generated regions are fenced in Markdown with
  *   <!-- docs-check:begin <key> -->  ...  <!-- docs-check:end <key> -->
- * and replaced whole. Keys: readme `badges`; docs/networking.md `ingress-table`;
+ * and replaced whole. Keys: readme `badges`; docs/networking.md `route-table`;
  * docs/applications.md `addons-table`, `applications-table`.
  *
  * Literal checks (no region, the sentence around them is hand-written):
- *   readme.md            "<N> addons", "<N> applications", "<N> Applications",
- *                        "<N> chainsaw suites"
+ *   readme.md            "<N> addons", "<N> applications", "<N> chainsaw
+ *                        suites", "<N> ArgoCD Applications" (production) and
+ *                        "<N> Applications synced from your working tree"
+ *                        (the Kind loop — a different, smaller count)
  *   .github/homelab.svg  "addons · <N>", "applications · <N>",
  *                        "<N> apps synced", "<N>/<N> suites", and one
- *                        "<host>.&lt;DOMAIN&gt;" per internal ingress host
- *                        (the traefik-internal dashboard is deliberately not
+ *                        "<host>.&lt;DOMAIN&gt;" per envoy-internal route host
+ *                        (the echo comparison route is deliberately not
  *                        drawn). Counter steps in the SVG cannot be regenerated
  *                        by --fix; the check says so when the suite count moves.
+ *
+ * Suite checks (not fixable):
+ *   tests/e2e/README.md  the Layout table names every suite directory exactly
+ *                        once and names nothing that is not a suite
+ *   chainsaw-test.yaml   parses, and every Test step has a unique, non-empty name
  *
  * Usage:
  *   task docs:check              report drift, exit 1 on any
@@ -41,24 +49,24 @@
  */
 
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { parse as parseYaml } from "./lib/yaml.ts";
+import { parseAll, parse as parseYaml } from "./lib/yaml.ts";
 
 // ---------------------------------------------------------------------------
 // Facts
 // ---------------------------------------------------------------------------
 
-export interface IngressRow {
+export interface RouteRow {
   app: string;
   host: string;
-  class: "external" | "internal";
-  kind: "Ingress" | "IngressRoute";
+  gateway: string;
+  kind: "HTTPRoute" | "Chart";
 }
 
 export interface AppRow {
   name: string;
   source: string; // chart name or git path
   version: string; // chart version, or "git" for path sources
-  ingress: string; // "external: a, b" / "internal: c" / "—"
+  route: string; // "envoy-external: a, b" / "envoy-internal: c" / "—"
   e2e: string; // suite name(s) or "—"
   smoke: string; // Job name(s) or "—"
 }
@@ -68,9 +76,10 @@ export interface Facts {
   addons: number;
   applications: number;
   argoApplications: number;
+  localdevApplications: number;
   e2eSuites: string[];
   smokeJobs: string[];
-  ingress: IngressRow[];
+  routes: RouteRow[];
   addonApps: AppRow[];
   applicationApps: AppRow[];
 }
@@ -111,57 +120,50 @@ export function countApplications(docs: string[]): number {
   return docs.filter((d) => /^kind: Application$/m.test(d)).length;
 }
 
-const HOST_RE = /\b([a-z0-9][a-z0-9-]*)\.REPLACEME-domain\.com\b/g;
-const CLASS_RE =
-  /^\s*(?:ingressClassName|className|ingressClass):\s*(external|internal)\s*$/m;
+const HOST_RE = /\b([a-z0-9][a-z0-9-]*)\.replaceme-domain\.com\b/gi;
+const GATEWAY_RE =
+  /^\s*-?\s*(?:name|gateway):\s*"?(envoy-(?:internal|external))"?\s*$/m;
 // Lines that name a host for routing (not links, not e-mail, not NFS servers).
 const HOST_LINE_RE =
-  /(hostname:|^\s*-?\s*host:|^\s*-\s+[a-z0-9-]+\.REPLACEME|Host\(`)/;
+  /(hostname:|^\s*-?\s*host:|^\s*-\s+"?[a-z0-9-]+\.replaceme)/i;
 const HOST_LINE_SKIP_RE = /(url:|server:|email|@)/;
 
 /**
- * Ingress inventory from rendered snapshot documents. An Application whose
- * values carry an ingress class contributes every host named on a host line;
- * a standalone IngressRoute contributes the Host() of its matchRule, classed
- * by whether its name says "internal".
+ * Route inventory from rendered snapshot documents. An Application whose
+ * values name an Envoy Gateway contributes every host named on a host line
+ * (its chart renders the HTTPRoute); a standalone HTTPRoute contributes its
+ * hostnames, attached to the first Envoy Gateway among its parentRefs.
  */
-export function ingressInventory(docs: string[]): IngressRow[] {
-  const rows: IngressRow[] = [];
+export function routeInventory(docs: string[]): RouteRow[] {
+  const rows: RouteRow[] = [];
   const seen = new Set<string>();
-  const push = (r: IngressRow) => {
-    const k = `${r.host}|${r.class}`;
+  const push = (r: RouteRow) => {
+    const k = `${r.host}|${r.gateway}`;
     if (seen.has(k)) return;
     seen.add(k);
     rows.push(r);
   };
   for (const doc of docs) {
     const kind = field(doc, "kind");
+    if (kind !== "Application" && kind !== "HTTPRoute") continue;
+    const gateway = doc.match(GATEWAY_RE)?.[1];
+    if (!gateway) continue;
     const name = docName(doc) ?? "?";
-    if (kind === "Application") {
-      const cls = doc.match(CLASS_RE)?.[1] as IngressRow["class"] | undefined;
-      if (!cls) continue;
-      for (const line of doc.split("\n")) {
-        if (!HOST_LINE_RE.test(line) || HOST_LINE_SKIP_RE.test(line)) continue;
-        for (const m of line.matchAll(HOST_RE)) {
-          push({
-            app: name,
-            host: m[1],
-            class: cls,
-            kind: /Host\(`/.test(line) ? "IngressRoute" : "Ingress",
-          });
-        }
-      }
-    } else if (kind === "IngressRoute") {
-      const cls: IngressRow["class"] = /internal/.test(name)
-        ? "internal"
-        : "external";
-      for (const m of doc.matchAll(HOST_RE)) {
-        push({ app: name, host: m[1], class: cls, kind: "IngressRoute" });
+    for (const line of doc.split("\n")) {
+      if (!HOST_LINE_RE.test(line) || HOST_LINE_SKIP_RE.test(line)) continue;
+      for (const m of line.matchAll(HOST_RE)) {
+        push({
+          app: name,
+          host: m[1],
+          gateway,
+          kind: kind === "HTTPRoute" ? "HTTPRoute" : "Chart",
+        });
       }
     }
   }
   return rows.sort(
-    (a, b) => a.class.localeCompare(b.class) || a.host.localeCompare(b.host),
+    (a, b) =>
+      a.gateway.localeCompare(b.gateway) || a.host.localeCompare(b.host),
   );
 }
 
@@ -184,8 +186,7 @@ const SMOKE_ALIASES: Record<string, string[]> = {
 const E2E_ALIASES: Record<string, string[]> = {
   argocd: ["argocd-apps"],
   cilium: ["cilium-netpol"],
-  "traefik-external": ["traefik"],
-  "traefik-internal": ["traefik"],
+  "envoy-gateway-config": ["envoy-gateway"],
   "kube-prometheus-stack": ["grafana"],
   "agent-readonly": ["agent-readonly"],
 };
@@ -211,7 +212,7 @@ function matches(
 /** One row per ArgoCD Application in the given documents. */
 export function applicationRows(
   docs: string[],
-  ingress: IngressRow[],
+  routes: RouteRow[],
   e2eSuites: string[],
   smoke: string[],
 ): AppRow[] {
@@ -223,15 +224,14 @@ export function applicationRows(
     const path = doc.match(/^\s+path:\s*(\S+)/m)?.[1];
     const rev =
       doc.match(/^\s+targetRevision:\s*"?([^"\n]+)"?/m)?.[1]?.trim() ?? "";
-    const ing = ingress.filter((r) => r.app === name);
-    const byClass = new Map<string, string[]>();
-    for (const r of ing) {
-      byClass.set(r.class, [...(byClass.get(r.class) ?? []), r.host]);
+    const byGateway = new Map<string, string[]>();
+    for (const r of routes.filter((r) => r.app === name)) {
+      byGateway.set(r.gateway, [...(byGateway.get(r.gateway) ?? []), r.host]);
     }
-    const ingressText =
-      byClass.size === 0
+    const routeText =
+      byGateway.size === 0
         ? "—"
-        : [...byClass.entries()]
+        : [...byGateway.entries()]
             .map(([c, hosts]) => `${c}: ${hosts.join(", ")}`)
             .join("; ");
     const e2e = matches(name, e2eSuites, E2E_ALIASES, "");
@@ -240,7 +240,7 @@ export function applicationRows(
       name,
       source: chart ?? path ?? "?",
       version: chart ? (SEMVER_RE.test(rev) ? rev : rev || "?") : "git",
-      ingress: ingressText,
+      route: routeText,
       e2e: e2e.length ? e2e.join(", ") : "—",
       smoke: sm.length ? sm.join(", ") : "—",
     });
@@ -259,12 +259,12 @@ export function renderTable(header: string[], rows: string[][]): string {
   );
 }
 
-export function renderIngressTable(rows: IngressRow[]): string {
+export function renderRouteTable(rows: RouteRow[]): string {
   return renderTable(
-    ["Host", "Class", "Kind", "Application"],
+    ["Host", "Gateway", "Kind", "Application"],
     rows.map((r) => [
       `\`${r.host}.<DOMAIN>\``,
-      r.class,
+      r.gateway,
       r.kind,
       `\`${r.app}\``,
     ]),
@@ -273,19 +273,12 @@ export function renderIngressTable(rows: IngressRow[]): string {
 
 export function renderAppTable(rows: AppRow[]): string {
   return renderTable(
-    [
-      "Application",
-      "Source",
-      "Version",
-      "Ingress",
-      "chainsaw e2e",
-      "Smoke Job",
-    ],
+    ["Application", "Source", "Version", "Route", "chainsaw e2e", "Smoke Job"],
     rows.map((r) => [
       `\`${r.name}\``,
       `\`${r.source}\``,
       r.version,
-      r.ingress,
+      r.route,
       r.e2e,
       r.smoke,
     ]),
@@ -362,8 +355,8 @@ export interface Literal {
 /** The hand-written sentences that must carry the computed numbers. */
 export function expectedLiterals(f: Facts): Literal[] {
   const n = f.e2eSuites.length;
-  const internalHosts = f.ingress
-    .filter((r) => r.class === "internal" && r.host !== "traefik-internal")
+  const internalHosts = f.routes
+    .filter((r) => r.gateway === "envoy-internal" && r.host !== "echo")
     .map((r) => r.host);
   return [
     {
@@ -377,9 +370,14 @@ export function expectedLiterals(f: Facts): Literal[] {
       fix: [/\b\d+ applications\b/g, `${f.applications} applications`],
     },
     {
+      // The `task localdev:up` line: Kind syncs the smaller localdev overlay,
+      // and both halves anchor to the sentence so no other count satisfies it.
       file: "readme.md",
-      expect: `${f.argoApplications} Applications`,
-      fix: [/\b\d+ Applications\b/g, `${f.argoApplications} Applications`],
+      expect: `${f.localdevApplications} Applications synced from your working tree`,
+      fix: [
+        /\b\d+ Applications synced from your working tree\b/g,
+        `${f.localdevApplications} Applications synced from your working tree`,
+      ],
     },
     {
       // "<N> ArgoCD Applications in all" is a separate phrase: the generic
@@ -417,6 +415,109 @@ export function expectedLiterals(f: Facts): Literal[] {
       expect: `${h}.&lt;DOMAIN&gt;`,
     })),
   ];
+}
+
+export const E2E_README = "tests/e2e/README.md";
+
+export const suiteFile = (suite: string) =>
+  `tests/e2e/${suite}/chainsaw-test.yaml`;
+
+/** Every `<suite>/` token in the first column of the README's Layout table, in order. */
+export function readmeSuiteMentions(readme: string): string[] | undefined {
+  const section = readme.split(/^## Layout\s*$/m)[1]?.split(/^## /m)[0];
+  const rows = section?.split("\n").filter((l) => l.startsWith("|"));
+  if (!rows?.length) return undefined;
+  return rows.flatMap((row) =>
+    [...(row.split("|")[1] ?? "").matchAll(/`([^`/]+)\/`/g)].map((m) => m[1]),
+  );
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Every chainsaw Test step has a non-empty name no other step in the file uses. */
+export function stepNameDrift(file: string, text: string): Drift[] {
+  const fail = (what: string): Drift => ({ file, what, fixable: false });
+  let docs: unknown[];
+  try {
+    docs = parseAll(text);
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    return [fail(`does not parse: ${reason.split("\n")[0]}`)];
+  }
+  const tests = docs.filter(isRecord).filter((d) => d.kind === "Test");
+  if (tests.length === 0) return [fail("no kind: Test document")];
+  const drift: Drift[] = [];
+  for (const t of tests) {
+    const steps = isRecord(t.spec) ? t.spec.steps : undefined;
+    if (!Array.isArray(steps) || steps.length === 0) {
+      drift.push(fail("Test has no steps"));
+      continue;
+    }
+    const uses = new Map<string, number>();
+    steps.forEach((s, i) => {
+      const name = isRecord(s) ? s.name : undefined;
+      if (typeof name !== "string" || name.trim() === "") {
+        drift.push(fail(`step ${i + 1} has no name`));
+      } else {
+        uses.set(name, (uses.get(name) ?? 0) + 1);
+      }
+    });
+    for (const [name, n] of uses) {
+      if (n > 1) {
+        drift.push(
+          fail(
+            `step name "${name}" is used ${n} times (step names must be unique)`,
+          ),
+        );
+      }
+    }
+  }
+  return drift;
+}
+
+/** Each suite has exactly one README row, each row a suite, and each suite file sound step names. */
+export function e2eSuiteDrift(
+  suites: string[],
+  files: Map<string, string>,
+): Drift[] {
+  const fail = (what: string): Drift => ({
+    file: E2E_README,
+    what,
+    fixable: false,
+  });
+  const drift: Drift[] = [];
+  const readme = files.get(E2E_README);
+  const mentions =
+    readme === undefined ? undefined : readmeSuiteMentions(readme);
+  if (readme === undefined) drift.push(fail("file missing (suite table)"));
+  else if (mentions === undefined) drift.push(fail("Layout table missing"));
+  else {
+    for (const s of suites) {
+      const n = mentions.filter((m) => m === s).length;
+      if (n !== 1) {
+        drift.push(
+          fail(
+            `suite ${s}/ has ${n === 0 ? "no row" : `${n} rows`} in the Layout table (expected exactly 1)`,
+          ),
+        );
+      }
+    }
+    for (const m of new Set(mentions)) {
+      if (!suites.includes(m)) {
+        drift.push(fail(`row ${m}/ names no ${suiteFile(m)}`));
+      }
+    }
+  }
+  for (const s of suites) {
+    const text = files.get(suiteFile(s));
+    drift.push(
+      ...(text === undefined
+        ? [{ file: suiteFile(s), what: "file missing", fixable: false }]
+        : stepNameDrift(suiteFile(s), text)),
+    );
+  }
+  return drift;
 }
 
 // ---------------------------------------------------------------------------
@@ -461,6 +562,13 @@ export async function collectFacts(root: string): Promise<Facts> {
   }
   const allDocs = [...byFile.values()].flat();
 
+  const localdevDocs: string[] = [];
+  for (const f of await listFiles(`${root}/tests/snapshots/localdev`, (n) =>
+    n.endsWith(".yaml"),
+  )) {
+    localdevDocs.push(...splitDocs(await readFile(f, "utf8")));
+  }
+
   const e2eSuites: string[] = [];
   for (const d of await listDirs(`${root}/tests/e2e`)) {
     try {
@@ -471,7 +579,7 @@ export async function collectFacts(root: string): Promise<Facts> {
     }
   }
 
-  const ingress = ingressInventory(allDocs);
+  const routes = routeInventory(allDocs);
   const smoke = smokeJobs(allDocs);
   const addonDocs =
     byFile.get(`${root}/tests/snapshots/homelab/addons.yaml`) ?? [];
@@ -485,11 +593,12 @@ export async function collectFacts(root: string): Promise<Facts> {
     addons,
     applications,
     argoApplications: countApplications(allDocs),
+    localdevApplications: countApplications(localdevDocs),
     e2eSuites,
     smokeJobs: smoke,
-    ingress,
-    addonApps: applicationRows(addonDocs, ingress, e2eSuites, smoke),
-    applicationApps: applicationRows(appDocs, ingress, e2eSuites, smoke),
+    routes,
+    addonApps: applicationRows(addonDocs, routes, e2eSuites, smoke),
+    applicationApps: applicationRows(appDocs, routes, e2eSuites, smoke),
   };
 }
 
@@ -510,8 +619,8 @@ export function regionSpecs(f: Facts): RegionSpec[] {
     { file: "readme.md", key: "badges", body: renderBadges(f.versions) },
     {
       file: "docs/networking.md",
-      key: "ingress-table",
-      body: renderIngressTable(f.ingress),
+      key: "route-table",
+      body: renderRouteTable(f.routes),
     },
     {
       file: "docs/applications.md",
@@ -614,6 +723,7 @@ const FILES = [
   "docs/networking.md",
   "docs/applications.md",
   ".github/homelab.svg",
+  E2E_README,
 ];
 
 async function main(): Promise<number> {
@@ -630,7 +740,7 @@ async function main(): Promise<number> {
   }
   const facts = await collectFacts(args.root);
   const files = new Map<string, string>();
-  for (const f of FILES) {
+  for (const f of [...FILES, ...facts.e2eSuites.map(suiteFile)]) {
     try {
       files.set(f, await readFile(`${args.root}/${f}`, "utf8"));
     } catch {
@@ -638,6 +748,7 @@ async function main(): Promise<number> {
     }
   }
   const { drift, fixed } = check(files, facts);
+  drift.push(...e2eSuiteDrift(facts.e2eSuites, files));
   if (args.fix) {
     for (const [f, text] of fixed) {
       if (files.get(f) !== text) {
@@ -660,7 +771,7 @@ async function main(): Promise<number> {
     );
   } else if (remaining.length === 0) {
     console.log(
-      `docs-check: in sync (${facts.addons} addons, ${facts.applications} applications, ${facts.argoApplications} Applications, ${facts.e2eSuites.length} suites, ${facts.ingress.length} ingress hosts)`,
+      `docs-check: in sync (${facts.addons} addons, ${facts.applications} applications, ${facts.argoApplications} Applications, ${facts.localdevApplications} in the Kind loop, ${facts.e2eSuites.length} suites, ${facts.routes.length} route hosts)`,
     );
   } else {
     for (const d of remaining) {

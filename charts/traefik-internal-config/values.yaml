@@ -1,9 +1,0 @@
-# traefik-internal-config values
-# CRD-dependent resources that deploy AFTER internal Traefik
-
-namespace: traefik
-
-# Dashboard configuration
-dashboard:
-  enabled: true
-  host: traefik-internal.example.com

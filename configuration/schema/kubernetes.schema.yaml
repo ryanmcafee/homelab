@@ -2,6 +2,13 @@
 # The pod and service CIDRs are not keys here: Talos sets them in the machine
 # config (terragrunt talos-cluster) and Kind in localdev/kind-config.yaml.
 keys:
+  CLUSTER_NAME:
+    description: Kubernetes/Talos cluster name. A default is safe here - "homelab"
+      is the project's own name, not an operator's - but it is still a key so a
+      fork can name its cluster without editing a committed .hcl file.
+    required: true
+    default: homelab
+
   STORAGE_CLASS_NFS:
     description: StorageClass name for NFS volumes
     required: true
@@ -22,15 +29,20 @@ keys:
     required: true
     default: "democratic-csi-iscsi"
 
-  INGRESS_CLASS_EXTERNAL:
-    description: IngressClass name for externally-facing services
+  GATEWAY_NAMESPACE:
+    description: Namespace of the Envoy Gateway controller, both Gateways and their Envoy proxies
     required: true
-    default: "external"
+    default: "envoy-gateway-system"
 
-  INGRESS_CLASS_INTERNAL:
-    description: IngressClass name for internal services
+  GATEWAY_EXTERNAL:
+    description: Name of the external Gateway (and its GatewayClass); routes published to the internet attach to it
     required: true
-    default: "internal"
+    default: "envoy-external"
+
+  GATEWAY_INTERNAL:
+    description: Name of the internal Gateway (and its GatewayClass); LAN and tailnet routes attach to it
+    required: true
+    default: "envoy-internal"
 
   TIMEZONE:
     description: Default timezone for all workloads
@@ -46,3 +58,38 @@ keys:
     description: Comma-separated enrolled namespaces that get a waypoint proxy (Gateway waypoint, L7 metrics and spans for every Service in them, ingress traffic included); "none" deploys none
     required: true
     default: "paperclip"
+
+  NATS_SERVER_REPLICAS:
+    description: NATS server pods. 1 runs JetStream non-clustered; 3 or more forms a clustered meta-group. Must be at least NATS_STREAM_REPLICAS.
+    required: true
+    default: "3"
+
+  NATS_STREAM_REPLICAS:
+    description: JetStream replicas per stream. Stream sizing is operator-supplied, not contract (contracts/events/subjects.v1.yaml replicas_defaults); 1 is the homelab default because a non-clustered server refuses more with "replicas > 1 not supported in non-clustered mode (10074)".
+    required: true
+    default: "1"
+
+  NATS_TENANT:
+    description: Tenant token the bus account is named for; the account is TENANT_<token>, upper-cased with "-" mapped to "_" (ADR-043 D12). "local" is the reserved homelab tenant.
+    required: true
+    default: "local"
+
+  NATS_PRINCIPAL_NKEYS:
+    description: PUBLIC user nkeys for the bus principals in contracts/events/bus-principals.v1.yaml, as comma-separated "<principal>=<public key>" pairs. Empty leaves the bus anonymous; setting it renders the accounts block and the server stops accepting an unauthenticated connection. Coverage must be exact - charts/addons refuses a map that omits a declared non-pending principal or names one that is not declared, because the server refuses every principal absent from the block rather than falling back to anonymous. Never a seed - a public key is not a secret, and the private seeds reach workloads as Secrets through External Secrets.
+    required: false
+    default: ""
+
+  NATS_SYSTEM_ACCOUNT_NKEY:
+    description: PUBLIC nkey of the break-glass $SYS user, and a USER key (U...) rather than an account key - charts/addons renders it into accounts.$SYS.users[].nkey, which is a user position. Empty declares $SYS with no user at all, which is what ADR-043 D4 means by system_account_principals being empty - no platform component holds the system account, NACK included.
+    required: false
+    default: ""
+
+  NATS_CREDENTIALS_1P_PATH:
+    description: 1Password vault path the per-principal seed items live under, e.g. vaults/Platform/items. Each item is named nats-principal-<principal> and carries that principal's PRIVATE seed in a field labelled nats.nk; the 1Password operator turns each into the matching Secret. Required once NATS_PRINCIPAL_NKEYS is set on a surface with SECRETS_PROVIDER=onepassword, because the accounts block refuses to render while a public key has no seed source. The $SYS seed is deliberately NOT here - it needs a separate restricted item and an offline copy (docs/runbooks/nats-credentials.md).
+    required: false
+    default: ""
+
+  NATS_BOX_PRINCIPALS:
+    description: Comma-separated principals nats-box gets a named context for, each needing its private seed in the Secret nats-principal-<principal> under key nats.nk. Empty while NATS_PRINCIPAL_NKEYS is set means nats-box has no credential and is not deployed, rather than a pod that cannot connect.
+    required: false
+    default: ""

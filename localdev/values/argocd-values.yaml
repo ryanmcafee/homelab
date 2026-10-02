@@ -24,6 +24,9 @@ configs:
   params:
     # Plain HTTP on the NodePort; `argocd login localhost:8080 --plaintext`.
     server.insecure: true
+    # ArgoCD 3 no longer stores resource health in the Application; diagnose reads it there.
+    controller.resource.health.persist: "true"
+    controller.diff.server.side: "true"
   cm:
     # Poll the repo often: the loop compares the working tree, not GitHub, so
     # a fresher comparison only makes the OutOfSync marker more accurate.
@@ -75,6 +78,10 @@ repoServer:
       memory: 512Mi
 
 redis:
+  # ECR Public's cold-cache data limit has returned HTTP 500 during Kind
+  # bootstrap. Use the same official Redis tag through the Docker Hub cache.
+  image:
+    repository: docker.io/library/redis
   resources:
     requests:
       cpu: 25m

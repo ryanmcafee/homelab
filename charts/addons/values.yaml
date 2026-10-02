@@ -7,7 +7,7 @@
 # 3. Cert-Manager (TLS Certificates)
 # 4. External-DNS (DNS Management)
 # 5. Kube-Prometheus-Stack (Monitoring)
-# 6. Traefik (Ingress Controller)
+# 6. Envoy Gateway (internal and external Gateways)
 #
 # Note: SOPS secrets and 1Password Operator are deployed via the bootstrap chart
 #
@@ -23,8 +23,14 @@ global:
   # Environment identifier
   environment: homelab
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: example.com
+
+  # Gateways every HTTPRoute attaches to (addons.gatewayParentRefs).
+  gateway:
+    namespace: envoy-gateway-system
+    internal: envoy-internal
+    external: envoy-external
 
   # Git repository for SOPS secrets
   repoUrl: https://github.com/ryanmcafee/homelab.git
@@ -73,24 +79,11 @@ spegel:
   # Spegel configuration
   spegel:
     logLevel: "INFO"
-    # Registries to mirror via P2P
-    registries:
-      - https://cgr.dev
-      - https://docker.io
-      - https://ghcr.io
-      - https://quay.io
-      - https://mcr.microsoft.com
-      - https://public.ecr.aws
-      - https://gcr.io
-      - https://registry.k8s.io
-      - https://k8s.gcr.io
-      - https://lscr.io
+    # Every registry is mirrored: chart 0.6.0 defaults mirroredRegistries to empty.
     # Talos Linux containerd paths
     containerdRegistryConfigPath: /etc/cri/conf.d/hosts
     containerdContentPath: /var/lib/containerd/io.containerd.content.v1.content
     resolveTags: true
-    resolveLatestTag: true
-    appendMirrors: false
 
   # Prometheus ServiceMonitor
   serviceMonitor:
@@ -445,7 +438,7 @@ local-path-provisioner:
 
 # ============================================================================
 # Cert-Manager - TLS Certificate Management
-# Sync Wave: 3 (needed before ingress resources)
+# Sync Wave: 3 (needed before the Gateway certificate)
 # ============================================================================
 
 cert-manager:
@@ -477,6 +470,9 @@ cert-manager:
   cloudflare:
     enabled: true
     email: ""  # Cloudflare account email
+    # Handed to charts/cert-manager-config through the config Application's
+    # helm.valuesObject (CERT_MANAGER_1P_PATH).
+    onePasswordItemPath: ""
 
   # DNS zones for certificate issuance
   dnsZones: []
@@ -517,7 +513,7 @@ cert-manager:
 
 # ============================================================================
 # External-DNS - Automatic DNS Record Management
-# Sync Wave: 4 (needed before public ingress)
+# Sync Wave: 4 (needed before public routes)
 # ============================================================================
 
 external-dns:
@@ -535,7 +531,9 @@ external-dns:
 
   # Cloudflare configuration
   cloudflare:
-    proxied: true  # Enable Cloudflare proxy
+    # Handed to charts/external-dns-config through the config Application's
+    # helm.valuesObject (EXTERNAL_DNS_1P_PATH).
+    onePasswordItemPath: ""
 
   # Domain filter
   domainFilters:
@@ -616,16 +614,10 @@ kube-prometheus-stack:
       storageClass: democratic-csi-nfs
       size: 10Gi
 
-    # Ingress
-    ingress:
+    # HTTPRoute on the internal Gateway
+    route:
       enabled: true
-      ingressClassName: traefik
-      hosts:
-        - grafana.example.com
-      tls:
-        - secretName: grafana-tls
-          hosts:
-            - grafana.example.com
+      hostname: grafana.example.com
 
     # Resource limits
     resources:
@@ -650,16 +642,10 @@ kube-prometheus-stack:
       secretName: alertmanager-notifications
       onePasswordItemPath: ""
 
-    # Ingress; its host is also the external URL in notification links
-    ingress:
+    # HTTPRoute on the internal Gateway; its host is also the external URL in notification links
+    route:
       enabled: true
-      ingressClassName: traefik
-      hosts:
-        - alertmanager.example.com
-      tls:
-        - secretName: alertmanager-tls
-          hosts:
-            - alertmanager.example.com
+      hostname: alertmanager.example.com
 
     # Storage configuration
     storage:
@@ -704,9 +690,9 @@ kube-prometheus-stack:
     enabled: true
     resources:
       requests:
-        memory: 48Mi
+        memory: 160Mi
       limits:
-        memory: 80Mi
+        memory: 256Mi
 
   # etcd scrape: Talos exposes etcd metrics on <control-plane IP>:2381 when
   # cluster.etcd.extraArgs.listen-metrics-urls is set (terragrunt talos-cluster).
@@ -736,255 +722,16 @@ kube-prometheus-stack:
       expect: ["200"]
 
 # ============================================================================
-# Traefik External - Ingress Controller (External/Public Traffic)
-# Sync Wave: 6 (last addon, requires Cilium LB IPAM and cert-manager)
+# Gateway API CRDs and Envoy Gateway (templates/gateway-api-crds.yaml,
+# templates/envoy-gateway.yaml). Placeholder; the CMP template renders the real blocks.
 # ============================================================================
 
-traefikExternal:
-  enabled: true
-  namespace: traefik
+gatewayApi:
+  enabled: false
 
-  # Cloudflare integration for ACME DNS challenge (disabled by default)
-  # Use cert-manager instead for HA compatibility
-  cloudflare:
-    enabled: false
-    onePasswordItemPath: ""
-
-  # Chart source
-  chart:
-    name: traefik
-    repo: https://traefik.github.io/charts
-    version: 39.0.0
-
-  # Service configuration
-  service:
-    type: LoadBalancer
-    spec:
-      externalTrafficPolicy: Cluster
-    # Cilium LB IPAM will assign an IP from the pool
-
-  # Ports configuration
-  ports:
-    web:
-      port: 8000
-      exposedPort: 80
-      expose:
-        default: true
-      # Redirect HTTP to HTTPS (v39+ format)
-      http:
-        redirections:
-          entryPoint:
-            to: websecure
-            scheme: https
-            permanent: true
-    websecure:
-      port: 8443
-      exposedPort: 443
-      expose:
-        default: true
-      asDefault: true
-      http:
-        tls:
-          enabled: true
-      transport:
-        respondingTimeouts:
-          readTimeout: 0
-          writeTimeout: 0
-          idleTimeout: 600s
-
-  # Global arguments moved to additionalArguments in v39+
-  additionalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  logs:
-    access:
-      enabled: false
-      format: json
-      headers: {}
-  metrics:
-    serviceMonitor:
-      enabled: false
-  tracing:
-    enabled: false
-    endpoint: ""
-    sampleRate: 0.1
-
-  # Environment variables
-  env: []
-
-  # Persistence disabled (ACME removed - using cert-manager)
-  persistence:
-    enabled: false
-
-  # Dashboard
-  ingressRoute:
-    dashboard:
-      enabled: true
-      matchRule: Host(`traefik.example.com`)
-      entryPoints: ["websecure"]
-
-  # Resource limits
-  resources:
-    requests:
-      cpu: 100m
-      memory: 2Gi
-    limits:
-      cpu: 1000m
-      memory: 2Gi
-
-  # Deployment configuration
-  deployment:
-    replicas: 2  # High availability
-
-  # Topology spread constraints - ensure pods spread across nodes
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: kubernetes.io/hostname
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/name: traefik
-          app.kubernetes.io/instance: traefik-external
-
-  # Autoscaling
-  autoscaling:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 3
-    metrics:
-      - type: Resource
-        resource:
-          name: cpu
-          target:
-            type: Utilization
-            averageUtilization: 80
-
-  # Values handed to the traefik-external-config child chart through the
-  # traefik-external-config Application's helm.valuesObject. Placeholders
-  # here; the CMP derives the real values from configuration/ in homelab.
-  config:
-    dashboard:
-      host: traefik.example.com
-      staticIP: "10.0.0.200"
-    oidc:
-      host: auth.example.com
-      allowedDomains:
-        - example.com
-
-# ============================================================================
-# Traefik Internal - Ingress Controller (Internal/Private Traffic)
-# Sync Wave: 6 (same wave as external, requires Cilium LB IPAM and cert-manager)
-# ============================================================================
-
-traefikInternal:
-  enabled: true
-  namespace: traefik
-
-  chart:
-    name: traefik
-    repo: https://traefik.github.io/charts
-    version: 39.0.0
-
-  service:
-    type: LoadBalancer
-    spec:
-      externalTrafficPolicy: Cluster
-
-  ports:
-    web:
-      port: 8000
-      exposedPort: 80
-      expose:
-        default: true
-      http:
-        redirections:
-          entryPoint:
-            to: websecure
-            scheme: https
-            permanent: true
-    websecure:
-      port: 8443
-      exposedPort: 443
-      expose:
-        default: true
-      asDefault: true
-      http:
-        tls:
-          enabled: true
-      transport:
-        respondingTimeouts:
-          readTimeout: 0
-          writeTimeout: 0
-          idleTimeout: 600s
-
-  additionalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  logs:
-    access:
-      enabled: false
-      format: json
-      headers: {}
-  metrics:
-    serviceMonitor:
-      enabled: false
-  tracing:
-    enabled: false
-    endpoint: ""
-    sampleRate: 0.1
-
-  env: []
-
-  persistence:
-    enabled: false
-
-  ingressRoute:
-    dashboard:
-      enabled: true
-      matchRule: Host(`traefik-internal.example.com`)
-      entryPoints: ["websecure"]
-
-  resources:
-    requests:
-      cpu: 100m
-      memory: 2Gi
-    limits:
-      cpu: 1000m
-      memory: 2Gi
-
-  deployment:
-    replicas: 2
-
-  # Topology spread constraints - ensure pods spread across nodes
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: kubernetes.io/hostname
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/name: traefik
-          app.kubernetes.io/instance: traefik-internal
-
-  autoscaling:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 3
-    metrics:
-      - type: Resource
-        resource:
-          name: cpu
-          target:
-            type: Utilization
-            averageUtilization: 80
-
-  # Values handed to the traefik-internal-config child chart through the
-  # traefik-internal-config Application's helm.valuesObject. Placeholder
-  # here; the CMP derives the real hostname from configuration/ in homelab.
-  config:
-    dashboard:
-      host: traefik-internal.example.com
+envoy-gateway:
+  enabled: false
+  namespace: envoy-gateway-system
 
 # ============================================================================
 # UniFi Port Forward Controller - Automatic Port Forwarding
@@ -1026,6 +773,9 @@ tailscale-operator:
   enabled: true
   namespace: tailscale
   hostname: tailscale-operator-homelab
+  # Handed to charts/tailscale-config through the config Application's
+  # helm.valuesObject (TAILSCALE_OPERATOR_1P_PATH).
+  onePasswordItemPath: ""
 
   chart:
     name: tailscale-operator
@@ -1119,6 +869,9 @@ node-feature-discovery:
 external-dns-unifi:
   enabled: false
   namespace: external-dns
+  # Handed to charts/external-dns-config through the config Application's
+  # helm.valuesObject (EXTERNAL_DNS_UNIFI_1P_PATH).
+  onePasswordItemPath: ""
 
 # ============================================================================
 # CloudNative-PG - PostgreSQL Operator
@@ -1204,7 +957,7 @@ cilium:
 
 # ============================================================================
 # Argo Workflows - Workflow Orchestration
-# Sync Wave: 7 (after core infrastructure)
+# Sync Wave: 11 dependencies, 12 controller (after cloudnative-pg at 10)
 # ============================================================================
 
 argo-workflows:
@@ -1220,18 +973,12 @@ argo-workflows:
   # Server configuration
   server:
     # Authentication mode: server (no auth), client (requires token), sso
-    authMode: server
+    authMode: client
 
-    # Ingress
-    ingress:
+    # HTTPRoute on the internal Gateway
+    route:
       enabled: true
-      ingressClassName: traefik
-      hosts:
-        - workflows.example.com
-      tls:
-        - secretName: argo-workflows-tls
-          hosts:
-            - workflows.example.com
+      hostname: workflows.example.com
 
     # Resources
     resources:
@@ -1252,13 +999,167 @@ argo-workflows:
         cpu: 500m
         memory: 512Mi
 
-    # Workflow defaults
+    # Garbage collection of live objects. Completed workflows stay browsable in
+    # the archive (retentionDays) after their TTL removes them from the cluster.
     workflowDefaults:
       spec:
         ttlStrategy:
-          secondsAfterCompletion: 86400  # 24 hours
-          secondsAfterSuccess: 43200     # 12 hours
-          secondsAfterFailure: 172800    # 48 hours
+          secondsAfterSuccess: 86400
+          secondsAfterFailure: 604800
+          secondsAfterCompletion: 604800
+        podGC:
+          strategy: OnPodSuccess
+          deleteDelayDuration: 10m
+
+  # How long archived workflows and their step logs stay reviewable.
+  retentionDays: 30
+
+  # Workflow archive: CloudNativePG Cluster in charts/argo-workflows-dependencies.
+  archive:
+    enabled: false
+    database:
+      name: argo-workflows-postgres
+      database: argo
+      owner: argo
+
+  # Step log archive to the versitygw S3 store in charts/argo-workflows-dependencies.
+  logArchive:
+    enabled: false
+    store:
+      name: argo-workflows-logs
+      bucket: argo-workflows-logs
+      secretName: argo-workflows-artifacts
+
+# ============================================================================
+# Argo Rollouts - progressive delivery (templates/argo-rollouts.yaml)
+# Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
+# ============================================================================
+
+argo-rollouts:
+  enabled: false
+  namespace: argo-rollouts
+
+  chart:
+    name: argo-rollouts
+    repo: https://argoproj.github.io/argo-helm
+    version: "2.43.2"
+
+  controller:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  metrics:
+    enabled: true
+    port: 8090
+
+  dashboard:
+    enabled: false
+# NATS + JetStream event bus, the NACK controller, and the stream set
+# (templates/nats.yaml, nack.yaml, nats-config.yaml; docs/event-backbone.md)
+# Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
+# ============================================================================
+
+nats:
+  enabled: false
+  namespace: nats
+  url: nats://nats.nats.svc.cluster.local:4222
+  replicas: 3
+
+  chart:
+    name: nats
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "2.15.0"
+
+  jetstream:
+    streamReplicas: 1
+    storage:
+      size: 10Gi
+      className: ""
+
+  # ADR-043's static backend. Identity is operator-supplied, permissions are contract:
+  # contracts/events/bus-principals.v1.yaml declares the grants and
+  # scripts/render-nats-accounts.ts expands them into files/nats-accounts.gen.yaml.
+  #
+  # The tenant token the account name is derived from. `local` is the reserved homelab tenant.
+  tenant: local
+  # PUBLIC user nkeys, as `<principal>=<public key>` pairs. Empty leaves the bus anonymous;
+  # one pair renders the accounts block and the server stops accepting an unauthenticated
+  # connection. Never a seed -- a public key is not a secret, a seed is.
+  principalNkeys: ""
+  # The break-glass `$SYS` user's PUBLIC nkey. No platform component holds it, NACK included.
+  systemAccountNkey: ""
+  # Principals nats-box gets a named context for. Each needs its private seed in
+  # `<credentialSecretPrefix><principal>` under key `nats.nk`.
+  natsBoxPrincipals: ""
+  credentialSecretPrefix: nats-principal-
+  # Where each principal's PRIVATE seed comes from. Exactly one source, or the accounts block
+  # does not render: a public key the server accepts is unusable until its seed reaches the
+  # client, so the two land together. Generate the pairs with
+  # `bun scripts/nats-principals-keygen.ts` (docs/runbooks/nats-credentials.md).
+  credentials:
+    # 1Password vault path the items live under, e.g. `vaults/Platform/items`. Each item is
+    # named `<credentialSecretPrefix><principal>` and carries the seed in a field labelled
+    # `nats.nk`. `$SYS` deliberately has no item here: no platform component holds the system
+    # account, so its custody is a separate restricted item plus an offline copy.
+    onePasswordVaultPath: ""
+    # Kind has no vault, so its bootstrap mints the seeds straight into Secrets. Mutually
+    # exclusive with the vault path: two sources for one principal can disagree.
+    bootstrapSeeded: false
+    # Namespaces beyond `nats` that need a principal's seed, as `<principal>: [namespace]`.
+    # Replication is explicit and per principal rather than a blanket copy.
+    extraNamespaces: {}
+  # The auth-callout backend. Unset: only the static backend ships. Setting it is refused,
+  # and `allowedAccounts` is bounds-checked first so the widest setting is named as such.
+  authCallout: {}
+  # Per-account JetStream limits are mandatory, not advisory (ADR-043 D8): without them one
+  # tenant's streams exhaust the shared file store and every account on the peer is refused
+  # with `insufficient resources (10047)`. Numbers carrying units use the chart's `<< >>`
+  # unquoting. Placeholder; configuration/templates/helm-addons.tmpl renders each surface's.
+  #
+  # Both store limits are checked against the SERVER's stores at startup, and a limit above
+  # what the server offers is fatal for every account, not just the greedy one. Measured on
+  # v2.15.0 against this chart's own rendered nats.conf:
+  #   max_memory above `max_memory_store` -> `insufficient memory resources (10028)`
+  #   max_store  above `max_file_store`   -> `insufficient storage resources (10047)`
+  # `max_memory: 0` is the declared limit for a file-store-only bus, not an omission: this
+  # chart never enables the memory store, so a memory-backed stream is refused by policy.
+  accountLimits:
+    max_memory: 0
+    max_store: << 6GB >>
+    max_streams: 16
+    max_consumers: 64
+
+  monitoring:
+    scrapeInterval: 30s
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+nack:
+  natsUrl: nats://nats.nats.svc.cluster.local:4222
+
+  chart:
+    name: nack
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "0.35.0"
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 
 # ============================================================================
 # Istio ambient mesh + Kiali (templates/istio.yaml, docs/service-mesh.md)
@@ -1290,6 +1191,14 @@ github-pr-exporter:
   secretName: github-pr-alerts
   onePasswordItemPath: ""
 
-# Traefik CRDs (templates/traefik-crds.yaml). Placeholder; the CMP template renders the real block.
-traefikCrds:
+# Alert triage agent (templates/triage-agent.yaml, charts/triage-agent). Placeholder; the CMP template renders the real block.
+triage-agent:
   enabled: false
+  namespace: triage-agent
+  image: ""
+  repoSlug: ""
+  workflowUiUrl: ""
+  onePasswordItemPath: ""
+  pushoverItemPath: ""
+  artifactsItemPath: ""
+  storageClass: ""

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/identity.principal.revoked.v1.schema.json",
+  "title": "identity.principal.revoked v1 data",
+  "description": "A principal's credentials were revoked. AUDIT RECORD, 365-day retention, and the counterpart to identity.principal.issued.v1. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "principalId",
+    "principalType",
+    "reason"
+  ],
+  "properties": {
+    "principalId": {
+      "type": "string",
+      "description": "The principal whose credentials were revoked.",
+      "maxLength": 128
+    },
+    "principalType": {
+      "type": "string",
+      "enum": [
+        "human",
+        "service",
+        "ai-agent"
+      ],
+      "description": "Kind of principal."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "expired",
+        "rotated",
+        "compromised",
+        "offboarded",
+        "policy",
+        "manual"
+      ],
+      "description": "Why revocation happened. `compromised` is the one a security consumer must treat as an incident trigger."
+    },
+    "revokedBy": {
+      "type": "string",
+      "description": "Principal id of whoever or whatever performed the revocation. An automated rotation names the component.",
+      "maxLength": 128
+    },
+    "effectiveAt": {
+      "type": "string",
+      "description": "RFC3339 time the revocation takes effect; may be earlier than the envelope `time` when a revocation is recorded after the fact.",
+      "format": "date-time"
+    }
+  }
+}

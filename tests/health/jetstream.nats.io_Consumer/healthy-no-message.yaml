@@ -1,0 +1,15 @@
+# expect: Healthy
+# message: Consumer created on the NATS server
+apiVersion: jetstream.nats.io/v1beta2
+kind: Consumer
+metadata:
+  name: dlq-reporter-observability-v1
+  namespace: nats
+spec:
+  durableName: dlq-reporter-observability-v1
+  streamName: PF_DLQ
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      lastTransitionTime: "2026-09-28T00:00:00Z"

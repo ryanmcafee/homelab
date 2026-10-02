@@ -1,4 +1,19 @@
 ---
+# Source: applications/templates/litellm.yaml
+# Namespace for the LiteLLM proxy and its CloudNativePG Cluster. Both run
+# non-root, so baseline is enough.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: litellm
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+
+---
 # Source: applications/templates/namespaces.yaml
 # Namespace: media
 # Created early so config charts and app deployments have a target namespace.
@@ -565,6 +580,13 @@ spec:
               type: RuntimeDefault
 
 ---
+# Source: applications/templates/litellm.yaml
+# Dependencies Application: the 1Password items the proxy reads (master key,
+# salt key, provider API keys). Only where a secret store exists
+# (SECRETS_PROVIDER): without one the chart would render nothing, and localdev
+# seeds the same Secrets in localdev/fakes/secrets.yaml instead.
+
+---
 # Source: applications/templates/oci-repositories.yaml
 # OCI Repository configuration for ArgoCD
 # Single repository secret for TrueCharts OCI registry
@@ -756,7 +778,7 @@ spec:
                       cpu: 500m
                       memory: 512Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 256Mi
               nodeSelector:
                 kubernetes.io/arch: null
@@ -779,22 +801,19 @@ spec:
             path: /mnt/storage/downloads
             server: truenas.example.com
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: lazylibrarian.homelab.local
             enabled: true
-            hosts:
-            - host: lazylibrarian.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - lazylibrarian.homelab.local
-              secretName: lazylibrarian-tls
+            hostnames:
+            - lazylibrarian.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -822,6 +841,66 @@ spec:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/litellm.yaml
+# Database Application: a CloudNativePG Cluster (the operator is the
+# cloudnative-pg addon). CNPG generates Secret litellm-db-app whose username
+# and password keys become the chart's database.writer.passwordSecret, so no
+# credential is ever written by us. ArgoCD's built-in Cluster health check
+# makes the proxy's wave wait for a ready database.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm-database
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/litellm-database
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+      # Storage class, size, image pin and sizing are environment facts
+      # (configuration/) and reach the child through this parent (ADR-010).
+      valuesObject:
+        namespace: litellm
+        ambientOptOut: false
+        imageName: ghcr.io/cloudnative-pg/postgresql:17.11
+        instances: 1
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        storageClass: local-path
+        storageSize: 1Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The Cluster CRD comes from the cloudnative-pg addon; if a sync lands before
+    # the CRD is served the apply fails with "no matches for kind Cluster" and
+    # this retries until the operator is up.
     retry:
       limit: 5
       backoff:
@@ -936,9 +1015,6 @@ spec:
                 protocol: tcp
                 targetPort: 9001
             type: NodePort
-        mosquitto:
-          auth:
-            enabled: true
         TZ: "America/New_York"
 
   destination:
@@ -1048,22 +1124,19 @@ spec:
             path: /mnt/storage/downloads
             server: truenas.example.com
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: nzbget.homelab.local
             enabled: true
-            hosts:
-            - host: nzbget.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - nzbget.homelab.local
-              secretName: nzbget-tls
+            hostnames:
+            - nzbget.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1242,7 +1315,7 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
-      # Hostname, admin e-mail, image tag, ingress class and storage classes
+      # Hostname, admin e-mail, image tag, Gateway and storage classes
       # come from configuration/ through this parent (ADR-010); never put them
       # in charts/paperclip/values-homelab.yaml.
       valuesObject:
@@ -1251,6 +1324,7 @@ spec:
         serviceMesh:
           ambient: true
         admin:
+          bootstrap: true
           email: admin@homelab.local
           name: Admin
         agentPolicy:
@@ -1261,9 +1335,7 @@ spec:
           image: oven/bun:1.4.2-alpine
         image:
           repository: ghcr.io/paperclipai/paperclip
-          tag: 2026.916.1
-        ingress:
-          className: internal
+          tag: sha-d3e0f0a
         persistence:
           size: 1Gi
           storageClass: local-path
@@ -1274,6 +1346,10 @@ spec:
           requests:
             cpu: 250m
             memory: 512Mi
+        route:
+          gateway:
+            name: envoy-internal
+            namespace: envoy-gateway-system
   destination:
     server: https://kubernetes.default.svc
     namespace: paperclip
@@ -1398,23 +1474,18 @@ spec:
           externalTrafficPolicy: Local
           port: 32400
           type: NodePort
-        ingress:
+        httpRoute:
           annotations:
-            cert-manager.io/cluster-issuer: letsencrypt
             external-dns.alpha.kubernetes.io/hostname: plex.homelab.local
-            external-dns.alpha.kubernetes.io/target: homelab-dev.duckdns.org
           enabled: true
-          hosts:
-          - host: plex.homelab.local
-            paths:
-            - path: /
-              pathType: Prefix
-          ingressClassName: external
-          tls:
-          - hosts:
-            - plex.homelab.local
-            secretName: plex-tls
-          url: https://plex.homelab.local
+          hostnames:
+          - plex.homelab.local
+          parentRefs:
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: envoy-external
+            namespace: envoy-gateway-system
+            sectionName: https
         dnsPolicy: "None"
         dnsConfig:
           nameservers:
@@ -1432,6 +1503,15 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: media
+
+  ignoreDifferences:
+    # The upstream chart omits backendRef fields the API server defaults.
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      jqPathExpressions:
+        - .spec.rules[]?.backendRefs[]? | select(.group == "") | .group
+        - .spec.rules[]?.backendRefs[]? | select(.kind == "Service") | .kind
+        - .spec.rules[]?.backendRefs[]? | select(.weight == 1) | .weight
 
   syncPolicy:
     syncOptions:
@@ -1528,22 +1608,19 @@ spec:
             enabled: true
             size: 1Gi
             storageClass: local-path
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: prowlarr.homelab.local
             enabled: true
-            hosts:
-            - host: prowlarr.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - prowlarr.homelab.local
-              secretName: prowlarr-tls
+            hostnames:
+            - prowlarr.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1650,7 +1727,7 @@ spec:
                       cpu: 1000m
                       memory: 1Gi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 512Mi
               nodeSelector:
                 kubernetes.io/arch: null
@@ -1673,22 +1750,19 @@ spec:
             path: /mnt/storage/movies
             server: truenas.example.com
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: radarr.homelab.local
             enabled: true
-            hosts:
-            - host: radarr.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - radarr.homelab.local
-              secretName: radarr-tls
+            hostnames:
+            - radarr.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1795,7 +1869,7 @@ spec:
                       cpu: 1000m
                       memory: 1Gi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 512Mi
               nodeSelector:
                 kubernetes.io/arch: null
@@ -1818,22 +1892,19 @@ spec:
             path: /mnt/storage/tv
             server: truenas.example.com
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: sonarr.homelab.local
             enabled: true
-            hosts:
-            - host: sonarr.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - sonarr.homelab.local
-              secretName: sonarr-tls
+            hostnames:
+            - sonarr.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1932,7 +2003,7 @@ spec:
                       cpu: 500m
                       memory: 512Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 256Mi
               nodeSelector:
                 kubernetes.io/arch: null
@@ -1943,22 +2014,19 @@ spec:
             enabled: true
             size: 1Gi
             storageClass: local-path
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: tautulli.homelab.local
             enabled: true
-            hosts:
-            - host: tautulli.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - tautulli.homelab.local
-              secretName: tautulli-tls
+            hostnames:
+            - tautulli.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:

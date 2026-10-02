@@ -19,7 +19,7 @@ global:
   environment: localdev
 
   # Must match configuration/environments/localdev.yaml's DOMAIN (config is
-  # the source of truth). The bootstrap template derives the ArgoCD ingress
+  # the source of truth). The bootstrap template derives the ArgoCD route
   # hostname (argocd.<domain>) from it via helm.valuesObject.
   domain: homelab.local
 

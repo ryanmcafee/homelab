@@ -25,7 +25,7 @@ const defaultKubeContext = "kind-homelab-localdev"
 
 // newVerifyAllCmd wires every check of a verification level into one command:
 //
-//	level 0: render → gitops graph → golden snapshots → conftest policy
+//	level 0: render → gitops graph → runbook coverage → golden snapshots → conftest policy → ADR record → event contract
 //	level 1: level 0 → kubectl server-side dry run of the localdev render
 //	level 2: level 1 → ArgoCD Application state → chainsaw e2e
 //
@@ -53,6 +53,11 @@ and for homelab.yaml.example, then linted, schema-validated (kubeconform with th
 vendored CRD schemas and the Kubernetes version from configuration/versions.yaml,
 plus pluto), checked against the GitOps graph rules (tests/gitops/), diffed
 against tests/snapshots/, and evaluated with the conftest policies in tests/policy/.
+It also reads docs/project_notes/decisions.md and fails when an ADR heading is not
+"### ADR-NNN: <title>" or when two headings claim the same number (ADR-039), and
+fails when an alerting rule in the render is not named in a docs/runbooks/ runbook
+(runbooks/coverage). Last, it runs bun scripts/contract-check.ts check over
+contracts/events/ (contracts/events).
 
 Level 1 runs level 0, then server-side dry-run applies every rendered localdev
 chart against the Kind cluster selected by --kube-context (checks
@@ -127,6 +132,9 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 				// Chart versions against configuration/versions.yaml
 				// (versions/<env>, exceptions in tests/gitops/version-drift.yaml).
 				result.Add(verify.VersionChecks(repoRoot, rendered, envs, len(envs) == len(verify.Envs))...)
+				// Every alerting rule the render ships is named in a
+				// docs/runbooks/ runbook (runbooks/coverage).
+				result.Add(verify.RunbookCoverage(repoRoot, rendered)...)
 			}
 
 			// 3. Golden snapshots (compare only; `verify snapshot --update` rewrites).
@@ -148,7 +156,16 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 			// 4. conftest policies.
 			result.Add(verify.Policy(ctx, runner, dir, filepath.Join(repoRoot, "tests", "policy"), envs)...)
 
-			// 5. Cluster-backed levels. Every check reads the Kind cluster
+			// 5. The ADR record: one canonical heading shape, one decision per
+			// number (ADR-039). Reads the repository, not the render, so a
+			// duplicate ADR number that two branches merged in without a
+			// conflict fails here instead of landing silently on main.
+			result.Add(verify.ADRRecord(repoRoot)...)
+
+			// 6. The event contract in contracts/events/ (ADR-026, ADR-030).
+			result.Add(verify.EventContract(ctx, runner, repoRoot))
+
+			// 7. Cluster-backed levels. Every check reads the Kind cluster
 			// through the same Runner, so the fake in tests covers them too.
 			if level >= levelDryRun {
 				cluster := verify.ClusterOptions{
@@ -185,7 +202,7 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 		},
 	}
 
-	cmd.Flags().IntVar(&level, "level", levelStatic, "Verification level: 0 = static (render, schema, gitops graph, snapshots, policy); 1 = level 0 + server-side dry run of the localdev render against Kind; 2 = level 1 + ArgoCD Application state + chainsaw e2e")
+	cmd.Flags().IntVar(&level, "level", levelStatic, "Verification level: 0 = static (render, schema, gitops graph, runbook coverage, snapshots, policy, ADR record, event contract); 1 = level 0 + server-side dry run of the localdev render against Kind; 2 = level 1 + ArgoCD Application state + chainsaw e2e")
 	cmd.Flags().StringVar(&envList, "env", "all", "Environments to verify (all, localdev, homelab, homelab-preview, or a comma-separated list); levels 1 and 2 need localdev")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the machine-readable result contract")
 	cmd.Flags().BoolVar(&keep, "keep-render-dir", false, "Keep the temporary render directory and print its path")

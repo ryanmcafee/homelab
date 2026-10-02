@@ -12,8 +12,14 @@ global:
   # Environment identifier
   environment: localdev
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: homelab.local
+
+  # Gateways every HTTPRoute attaches to (addons.gatewayParentRefs).
+  gateway:
+    namespace: envoy-gateway-system
+    internal: envoy-internal
+    external: envoy-external
 
   # Default storage class for persistent volumes
   storageClass: local-path
@@ -90,7 +96,7 @@ kubelet-csr-approver:
       memory: 128Mi
 
 # ============================================================================
-# metrics-server - metrics.k8s.io for kubectl top and the Traefik HPAs
+# metrics-server - metrics.k8s.io for kubectl top and the Envoy proxy HPAs
 # ============================================================================
 
 metrics-server:
@@ -175,14 +181,13 @@ cilium:
       pullPolicy: IfNotPresent
 
   # charts/cilium-config: ServiceMonitors for the agent, operator and Hubble
-  # metrics, and the Hubble UI ingress, where the Talos values enable them.
+  # metrics, and the Hubble UI HTTPRoute, where the Talos values enable them.
   config:
     monitoring:
       enabled: false
     hubbleUI:
       enabled: false
       host: hubble.homelab.local
-      ingressClassName: internal
 
 # ============================================================================
 # Cilium LB IPAM - LoadBalancer IP Management + BGP
@@ -708,16 +713,11 @@ external-dns:
 
   provider: cloudflare
 
-  # Only watch ingress resources for Cloudflare DNS
-  # CRD source has its own dedicated deployment (external-dns-cloudflare-crd)
-  # Ingress class filtering (--ingress-class=external) is applied in the template
-  # to ensure only external ingresses (e.g., Plex) publish to Cloudflare
-  sources:
-    - ingress
+  # Only HTTPRoutes on the external Gateway publish to Cloudflare (e.g. Plex);
+  # templates/external-dns-cloudflare.yaml sets the source and --gateway-name.
 
   cloudflare:
     apiToken: ""
-    proxied: true
     onePasswordItemPath: vaults/homelab/items/cloudflare
 
   domainFilters:
@@ -838,18 +838,10 @@ kube-prometheus-stack:
       storageClass: local-path
       size: 1Gi
 
-    ingress:
+    # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
+    route:
       enabled: true
-      ingressClassName: internal
-      annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: grafana.homelab.local
-      hosts:
-        - grafana.homelab.local
-      tls:
-        - secretName: grafana-tls
-          hosts:
-            - grafana.homelab.local
+      hostname: grafana.homelab.local
 
     resources:
       requests:
@@ -866,11 +858,9 @@ kube-prometheus-stack:
 
     # grafana.com dashboards the Grafana init container downloads into the
     # "homelab" folder; revisions are pinned. The ClickHouse operator chart
-    # ships its own dashboards as sidecar ConfigMaps.
+    # ships its own dashboards as sidecar ConfigMaps, and so does
+    # charts/grafana-config for Envoy Gateway and the ingress overview.
     dashboards:
-      traefik:
-        gnetId: 17347
-        revision: 9
       opentelemetry-collector:
         gnetId: 15983
         revision: 30
@@ -919,18 +909,10 @@ kube-prometheus-stack:
       enabled: false
       secretName: alertmanager-notifications
       onePasswordItemPath: ""
-    ingress:
+    # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
+    route:
       enabled: true
-      ingressClassName: internal
-      annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: alertmanager.homelab.local
-      hosts:
-        - alertmanager.homelab.local
-      tls:
-        - secretName: alertmanager-tls
-          hosts:
-            - alertmanager.homelab.local
+      hostname: alertmanager.homelab.local
     storage:
       volumeClaimTemplate:
         spec:
@@ -968,6 +950,7 @@ kube-prometheus-stack:
 
   kubeStateMetrics:
     enabled: true
+    # Gateway API customResourceState makes it cache every CRD: ~120Mi heap on homelab.
     resources:
       requests:
         memory: 128Mi
@@ -983,6 +966,11 @@ kube-prometheus-stack:
   # etcd scrape on <control-plane IP>:2381 (Talos cluster.etcd.extraArgs
   # listen-metrics-urls). Kind runs etcd inside the control-plane container with
   # no reachable metrics endpoint, so the scrape is off there.
+  #
+  # .ControlPlane is the resolver's derived address list (ADR-035), ascending by
+  # ordinal — one endpoint per member the ConfigSet declares, whether that is one
+  # or seven. Naming CP1/CP2/CP3 here is what used to pin the scrape to this
+  # cluster's shape.
   kubeEtcd:
     port: 2381
     endpoints: []
@@ -1001,270 +989,85 @@ kube-prometheus-stack:
       expect: ["200"]
 
 # ============================================================================
-# Traefik External - External Ingress Controller
-# Sync Wave: 6
+# Gateway API CRDs (standard channel) for Envoy Gateway, the Istio gateways
+# and waypoints
+# Sync Wave: 1
 # ============================================================================
 
-traefikExternal:
+gatewayApi:
   enabled: true
-  namespace: traefik
+  repo: https://github.com/kubernetes-sigs/gateway-api.git
+  version: "v1.6.2"
+
+# ============================================================================
+# Envoy Gateway - internal and external ingress (docs/networking.md)
+# Sync Waves: 4 CRDs, 5 controller, 6 envoy-gateway-config (both Gateways)
+# Routes attach to the https listener of GATEWAY_INTERNAL or GATEWAY_EXTERNAL.
+# ============================================================================
+
+envoy-gateway:
+  enabled: true
+  namespace: envoy-gateway-system
 
   chart:
-    name: traefik
-    repo: https://traefik.github.io/charts
-    version: 39.0.9
+    repo: docker.io/envoyproxy
+    version: "v1.9.1"
 
-  service:
-    type: NodePort
-    spec:
-      externalTrafficPolicy: Cluster
-
-  ports:
-    web:
-      port: 8000
-      exposedPort: 80
-      expose:
-        default: true
-      http:
-        redirections:
-          entryPoint:
-            to: websecure
-            scheme: https
-            permanent: true
-    websecure:
-      port: 8443
-      exposedPort: 443
-      expose:
-        default: true
-      asDefault: true
-      http:
-        tls:
-          enabled: true
-      transport:
-        respondingTimeouts:
-          readTimeout: 0
-          writeTimeout: 0
-          idleTimeout: 600s
-    traefik:
-      port: 9000
-      expose:
-        default: true
-
-  # Global arguments moved to additionalArguments in v39+
-  additionalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  # JSON access logs on stdout (collected by the OpenTelemetry agents into
-  # ClickHouse, docs/logging.md) and a metrics Service + ServiceMonitor on the
-  # metrics entrypoint (:9100) that kube-prometheus-stack scrapes.
-  logs:
-    access:
-      enabled: true
-      format: json
-      # Every general field is kept (ClientHost, RequestHost/Path/Method,
-      # Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName,
-      # ServiceURL, RetryAttempts, TraceId, SpanId); of the headers only these.
-      headers:
-        User-Agent: keep
-        Traceparent: keep
-  metrics:
-    serviceMonitor:
-      enabled: true
-  # W3C traceparent is started or continued here and forwarded to the
-  # backend; spans go to the OpenTelemetry gateway collector (docs/tracing.md).
-  tracing:
-    enabled: true
-    endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
-    sampleRate: 1.0
-
-  # OIDC Plugin for authentication (replaces oauth2-proxy)
-  experimental:
-    plugins:
-      traefikoidc:
-        moduleName: github.com/lukaszraczylo/traefikoidc
-        version: v1.0.32
-
-  # OIDC middleware configuration (client credentials and session key are 1Password items)
-  oidc:
-    enabled: false
-    providerURL: "https://accounts.google.com"
-    # Use path format - plugin constructs full URL from request host
-    callbackURL: "/oauth2/callback"
-    logoutURL: "/oauth2/logout"
-    scopes:
-      - openid
-      - profile
-      - email
-    allowedDomains:
-      - homelab.local
-    sessionEncryptionKeyPath: vaults/homelab/items/oidc-session-key
-    googleOAuthPath: vaults/homelab/items/google-oauth
-
-  # Volume mounts for OIDC secrets
-  volumes: []
-
-  env: []
-
-  # Persistence disabled - ACME removed
-  persistence:
-    enabled: false
-
-  ingressRoute:
-    dashboard:
-      enabled: true
-      matchRule: Host(`traefik.homelab.local`)
-      entryPoints: ["websecure"]
-      tls:
-        secretName: traefik-dashboard-tls
-
-  # Kind sizing: one replica on a single node, no HPA
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
-
-  deployment:
+  controller:
     replicas: 1
+    serviceMonitor: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
 
-  topologySpreadConstraints: []
-
-  autoscaling:
-    enabled: false
-
-  cloudflare:
-    enabled: false
-    onePasswordItemPath: vaults/homelab/items/cloudflare
-
-  # Values handed to the traefik-external-config child chart through the
-  # traefik-external-config Application's helm.valuesObject. The child's
-  # committed values-homelab.yaml carries no hostnames, IPs or domains.
-  config:
-    dashboard:
-      host: traefik.homelab.local
-      staticIP: "127.0.0.200"
-    oidc:
-      host: auth.homelab.local
-      allowedDomains:
-        - homelab.local
-
-# ============================================================================
-# Traefik Internal - Internal Ingress Controller
-# Sync Wave: 6
-# ============================================================================
-
-traefikInternal:
-  enabled: true
-  namespace: traefik
-
-  chart:
-    name: traefik
-    repo: https://traefik.github.io/charts
-    version: 39.0.9
-
-  service:
-    type: NodePort
-    spec:
-      externalTrafficPolicy: Cluster
-    # No static IP - Cilium LB IPAM assigns dynamically
-    # No port forwarding - internal only
-
-  ports:
-    web:
-      port: 8000
-      exposedPort: 80
-      expose:
-        default: true
-      http:
-        redirections:
-          entryPoint:
-            to: websecure
-            scheme: https
-            permanent: true
-    websecure:
-      port: 8443
-      exposedPort: 443
-      expose:
-        default: true
-      asDefault: true
-      http:
-        tls:
+  gateways:
+    # LAN and tailnet: every internal hostname (external-dns-unifi publishes
+    # its routes to UniFi DNS).
+    internal:
+      enabled: true
+      config:
+        name: envoy-internal
+        service:
+          type: ClusterIP
+        replicas: 1
+        autoscaling:
+          enabled: false
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        tracing:
           enabled: true
-      transport:
-        respondingTimeouts:
-          readTimeout: 0
-          writeTimeout: 0
-          idleTimeout: 600s
-    traefik:
-      port: 9000
-      expose:
-        default: true
+          samplingRate: 100
 
-  additionalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  # JSON access logs on stdout (collected by the OpenTelemetry agents into
-  # ClickHouse, docs/logging.md) and a metrics Service + ServiceMonitor on the
-  # metrics entrypoint (:9100) that kube-prometheus-stack scrapes.
-  logs:
-    access:
+    # Internet: WAN 80/443 are port-forwarded to its static IP; external-dns
+    # publishes its routes to Cloudflare.
+    external:
       enabled: true
-      format: json
-      # Every general field is kept (ClientHost, RequestHost/Path/Method,
-      # Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName,
-      # ServiceURL, RetryAttempts, TraceId, SpanId); of the headers only these.
-      headers:
-        User-Agent: keep
-        Traceparent: keep
-  metrics:
-    serviceMonitor:
-      enabled: true
-  # W3C traceparent is started or continued here and forwarded to the
-  # backend; spans go to the OpenTelemetry gateway collector (docs/tracing.md).
-  tracing:
-    enabled: true
-    endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
-    sampleRate: 1.0
-
-  env: []
-
-  persistence:
-    enabled: false
-
-  ingressRoute:
-    dashboard:
-      enabled: true
-      matchRule: Host(`traefik-internal.homelab.local`)
-      entryPoints: ["websecure"]
-      tls:
-        secretName: traefik-internal-dashboard-tls
-
-  # Kind sizing: one replica on a single node, no HPA
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
-
-  deployment:
-    replicas: 1
-
-  topologySpreadConstraints: []
-
-  autoscaling:
-    enabled: false
-
-  # Values handed to the traefik-internal-config child chart through the
-  # traefik-internal-config Application's helm.valuesObject.
-  config:
-    dashboard:
-      host: traefik-internal.homelab.local
+      config:
+        name: envoy-external
+        service:
+          type: ClusterIP
+        replicas: 1
+        autoscaling:
+          enabled: false
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        tracing:
+          enabled: true
+          samplingRate: 100
 
 # ============================================================================
 # UniFi Port Forwarding Controller - Automatic Port Forwards
@@ -1280,7 +1083,7 @@ unifi-port-forward:
   onePasswordItemPath: vaults/homelab/items/unifi
 
 # ============================================================================
-# OAuth2-Proxy - Zero-Trust Authentication (DISABLED - replaced by Traefik OIDC plugin)
+# OAuth2-Proxy - Zero-Trust Authentication (DISABLED)
 # Sync Wave: 6-8
 # ============================================================================
 
@@ -1382,7 +1185,7 @@ node-feature-discovery:
 
 # ============================================================================
 # Argo Workflows - Workflow Orchestration
-# Sync Wave: 7 (after core infrastructure)
+# Sync Wave: 11 dependencies, 12 controller (after cloudnative-pg at 10)
 # ============================================================================
 
 argo-workflows:
@@ -1396,59 +1199,213 @@ argo-workflows:
     version: "1.0.18"
 
   server:
-    authMode: server
+    # `server` serves the UI and API with full controller privileges and no
+    # credential at all. The server runs arbitrary containers, so anyone who can
+    # reach the route can execute code in the cluster. `client` makes the caller
+    # supply their own Kubernetes bearer token; SSO replaces it in #51.
+    authMode: client
 
-    ingress:
+    # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
+    route:
       enabled: true
-      ingressClassName: internal
-      annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: workflows.homelab.local
-      hosts:
-        - workflows.homelab.local
-      paths:
-        - /
-      pathType: Prefix
-      tls:
-        - secretName: argo-workflows-tls
-          hosts:
-            - workflows.homelab.local
+      hostname: workflows.homelab.local
 
     resources:
       requests:
         cpu: 50m
-        memory: 32Mi
+        memory: 64Mi
       limits:
         cpu: 200m
-        memory: 48Mi
+        memory: 128Mi
+
+  controller:
+    # Informer caches (Workflows, Pods, ConfigMaps, templates) plus the archive
+    # DB pool; 48Mi crash-looped the controller (bugs.md 2026-10-01).
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+    # Garbage collection of live objects. Completed workflows stay browsable in
+    # the archive (retentionDays) after their TTL removes them from the cluster.
+    workflowDefaults:
+      spec:
+        ttlStrategy:
+          secondsAfterSuccess: 86400
+          secondsAfterFailure: 604800
+          secondsAfterCompletion: 604800
+        podGC:
+          strategy: OnPodSuccess
+          deleteDelayDuration: 10m
+
+  # How long archived workflows and their step logs stay reviewable.
+  retentionDays: 30
+
+  # Workflow archive: CloudNativePG Cluster in charts/argo-workflows-dependencies
+  # (needs the cloudnative-pg addon).
+  archive:
+    enabled: true
+    database:
+      name: argo-workflows-postgres
+      database: argo
+      owner: argo
+      instances: 1
+      imageName: "ghcr.io/cloudnative-pg/postgresql:17.11"
+      # Block storage: PostgreSQL refuses the NFS classes (bugs.md 2026-09-15).
+      storageClass: local-path
+      storageSize: 5Gi
+
+  # Step log archive to a versitygw S3 store in charts/argo-workflows-dependencies.
+  # Needs the 1Password item ARGO_WORKFLOWS_ARTIFACTS_1P_PATH (fields accessKey,
+  # secretKey); without a secret store the executors could not upload.
+  logArchive:
+    enabled: false
+    store:
+      name: argo-workflows-logs
+      bucket: argo-workflows-logs
+      image: "versity/versitygw:v1.8.0"
+      # Block storage: the POSIX backend keeps object metadata in xattrs.
+      storageClass: local-path
+      storageSize: 20Gi
+      secretName: argo-workflows-artifacts
+      onePassword:
+        itemPath: ""
+
+# ============================================================================
+# Argo Rollouts - Progressive delivery (canary + automated rollback)
+# Sync Wave: 2 (serves the Rollout/AnalysisTemplate CRDs any workload needs)
+# ============================================================================
+
+argo-rollouts:
+  # Every set, including localdev: the level-2 canary/rollback suite needs the
+  # controller on Kind.
+  enabled: true
+  namespace: argo-rollouts
+
+  chart:
+    name: argo-rollouts
+    repo: https://argoproj.github.io/argo-helm
+    version: "2.43.2"
 
   controller:
     resources:
       requests:
-        cpu: 100m
-        memory: 32Mi
+        cpu: 50m
+        memory: 64Mi
       limits:
         cpu: 500m
-        memory: 48Mi
+        memory: 256Mi
 
-    workflowDefaults:
-      spec:
-        ttlStrategy:
-          secondsAfterCompletion: 86400
-          secondsAfterSuccess: 43200
-          secondsAfterFailure: 172800
+  # controller_* series (canary progress, aborts, analysis outcomes) on a plain
+  # Service. No ServiceMonitor here: this Application syncs at wave 2 and the
+  # ServiceMonitor CRD only arrives with kube-prometheus-stack at wave 9.
+  metrics:
+    enabled: true
+    port: 8090
 
+  # The Rollouts UI is not exposed; kubectl-argo-rollouts and the Rollout's own
+  # status are the supported read paths.
+  dashboard:
+    enabled: false
+# NATS + JetStream — the platform event bus (docs/event-backbone.md)
+# Sync Waves: 10 nats, 11 nack (the jetstream.nats.io CRDs), 12 nats-config
+# (the stream set). Subjects, retention and delivery guarantees are normative in
+# contracts/events/subjects.v1.yaml and are not re-decided here.
 # ============================================================================
-# Traefik CRDs (traefik.io only) for both Traefik releases
-# Sync Wave: 4 (before traefik-*-dependencies at 5 and the controllers at 6)
-# ============================================================================
 
-traefikCrds:
+nats:
+  # Runs in Kind too: the event-backbone e2e test publishes and consumes against
+  # it, which is the only way the dead-letter path is shown firing rather than
+  # merely configured.
   enabled: true
+  namespace: nats
+  url: nats://nats.nats.svc.cluster.local:4222
+
   chart:
-    name: traefik-crds
-    repo: https://traefik.github.io/charts
-    version: "1.14.1"
+    name: nats
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "2.15.0"
+
+  monitoring:
+    # Must stay well under 5m: the PF_WORK aging rules gate on
+    # min_over_time(nats_stream_total_messages[5m]), and an empty window drops the
+    # whole expression, so those alerts would silently never fire (MCAA-134).
+    scrapeInterval: 30s
+
+  # Stream sizing is operator-supplied, not contract: a hard-coded 3 means a
+  # single-node fork cannot create any stream (10074).
+  replicas: 1
+
+  # ADR-043's static backend. Identity is operator-supplied, permissions are contract:
+  # contracts/events/bus-principals.v1.yaml declares the grants and
+  # charts/addons/files/nats-accounts.gen.yaml is its expansion. PUBLIC keys only -- the
+  # private seeds reach workloads as Secrets through External Secrets.
+  #
+  # Empty NATS_PRINCIPAL_NKEYS leaves the bus anonymous. Setting it renders the accounts
+  # block, and the server then refuses every client that has no key, NACK and nats-box
+  # included, so every principal a workload runs as has to be listed before it is set.
+  tenant: local
+  principalNkeys: ""
+  systemAccountNkey: ""
+  natsBoxPrincipals: ""
+
+  # Where each principal's PRIVATE seed comes from. Exactly one source, or the accounts block
+  # refuses to render: a public key the server accepts is unusable until its seed reaches the
+  # client. Kind has no vault, so its bootstrap mints the seeds into Secrets directly
+  # (scripts/localdev-kind.ts); homelab delivers them through the 1Password operator.
+  credentials:
+    onePasswordVaultPath: ""
+    bootstrapSeeded: true
+    extraNamespaces: {}
+
+  # Per-account JetStream limits, mandatory rather than advisory (ADR-043 D8). Both store
+  # limits are checked against the SERVER's stores at startup and a limit above what the
+  # server offers is fatal for every account, not just the greedy one -- measured on v2.15.0
+  # against this chart's own rendered nats.conf. `max_memory: 0` is the declared limit for a
+  # file-store-only bus: no memory store is enabled, so a memory-backed stream is refused.
+  # `max_store` sits under the file store below, which is the ADR-043 budget rule at the
+  # account level for the one account homelab renders.
+  accountLimits:
+    max_memory: 0
+    max_store: << 1GB >>
+    max_streams: 16
+    max_consumers: 64
+
+  jetstream:
+    streamReplicas: 1
+    storage:
+      size: 2Gi
+      # Block storage: JetStream's file store is a write-ahead log and needs real
+      # fsync semantics, so it takes the iSCSI SSD class and never an NFS one.
+      className: local-path
+
+  # Kind sizing
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+nack:
+  natsUrl: nats://nats.nats.svc.cluster.local:4222
+
+  chart:
+    name: nack
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "0.35.0"
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
 
 # ============================================================================
 # Istio ambient mesh + Kiali (docs/service-mesh.md)
@@ -1466,10 +1423,17 @@ istio:
     # The storage.googleapis.com repository ends at 1.30.5; 1.31 is published here.
     repo: https://blob.istio.io/istio-release/charts
     version: "1.31.1"
-  # Standard-channel Gateway API CRDs; a waypoint is a Gateway of class istio-waypoint.
-  gatewayApi:
-    repo: https://github.com/kubernetes-sigs/gateway-api.git
-    version: "v1.6.2"
+  # Internal/external Gateways of classes istio-internal/istio-external next to
+  # Envoy Gateway, for comparison only (charts/istio-gateways).
+  gateways:
+    enabled: true
+    config:
+      namespace: istio-ingress
+      serviceType: ClusterIP
+      echo:
+        envoyGateway:
+          name: envoy-internal
+          namespace: envoy-gateway-system
 
   # Waypoint spans to the OpenTelemetry gateway collector (OTLP gRPC).
   # ztunnel is L4 only and emits no spans (docs/service-mesh.md).
@@ -1526,8 +1490,6 @@ istio:
       repo: https://kiali.org/helm-charts
       version: "2.32.0"
     hostname: servicemesh.homelab.local
-    ingress:
-      className: internal
     prometheusUrl: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
     grafana:
       internalUrl: http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80
@@ -1649,23 +1611,11 @@ logging:
         limits:
           cpu: "1"
           memory: 512Mi
-      # OTLP/HTTP with TLS for clients outside the cluster.
-      ingress:
+      # OTLP/HTTP (port 4318) with TLS for clients outside the cluster, on
+      # the internal Gateway.
+      route:
         enabled: true
-        ingressClassName: internal
-        annotations:
-          cert-manager.io/cluster-issuer: letsencrypt
-          external-dns.alpha.kubernetes.io/hostname: otlp.homelab.local
-        hosts:
-          - host: otlp.homelab.local
-            paths:
-              - path: /
-                pathType: Prefix
-                port: 4318
-        tls:
-          - secretName: otlp-tls
-            hosts:
-              - otlp.homelab.local
+        hostname: otlp.homelab.local
 
   # UniFi gateway syslog (CEF) and NetFlow receivers on otel-collector-gateway.
   unifi:
@@ -1690,9 +1640,9 @@ blackbox-exporter:
     name: prometheus-blackbox-exporter
     repo: https://prometheus-community.github.io/helm-charts
     version: "11.18.0"
-  # Every 15 s: through DNS and traefik-internal (in-cluster, so the LB
-  # address resolves but Cilium short-circuits it to Traefik without the
-  # L2/BGP hop) and straight to the pod's Service, so a failure names the hop.
+  # Every 15 s: through DNS and the internal Envoy Gateway (in-cluster, so the
+  # LB address resolves but Cilium short-circuits it to the Envoy pods without
+  # the L2/BGP hop) and straight to the pod's Service, so a failure names the hop.
   targets:
     - name: paperclip-ingress
       url: https://paperclip.homelab.local/api/health
@@ -1719,9 +1669,31 @@ github-pr-exporter:
   onePasswordItemPath: ""
   scrapeInterval: 2m
   repeatInterval: 24h
-  # Both queries are scoped to the repositories of repoUrl's owner, who is also the reviewer.
+  # Both queries are scoped to the repositories of GITOPS_REPO_URL's owner, who is also the reviewer.
   queries:
     - name: unreviewed
       url: "https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+review%3Anone+user%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100"
     - name: review-requested
       url: "https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+user%3Aryanmcafee+review-requested%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100"
+
+# ============================================================================
+# Alert triage agent (templates/triage-agent.yaml, charts/triage-agent)
+# Sync Wave: 13 (docs/runbooks/triage-agent.md)
+# ============================================================================
+
+triage-agent:
+  enabled: false
+  namespace: triage-agent
+  # Published by .github/workflows/triage-agent-image.yml to the fork's own
+  # ghcr namespace; the image name there is fixed, only the owner varies.
+  image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.1"
+  repoSlug: "ryanmcafee/homelab"
+  workflowUiUrl: "https://workflows.homelab.local"
+  # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN plus optional fields (docs/runbooks/triage-agent.md).
+  onePasswordItemPath: ""
+  # The Alertmanager Pushover item, reused for the workflow's notification.
+  pushoverItemPath: ""
+  # The Argo Workflows log store credentials, read into this namespace for the executors.
+  artifactsItemPath: ""
+  # Workspace and cache volumes; shared across step pods on any node, so RWX.
+  storageClass: local-path

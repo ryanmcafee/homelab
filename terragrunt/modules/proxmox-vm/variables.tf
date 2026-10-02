@@ -193,10 +193,14 @@ variable "cloud_init_ip_configs" {
   }]
 }
 
+# The default used to be one operator's router address, which would have
+# pointed a fork's VMs at a resolver that does not exist on its LAN. Empty now
+# means "whatever the Proxmox bridge hands out"; callers that care resolve
+# DNS_SERVER_IP from the ConfigSet in environments/*/env.hcl.
 variable "cloud_init_dns_servers" {
-  description = "DNS servers for cloud-init"
+  description = "DNS servers for cloud-init (empty leaves cloud-init's own default)"
   type        = list(string)
-  default     = ["172.16.100.1"]
+  default     = []
 }
 
 variable "cloud_init_dns_domain" {

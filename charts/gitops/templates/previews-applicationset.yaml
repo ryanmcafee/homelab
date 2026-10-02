@@ -9,7 +9,7 @@
 # preview mode (templates/_preview.tpl). Closing the PR or removing the label
 # deletes the Application; the finalizer cascades to the preview namespace.
 #
-# The ArgoCD server ingress is internal-only, so GitHub webhooks cannot reach
+# The ArgoCD server route is internal-only, so GitHub webhooks cannot reach
 # the ApplicationSet controller: it polls every requeueAfterSeconds.
 #
 # The {{`{{ }}`}} expressions are ApplicationSet Go templates, escaped from Helm

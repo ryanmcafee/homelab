@@ -250,8 +250,8 @@ type pinSource struct {
 var pinSources = []pinSource{
 	{"terragrunt/environments/homelab/env.hcl", regexp.MustCompile(`(?m)^\s*talos_version\s*=\s*"([^"]+)"`), "tools", "talos"},
 	{"terragrunt/environments/homelab/env.hcl", regexp.MustCompile(`(?m)^\s*kubernetes_version\s*=\s*"([^"]+)"`), "tools", "kubernetes"},
-	{"charts/bootstrap/values.yaml", regexp.MustCompile(`(?m)^\s*name:\s*argo-cd\s*\n(?:.*\n)?\s*version:\s*"([^"]+)"`), "charts", "argocd"},
-	{"charts/bootstrap/values.yaml", regexp.MustCompile(`(?m)^\s*name:\s*prometheus-operator-crds\s*\n(?:.*\n)?\s*version:\s*"([^"]+)"`), "charts", "prometheus-operator-crds"},
+	{"charts/bootstrap/values.yaml", regexp.MustCompile(`(?m)^\s*name:\s*argo-cd\s*\n(?:.*\n){0,2}\s*version:\s*"([^"]+)"`), "charts", "argocd"},
+	{"charts/bootstrap/values.yaml", regexp.MustCompile(`(?m)^\s*name:\s*prometheus-operator-crds\s*\n(?:.*\n){0,2}\s*version:\s*"([^"]+)"`), "charts", "prometheus-operator-crds"},
 	{"charts/bootstrap/values.yaml", regexp.MustCompile(`ghcr\.io/ryanmcafee/homelab-cmp:([\w.-]+)`), "images", "homelab-cmp"},
 }
 

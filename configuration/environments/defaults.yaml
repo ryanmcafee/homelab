@@ -13,8 +13,9 @@ STORAGE_CLASS_NFS: democratic-csi-nfs
 STORAGE_CLASS_ISCSI: democratic-csi-iscsi-hdd
 STORAGE_CLASS_SSD: democratic-csi-ssd
 STORAGE_CLASS_ISCSI_SSD: democratic-csi-iscsi
-INGRESS_CLASS_EXTERNAL: external
-INGRESS_CLASS_INTERNAL: internal
+GATEWAY_NAMESPACE: envoy-gateway-system
+GATEWAY_EXTERNAL: envoy-external
+GATEWAY_INTERNAL: envoy-internal
 TIMEZONE: "America/New_York"
 
 # Infrastructure
@@ -23,7 +24,6 @@ TRUENAS_ZONE_PARENT: storage/k8s
 TRUENAS_ZONE_SSD_PARENT: ssd/k8s
 TRUENAS_ISCSI_PARENT: ssd/iscsi
 TRUENAS_ISCSI_HDD_PARENT: storage/k8s
-TRAEFIK_OIDC_PROVIDER_URL: "https://accounts.google.com"
 
 # Application defaults
 MEDIA_APP_UID: "568"
@@ -37,9 +37,7 @@ TAILSCALE_OPERATOR_1P_PATH: vaults/homelab/items/tailscale-operator-oauth
 CERT_MANAGER_1P_PATH: vaults/homelab/items/cloudflare
 EXTERNAL_DNS_1P_PATH: vaults/homelab/items/cloudflare
 EXTERNAL_DNS_UNIFI_1P_PATH: vaults/homelab/items/unifi
-TRAEFIK_OIDC_SESSION_KEY_PATH: vaults/homelab/items/oidc-session-key
-TRAEFIK_GOOGLE_OAUTH_PATH: vaults/homelab/items/google-oauth
-TRAEFIK_CLOUDFLARE_1P_PATH: vaults/homelab/items/cloudflare
+GOOGLE_OAUTH_1P_PATH: vaults/homelab/items/google-oauth
 UNIFI_PORT_FORWARD_1P_PATH: vaults/homelab/items/unifi
 DUCKDNS_1P_PATH: vaults/homelab/items/duckdns
 PAPERCLIP_AUTH_1P_PATH: vaults/homelab/items/paperclip-auth
@@ -64,3 +62,18 @@ GRAFANA_CONFIG_PVC: grafana-config
 
 # GPU
 GPU_VENDOR: "none"
+
+# NATS / JetStream sizing (docs/event-backbone.md)
+NATS_SERVER_REPLICAS: "3"
+NATS_STREAM_REPLICAS: "1"
+# Empty leaves the bus anonymous. One pair renders the accounts block and the server
+# refuses every client without a key, so list every principal before setting it
+# (contracts/events/bus-principals.v1.yaml, docs/event-backbone.md).
+NATS_TENANT: "local"
+NATS_PRINCIPAL_NKEYS: ""
+NATS_SYSTEM_ACCOUNT_NKEY: ""
+NATS_BOX_PRINCIPALS: ""
+# 1Password vault path the per-principal seed items live under. Required once
+# NATS_PRINCIPAL_NKEYS is set with SECRETS_PROVIDER=onepassword: a public key the server
+# accepts is unusable until its seed reaches the client (docs/runbooks/nats-credentials.md).
+NATS_CREDENTIALS_1P_PATH: ""

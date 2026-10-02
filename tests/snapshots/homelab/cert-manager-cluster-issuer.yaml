@@ -20,4 +20,4 @@ spec:
         cnameStrategy: Follow
       selector:
         dnsZones:
-          - REPLACEME-domain.com
+          - replaceme-domain.com

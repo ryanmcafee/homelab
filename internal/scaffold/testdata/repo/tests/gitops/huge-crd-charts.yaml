@@ -3,4 +3,4 @@
 charts:
   - cert-manager
   - cloudnative-pg
-  - traefik-external
+  - envoy-gateway

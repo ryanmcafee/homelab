@@ -424,11 +424,11 @@ func TestUpstreamArgs(t *testing.T) {
 		},
 		{
 			name: "https repository uses --repo, release name, skipCrds and parameters",
-			src: ChartSource{App: "traefik-internal", RepoURL: "https://traefik.github.io/charts", Chart: "traefik", TargetRevision: "39.0.9",
-				ReleaseName: "traefik-int", Namespace: "traefik", SkipCrds: true,
+			src: ChartSource{App: "external-dns-unifi", RepoURL: "https://kubernetes-sigs.github.io/external-dns/", Chart: "external-dns", TargetRevision: "1.21.1",
+				ReleaseName: "external-dns-unifi", Namespace: "external-dns", SkipCrds: true,
 				Parameters: []HelmParameter{{Name: "a", Value: "1"}, {Name: "b", Value: "2", ForceString: true}}},
 			vals: []string{"/w/values.yaml", "/w/values-object.yaml"},
-			want: []string{"template", "traefik-int", "traefik", "--repo", "https://traefik.github.io/charts", "--version", "39.0.9", "--namespace", "traefik",
+			want: []string{"template", "external-dns-unifi", "external-dns", "--repo", "https://kubernetes-sigs.github.io/external-dns/", "--version", "1.21.1", "--namespace", "external-dns",
 				"-f", "/w/values.yaml", "-f", "/w/values-object.yaml", "--set", "a=1", "--set-string", "b=2"},
 		},
 	}

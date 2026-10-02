@@ -1,0 +1,9 @@
+apiVersion: v2
+name: triage-agent
+description: >-
+  In-cluster alert triage agent (docs/runbooks/triage-agent.md): a Claude Agent SDK service that receives
+  Alertmanager webhooks, sweeps the firing alerts and writes a read-only root-cause report per alert group.
+  Runs as a ServiceAccount bound to view and homelab-agent-readonly (no Secrets, no writes).
+type: application
+version: 1.0.0
+appVersion: "0.1.0"

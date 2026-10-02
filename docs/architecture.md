@@ -120,7 +120,7 @@ flowchart TB
   root --> apps["applications (wave 10)\ncharts/applications via CMP"]
   root --> prev["AppProject previews (11)\nApplicationSet previews (12)"]
   boot --> b1[sops-secrets -2] --> b2["onepassword-operator, prometheus-operator-crds -1"] --> b3[homelab-environment-config 0] --> b4[argocd self-manage 1]
-  addons --> a1["cilium, traefik-*, cert-manager, external-dns-*,\ndemocratic-csi-*, kube-prometheus-stack, tailscale, ... (waves -1..11)"]
+  addons --> a1["cilium, envoy-gateway-*, cert-manager, external-dns-*,\ndemocratic-csi-*, kube-prometheus-stack, tailscale, ... (waves -1..11)"]
   apps --> p1["plex, *arr, nzbget, tautulli, lazylibrarian,\nflaresolverr, mosquitto, paperclip, renovate, duckdns (waves 10-15)"]
   prev --> pr["<app>-pr<N> in preview-<N> (label-gated PRs)"]
 ```
@@ -199,7 +199,8 @@ files for the real values (`task config:validate | eval | export | guard`, a pre
 and `config-validation.yml` in CI).
 
 **Production render.** The operator writes the `homelab-environment-config` Secret; the repo
-server mounts it into the `homelab-cmp` container at `/config/homelab.yaml`; for every
+server mounts it into the `homelab-cmp` container at `/config/homelab.yaml` (a whole-volume mount, never `subPath`, so
+an edit to the 1Password document reaches the sidecar within about a minute, no restart); for every
 Application that names plugin `homelab-config-helm-v1.0` (`cmp/plugin.yaml`, image built by
 `Dockerfile.cmp`) the sidecar runs `homelab config export --set homelab --format
 $ARGOCD_ENV_FORMAT --env-file /config/homelab.yaml --stdout` and pipes the result into
@@ -273,8 +274,8 @@ bind.
 `Cluster` in `charts/paperclip-database` on the iSCSI SSD class (ADR-015). The barman plugin
 is off by default and exercised by the restore drill ([Verification](#verification)).
 
-**Images.** Spegel (wave 0) runs on every node as a peer-to-peer OCI mirror for the
-registries it lists (docker.io, ghcr.io, quay.io, registry.k8s.io, ...), so a layer pulled
+**Images.** Spegel (wave 0) runs on every node as a peer-to-peer OCI mirror for every
+registry (chart 0.6.0 mirrors all of them unless `mirroredRegistries` narrows it), so a layer pulled
 once is served from inside the cluster afterwards; Talos keeps unpacked layers for it. Kind
 gets the same effect from pull-through registry caches started by `task localdev:kind`.
 
@@ -348,14 +349,15 @@ installed by mise (`mise.toml`); this table names the pieces, the file has the n
 | Host configuration | Ansible | `ansible/` |
 | GitOps | ArgoCD (`charts.argocd`, CLI `tools.argocd`), Helm (`tools.helm`) | `charts/gitops`, `charts/bootstrap` |
 | CNI, load balancer | Cilium (`charts.cilium`) with LB IPAM + BGP to the UniFi gateway | [networking.md](./networking.md) |
-| Ingress | Traefik (`charts.traefik`) ×2: `external`, `internal`; cert-manager; external-dns (Cloudflare, UniFi) | [networking.md](./networking.md) |
+| Ingress | Envoy Gateway (`charts.envoy-gateway`), Gateway API only: Gateways `envoy-external`, `envoy-internal`, wildcard TLS at the Gateway (cert-manager); external-dns `gateway-httproute` (Cloudflare, UniFi); Istio gateways for comparison (ADR-040) | [networking.md](./networking.md) |
 | Remote access | Tailscale operator (`charts.tailscale-operator`) | [networking.md](./networking.md) |
 | Secrets | 1Password Connect + operator (`charts.onepassword-connect`), SOPS/age via ksops | [Secrets and configuration](#secrets-and-configuration) |
 | Storage | democratic-csi (`charts.democratic-csi`), CloudNativePG (`charts.cloudnative-pg`, `charts.plugin-barman-cloud`), Spegel (`charts.spegel`) | [Storage](#storage) |
 | Observability | kube-prometheus-stack (`charts.kube-prometheus-stack`), etcd scrape, Grafana behind the internal ingress; Alertmanager pushes critical (high priority) and warning (low priority) alerts to Pushover, credentials from one 1Password item (`docs/runbooks/alerting.md`) | `charts/addons/templates/kube-prometheus-stack.yaml`, `charts/prometheus-config` |
-| Logs | OpenTelemetry collectors (DaemonSet + events) -> ClickHouse (Altinity operator, iSCSI, 90-day TTL) -> Grafana ClickHouse datasource; Traefik JSON access logs (`docs/logging.md`, ADR-019) | `charts/addons/templates/logging.yaml`, `charts/clickhouse`, `charts/clickhouse-dependencies` |
+| Logs | OpenTelemetry collectors (DaemonSet + events) -> ClickHouse (Altinity operator, iSCSI, 90-day TTL) -> Grafana ClickHouse datasource; Envoy Gateway JSON access logs (`docs/logging.md`, ADR-019) | `charts/addons/templates/logging.yaml`, `charts/clickhouse`, `charts/clickhouse-dependencies` |
 | Service mesh | Istio 1.31 ambient (istiod, istio-cni, ztunnel) on Cilium, paperclip enrolled with a waypoint; Kiali on the internal ingress (`docs/service-mesh.md`, ADR-020) | `charts/addons/templates/istio.yaml`, `charts/istio-config` |
-| Tracing and request path | OTLP gateway collector -> ClickHouse `otel_traces`; Traefik and waypoint spans; Hubble flow log and UniFi syslog/IPFIX in ClickHouse; blackbox probes; "Paperclip request path" dashboard (`docs/tracing.md`, `docs/hubble.md`, `docs/runbooks/paperclip-request-path.md`, ADR-021, ADR-022) | `charts/addons/templates/logging.yaml`, `charts/cilium-config`, `charts/addons/templates/blackbox-exporter.yaml`, `charts/paperclip` |
+| Tracing and request path | OTLP gateway collector -> ClickHouse `otel_traces`; Envoy Gateway and waypoint spans; Hubble flow log and UniFi syslog/IPFIX in ClickHouse; blackbox probes; "Paperclip request path" dashboard (`docs/tracing.md`, `docs/hubble.md`, `docs/runbooks/paperclip-request-path.md`, ADR-021, ADR-022) | `charts/addons/templates/logging.yaml`, `charts/cilium-config`, `charts/addons/templates/blackbox-exporter.yaml`, `charts/paperclip` |
+| Progressive delivery | Argo Rollouts (`charts.argo-rollouts`); canary with an in-cluster HTTP probe as the analysis metric and an automated abort back to the stable ReplicaSet; `paperclip-exporter` is the shipped canary (`docs/progressive-delivery.md`) | `charts/addons/templates/argo-rollouts.yaml`, `charts/argo-rollouts-config` |
 | CLI and scripts | Go CLI `homelab` (`cmd/homelab`, `internal/`), TypeScript on Bun (`scripts/`), Taskfile (ADR-005) | `Taskfile.yml` |
 | Local loop | Kind (`tools.kind`, `images.kind-node`) + ArgoCD `--local` sync, chainsaw (`tools.chainsaw`) | [local-development.md](./local-development.md) |
 | Updates | Renovate (`.github/renovate.json5`, app `renovate` in-cluster) | [Verification](#verification) |

@@ -7,6 +7,7 @@ global:
 configs:
   params:
     server.insecure: true
+    controller.diff.server.side: "true"
   cm:
     admin.enabled: ${admin_enabled}
     timeout.reconciliation: 60s
@@ -30,17 +31,19 @@ configs:
       return hs
 
 server:
-  ingress:
-    enabled: ${server_ingress_enabled}
-    ingressClassName: internal
-    hostname: ${server_host}
+  # TLS terminates at the Gateway (wildcard certificate); argocd-server serves plain HTTP.
+  httproute:
+    enabled: ${server_route_enabled}
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt
       external-dns.alpha.kubernetes.io/hostname: ${server_host}
-    extraTls:
-      - hosts:
-          - ${server_host}
-        secretName: argocd-server-tls
+    hostnames:
+      - ${server_host}
+    parentRefs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: envoy-internal
+        namespace: envoy-gateway-system
+        sectionName: https
 
 dex:
   enabled: ${dex_enabled}
@@ -129,9 +132,9 @@ repoServer:
           name: plugins
         - mountPath: /tmp
           name: cmp-tmp
-        - mountPath: /config/homelab.yaml
+        # No subPath: kubelet refreshes only whole-volume secret mounts, so env doc edits reach the CMP live.
+        - mountPath: /config
           name: homelab-config
-          subPath: homelab.yaml
           readOnly: true
 
 applicationSet:

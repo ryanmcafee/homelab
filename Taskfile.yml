@@ -47,6 +47,21 @@ tasks:
     cmds:
       - bun install --frozen-lockfile --silent
 
+  cli:build:
+    desc: Build bin/homelab from source (a no-op when the binary is newer than the sources)
+    run: once
+    sources:
+      - cmd/homelab/**/*.go
+      - internal/**/*.go
+      - internal/scaffold/templates/**
+      - contracts/**
+      - go.mod
+      - go.sum
+    generates:
+      - bin/homelab
+    cmds:
+      - go build -o bin/homelab ./cmd/homelab
+
   # ==========================================================================
   # TypeScript scripts (scripts/*.ts, run with Bun)
   # ==========================================================================
@@ -68,6 +83,29 @@ tasks:
     deps: [bun:install]
     cmds:
       - bun test {{.CLI_ARGS | default "scripts"}}
+
+  triage-agent:install:
+    desc: Install the triage agent dependencies pinned in triage-agent/bun.lock
+    internal: true
+    silent: true
+    run: once
+    dir: triage-agent
+    cmds:
+      - bun install --frozen-lockfile --silent
+
+  triage-agent:lint:
+    desc: "Format check, lint (Biome) and type check (tsc) of triage-agent/"
+    deps: [bun:install, triage-agent:install]
+    cmds:
+      - bunx biome check triage-agent
+      - bun run --cwd triage-agent typecheck
+
+  test:triage-agent:
+    desc: Unit tests of triage-agent/ (bun test; task test:triage-agent -- tests/unit/queue.test.ts for one file)
+    deps: [triage-agent:install]
+    dir: triage-agent
+    cmds:
+      - bun test {{.CLI_ARGS | default "tests"}}
 
   contracts:check:
     desc: Validate the platform event contract in contracts/events/ and diff it against the compatibility baseline (ADR-026, ADR-030)
@@ -165,10 +203,10 @@ tasks:
     cmds:
       - kubectl --context kind-homelab-localdev -n argocd port-forward svc/argocd-server 8080:80 --address 127.0.0.1
 
-  localdev:traefik:
-    desc: "Traefik internal ingress at http://localhost:9080 and https://localhost:9443 via kubectl port-forward (use a Host header or /etc/hosts entries for *.homelab.local)"
+  localdev:gateway:
+    desc: "Envoy Gateway envoy-internal at http://localhost:9080 and https://localhost:9443 via kubectl port-forward (use a Host header or /etc/hosts entries for *.homelab.local)"
     cmds:
-      - kubectl --context kind-homelab-localdev -n traefik port-forward svc/traefik-internal 9080:80 9443:443 --address 127.0.0.1
+      - kubectl --context kind-homelab-localdev -n envoy-gateway-system port-forward svc/envoy-internal 9080:80 9443:443 --address 127.0.0.1
 
   localdev:warm:
     desc: "Warm cluster: Kind + registry cache + ArgoCD + bootstrap/addons synced (operators and CRDs), applications left for localdev:sync"
@@ -684,26 +722,31 @@ tasks:
 
   render:push:
     desc: Push rendered YAML files to 1Password (for sharing across machines)
+    deps: [cli:build]
     cmds:
       - ./bin/homelab render push --force
 
   render:pull:
     desc: Pull rendered YAML files from 1Password
+    deps: [cli:build]
     cmds:
       - ./bin/homelab render pull --force
 
   render:status:
     desc: Check status of rendered files (local vs 1Password)
+    deps: [cli:build]
     cmds:
       - ./bin/homelab render status
 
   render:sync:
     desc: Sync rendered files (pull from 1Password if missing, push if local-only)
+    deps: [cli:build]
     cmds:
       - ./bin/homelab render sync
 
   render:sync:silent:
     internal: true
+    deps: [cli:build]
     cmds:
       - ./bin/homelab render sync --quiet
     status:
@@ -745,6 +788,7 @@ tasks:
   talos:recreate:node:
     desc: Recreate a Talos node via terragrunt taint + apply
     prompt: This will destroy and recreate the Talos VM for node {{.NODE}}. Continue?
+    deps: [cli:build]
     vars:
       NODE: '{{.NODE | default "worker-1"}}'
     cmds:
@@ -753,17 +797,20 @@ tasks:
   talos:recreate:gpu-node:
     desc: Recreate GPU node (worker-1) with new image and verify GPU support
     prompt: This will destroy and recreate worker-1 and then verify GPU support. Continue?
+    deps: [cli:build]
     cmds:
       - ./bin/homelab -y talos recreate --node=worker-1 --skip-drain
       - ./bin/homelab verify gpu
 
   gpu:verify:
     desc: Verify GPU support is working (vendor resolved from GPU_VENDOR config)
+    deps: [cli:build]
     cmds:
       - ./bin/homelab verify gpu
 
   gpu:status:
     desc: Show GPU node status and resources (vendor resolved from GPU_VENDOR config)
+    deps: [cli:build]
     cmds:
       - ./bin/homelab verify gpu --status-only
 
@@ -810,6 +857,24 @@ tasks:
       - conftest verify -p tests/policy
       - bun scripts/policy-test.ts {{.CLI_ARGS}}
 
+  test:alerts:
+    desc: Unit-test the Prometheus alerting rules with promtool against the rules the addons chart actually renders (tests/alerts)
+    cmds:
+      # The rules are extracted from the rendered Application instead of being
+      # copied into tests/, so a test can never assert about an expression that
+      # is not deployed. promtool check rules covers every group; the unit tests
+      # in tests/alerts cover the ones whose thresholds carry a decision.
+      - |
+        set -euo pipefail
+        out="$(mktemp -d)"
+        trap 'rm -rf "$out"' EXIT
+        helm template addons charts/addons -f charts/addons/values-localdev.yaml \
+          | yq -r 'select(.kind=="Application" and .metadata.name=="kube-prometheus-stack") | .spec.source.helm.values' \
+          | yq -r '{"groups": [.additionalPrometheusRulesMap[].groups[]]}' > "$out/rules.yaml"
+        promtool check rules "$out/rules.yaml"
+        cp tests/alerts/*.test.yaml "$out/"
+        cd "$out" && promtool test rules ./*.test.yaml
+
   test:e2e:
     desc: Declarative Kind e2e tests (chainsaw) against the running localdev cluster (task test:e2e -- --test-dir tests/e2e/plex)
     cmds:
@@ -849,10 +914,55 @@ tasks:
     cmds:
       - bun scripts/crd-schemas-vendor.ts --check
 
+  renovate:regen:
+    desc: "Regenerate what a Renovate bump needs and commit it as the regeneration bot so Renovate keeps rebasing the branch (-- --check for identity parity only, -- --no-commit to leave the tree dirty)"
+    deps: [bun:install]
+    cmds:
+      - bun scripts/renovate-regen.ts {{.CLI_ARGS}}
+
+  pr:refresh:
+    desc: "Merge the base (default origin/main) into this PR branch, resolve append-only, generated and count-only conflicts, regenerate, run level 0 and commit (-- --dry-run to classify, -- --continue after resolving by hand, -- --base origin/<branch> for a stacked PR, -- --push)"
+    deps: [bun:install]
+    cmds:
+      - bun scripts/pr-refresh.ts {{.CLI_ARGS}}
+
+  renovate:deployed-major:
+    desc: "Read the deployed Renovate major out of an open renovate/* PR body and fail if it reached 44 (where isBranchModified reads the committer) while this repo still treats a committer mismatch as advisory"
+    deps: [bun:install]
+    cmds:
+      - |
+        set -euo pipefail
+        prs="$(gh pr list --repo "${GITHUB_REPOSITORY:-ryanmcafee/homelab}" --state open --limit 100 \
+          --json headRefName,body \
+          --jq '[.[] | select(.headRefName | startswith("renovate/"))]')"
+        # In the workflow this gate runs only on a renovate/* head, so the PR it is
+        # running on is itself open and must appear in that listing. When it does
+        # not, the listing is wrong rather than empty -- truncated at the limit, or
+        # read with a token that lacks pull-requests:read and so returns [] with a
+        # 200 -- and the notice below would then report an unmeasured deployment as
+        # if it were pre-44. Fail on the head that is actually under test.
+        if [ -n "${GITHUB_HEAD_REF:-}" ] &&
+          ! printf '%s' "$prs" | jq -e --arg head "$GITHUB_HEAD_REF" 'any(.[]; .headRefName == $head)' > /dev/null; then
+          echo "renovate-regen/deployed-major: the open renovate/* PR listing does not contain ${GITHUB_HEAD_REF}, the head this gate is running on, so the deployed Renovate version was not read at all. An empty or truncated listing is not evidence of a pre-44 deployment. Check the pull-requests:read permission and the --limit above." >&2
+          exit 1
+        fi
+        bodies="$(printf '%s' "$prs" | jq -r '[.[].body] | join("\n")')"
+        if [ -z "$bodies" ]; then
+          echo "::notice title=No Renovate PRs open::nothing advertises a renovate-debug blob, so the deployed major cannot be read this run"
+          exit 0
+        fi
+        printf '%s' "$bodies" | bun scripts/renovate-regen.ts --deployed-major {{.CLI_ARGS}}
+
   verify:upgrade:
     desc: Render every upstream chart at a base ref and at the working tree and diff the manifests (task verify:upgrade -- --base origin/main)
     cmds:
       - go run ./cmd/homelab verify upgrade {{.CLI_ARGS}}
+
+  upstream:values:
+    desc: "Fail when an Application passes helm values its pinned upstream chart does not declare (pulls every chart, so not level 0)"
+    deps: [bun:install]
+    cmds:
+      - bun scripts/upstream-values-check.ts {{.CLI_ARGS}}
 
   verify:prod:
     desc: Read-only Application health of the homelab cluster through the homelab-readonly context (docs/runbooks/readonly-access.md)
@@ -884,6 +994,11 @@ tasks:
     deps: [bun:install]
     cmds:
       - bun scripts/scaffold-selftest.ts {{.CLI_ARGS}}
+
+  test:talos-recreate:
+    desc: "Drive `homelab talos recreate` against a fake 3-node control plane (etcd removal, quorum refusal, idempotency); no cluster required"
+    cmds:
+      - tests/talos-recreate/run.sh {{.CLI_ARGS}}
 
   # ==========================================================================
   # Kubernetes Operations
@@ -979,8 +1094,11 @@ tasks:
       - task: ci:lint
       - task: scripts:lint
       - task: test:scripts
+      - task: triage-agent:lint
+      - task: test:triage-agent
       - task: tf:validate
       - task: test:go
+      - task: test:talos-recreate
       - task: verify
       - task: test:policy
 
@@ -1093,7 +1211,7 @@ tasks:
       - go run ./cmd/homelab config export --set localdev --format helm-apps
 
   config:guard:
-    desc: "Scan every tracked file in the guard scope for PII: configuration/, charts/**/values-homelab.yaml, scripts/, docs/, .github/, Taskfile.yml"
+    desc: "Scan every tracked file in the guard scope for PII: configuration/, charts/**/values-homelab.yaml, scripts/, docs/, .github/, ansible/, terragrunt/, talos/, packer/, Taskfile.yml"
     # --ci is not optional here: without it (and without file arguments) the
     # guard resolves an empty scan scope, checks nothing and exits 0.
     cmds:
@@ -1131,15 +1249,17 @@ tasks:
     cmds:
       - task: docs:embedme
 
+  # Claude.md carries the only embedme directive today (configuration/versions.yaml).
+  # AGENTS.md has none and is listed so one added there is covered from day one.
   docs:embedme:
     desc: Update embedded code snippets in markdown files
     cmds:
-      - embedme CLAUDE.md AGENTS.md
+      - embedme Claude.md AGENTS.md
 
   docs:embedme:verify:
     desc: Verify embedded snippets are up-to-date (CI)
     cmds:
-      - embedme --verify CLAUDE.md AGENTS.md
+      - embedme --verify Claude.md AGENTS.md
 
   docs:check:
     desc: "Numbers in readme.md, docs/ and .github/homelab.svg match the repo (versions, counts, ingress inventory); -- --fix rewrites the generated regions"

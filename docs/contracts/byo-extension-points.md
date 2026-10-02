@@ -81,8 +81,8 @@ roles.
 discovery, a configurable claims mapping, and a group-to-role mapping expressed as
 configuration.
 
-**Implementations:** any OIDC provider. Homelab uses one (Google, via the Traefik middleware
-this repository already runs); enterprise customers bring Okta, Entra, Keycloak or their own.
+**Implementations:** any OIDC provider. Homelab uses one (Google, as an Envoy Gateway
+`SecurityPolicy` on the HTTPRoute, ADR-040); enterprise customers bring Okta, Entra, Keycloak or their own.
 The platform stores a stable subject identifier and never the provider's internal user object.
 
 **Rule:** authorization decisions are made against **platform roles**, never against raw
@@ -124,6 +124,72 @@ one with the least industry convention:**
 **Blast radius:** broker outage stops issuing new agent credentials; already-issued
 credentials keep working until they expire, which is what bounds the damage and why the
 maximum lifetime is mandatory rather than advisory.
+
+## Where two of these seams meet the event bus
+
+There are still four seams. This section names the one place seams 3 and 4 bind to a concrete
+mechanism, because that binding is where a customer-specific fork would otherwise appear.
+Decision record: ADR-043.
+
+**The seam:** `BusPrincipal -> NATS user`. A platform principal — a human via OIDC, an
+`AgentIdentity`, or a platform component — has to become something the NATS server will accept on
+a connection, with permissions narrow enough to hold the tenant boundary in
+[`event-contract.md`](event-contract.md) §5.
+
+**The interface is a declaration, not a credential format.** Per principal: the subjects it may
+publish, the subjects it may subscribe to, its private inbox prefix, its ACK namespace, and its
+`$JS.API` allow-list. Nothing in it names a credential mechanism, an issuer or a provider. That
+declaration is the artifact both implementations consume, and it is what makes this one seam rather
+than two permission models that drift.
+
+**Implementations:**
+
+- **Static.** The declaration renders into the server's account configuration; the credential is a
+  Secret, provisioned the way every other secret here is. Homelab's default, and the bootstrap
+  path — a bus that needs a service of ours running before it will accept a connection cannot come
+  up from cold.
+- **Auth callout.** The declaration renders into a short-lived user JWT, minted by a callout
+  service after it authenticates the principal against the BYO identity centre (seam 3) or the
+  `AgentIdentity` broker (seam 4). This is the path that satisfies seam 4's short-lived-only rule
+  on the bus, because a static NATS credential for an agent is exactly the long-lived token that
+  interface refuses to return.
+
+**Rules:**
+
+- **A tenant's permission set is generated from the declaration, never hand-written per customer.**
+  A hand-maintained account block is the fork this document exists to prevent, in the one file
+  where it would be least visible.
+- **No principal is granted a wildcard tenant.** `pf.*.>` and `pf.>` are not available to any
+  implementation of this seam, platform components included, and the tenant prefix is a ceiling
+  rather than a grant: a principal receives only the producer-owned prefixes it owns within its
+  tenant.
+- **The callout backend declares which accounts it may place users into.** Left unset, the server
+  delegates every account, so `allowed_accounts` is always explicit and never includes the system
+  account. The callout signing seed is a cross-account authority in its own right — short-lived
+  JWTs bound a stolen user credential, not a compromised signer.
+- **Enabling callout does not orphan the bootstrap.** The static principals that must connect
+  before any of our services run (NACK, bootstrap) are listed in the server's callout exemption;
+  agent principals never are, and no exempted principal holds callout-response or signing
+  authority. A static-only deployment may leave callout disabled entirely.
+- **The conformance suite belongs to the seam** and asserts the same declaration produces the same
+  accepted *and refused* operations under both backends — the refusals being the half a permission
+  test usually omits. It includes cross-*principal* refusal within one account, not only
+  cross-tenant refusal; the established-session revocation bound; and a cold start on fresh
+  synthetic credentials with no maintainer account, no identity service, no 1Password dependency
+  and no anonymous fallback.
+
+**Blast radius:** the callout service being down blocks *new* connections and leaves established
+ones running to their credential expiry — the same bound seam 4 puts on the identity broker, and
+the reason the static backend remains the bootstrap path rather than a legacy option. That same
+property is why revocation is a named mechanism with a stated time bound rather than something
+inferred from token lifetime.
+
+**Deliberately not adopted:** the NATS operator/nsc JWT hierarchy. It is a server-wide mode switch
+that forecloses the static backend, and auth callout provides dynamic issuance without it. The
+custody argument does not favour either: an operator seed can be held offline, and the callout
+service has privileged signing custody of its own — the choice is reversibility, not avoiding a
+secret. The declaration above is what keeps nsc a third backend for a customer who already runs
+it, rather than a migration.
 
 ## What "designed as a seam" means for review
 

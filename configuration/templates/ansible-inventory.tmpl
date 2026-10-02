@@ -44,14 +44,16 @@ all:
         acme_email: "{{ .Values.ACME_EMAIL.Value }}"
 
     # Talos Kubernetes cluster (reference only; managed through Terragrunt/talosctl)
+    #
+    # The control-plane hosts come from .ControlPlane, the resolver's derived
+    # address list (ADR-035). .Ordinal is the CPn_IP capture group, so the host
+    # name stays cp-1/cp-2/... without this template restating the key-name rule.
     talos:
       hosts:
-        cp-1:
-          ansible_host: {{ .Values.CP1_IP.Value }}
-        cp-2:
-          ansible_host: {{ .Values.CP2_IP.Value }}
-        cp-3:
-          ansible_host: {{ .Values.CP3_IP.Value }}
+{{- range .ControlPlane }}
+        cp-{{ .Ordinal }}:
+          ansible_host: {{ .Address }}
+{{- end }}
         worker-1:
           ansible_host: {{ .Values.WORKER1_IP.Value }}
         worker-2:

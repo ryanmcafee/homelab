@@ -18,3 +18,5 @@ onePassword:
   apiKeysItemPath: ""
   # Secret paperclip-exporter: field PAPERCLIP_API_KEY, a board API key the agent health exporter reads (docs/runbooks/paperclip-agents.md)
   exporterItemPath: ""
+  # Token (field GIT_TOKEN) for a private dotfiles repository of the agents.
+  dotfilesItemPath: ""

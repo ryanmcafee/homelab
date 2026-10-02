@@ -6,7 +6,7 @@ metadata:
   name: plex
 spec:
   description: >-
-    Plex /identity answers through the external Traefik (IngressClass external) with Host plex.homelab.local.
+    Plex /identity answers through the external Envoy Gateway with Host plex.homelab.local.
   steps:
     - name: applications-healthy
       description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
@@ -46,10 +46,34 @@ spec:
             kind: Application
             name: plex-config
             namespace: argocd
+    - name: route-plex
+      description: >-
+        The HTTPRoute for plex.homelab.local is Accepted by envoy-external
+        and its backend refs resolve.
+      try:
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: HTTPRoute
+              metadata:
+                namespace: media
+              spec:
+                (contains(hostnames, 'plex.homelab.local')): true
+              status:
+                (parents[?parentRef.name == 'envoy-external']):
+                  - (conditions[?type == 'Accepted']):
+                      - status: "True"
+                    (conditions[?type == 'ResolvedRefs']):
+                      - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            namespace: media
     - name: curl-plex
       description: >-
         A curl Job must get one of [200]
-        from https://plex.homelab.local/identity via traefik-external.traefik.svc.cluster.local.
+        from https://plex.homelab.local/identity via envoy-external.envoy-gateway-system.svc.cluster.local.
       timeouts:
         assert: 5m
       try:
@@ -89,7 +113,7 @@ spec:
                           - name: HOST
                             value: "plex.homelab.local"
                           - name: GATEWAY
-                            value: "traefik-external.traefik.svc.cluster.local"
+                            value: "envoy-external.envoy-gateway-system.svc.cluster.local"
                           - name: URL_PATH
                             value: "/identity"
                           - name: EXPECT

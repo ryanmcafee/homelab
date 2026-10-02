@@ -1,4 +1,5 @@
-# Alerting: GitHub pull request review alerts (docs/runbooks/alerting.md)
+# Alerting: GitHub pull request review alerts (docs/runbooks/alerting.md) and the
+# alert triage agent (docs/runbooks/triage-agent.md)
 keys:
   GITHUB_PR_ALERTS_ENABLED:
     description: Whether open pull requests that need review raise a Pushover alert (needs SECRETS_PROVIDER=onepassword for the token and the Pushover credentials)
@@ -32,3 +33,11 @@ keys:
     description: How often Alertmanager re-sends the notification of a pull request that still needs review
     required: true
     default: "24h"
+
+  TRIAGE_AGENT_ENABLED:
+    description: Whether the alert triage agent runs; Alertmanager sends it every firing alert and it opens fix PRs through Argo Workflows (needs SECRETS_PROVIDER=onepassword for the Claude and GitHub tokens)
+    required: true
+    default: "true"
+    enum:
+      - "true"
+      - "false"

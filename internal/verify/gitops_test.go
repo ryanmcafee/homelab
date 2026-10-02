@@ -335,26 +335,26 @@ spec:
 		{
 			name:       "waves pass when dependencies precede and config differs",
 			rule:       "waves",
-			repoCharts: []string{"bootstrap", "addons", "applications", "traefik-dependencies", "traefik-config"},
+			repoCharts: []string{"bootstrap", "addons", "applications", "envoy-gateway-dependencies", "envoy-gateway-config"},
 			rendered: map[string]string{
 				"gitops": gitopsParents,
-				"addons": appDoc("traefik-dependencies", "5", "charts/traefik-dependencies", "traefik") +
-					appDoc("traefik", "6", "", "traefik") +
-					appDoc("traefik-config", "8", "charts/traefik-config", "traefik"),
+				"addons": appDoc("envoy-gateway-dependencies", "5", "charts/envoy-gateway-dependencies", "envoy-gateway-system") +
+					appDoc("envoy-gateway", "6", "", "envoy-gateway-system") +
+					appDoc("envoy-gateway-config", "8", "charts/envoy-gateway-config", "envoy-gateway-system"),
 			},
 			wantStatus: StatusPass,
 		},
 		{
 			name:       "waves fail when dependencies do not precede",
 			rule:       "waves",
-			repoCharts: []string{"bootstrap", "addons", "applications", "traefik-dependencies"},
+			repoCharts: []string{"bootstrap", "addons", "applications", "envoy-gateway-dependencies"},
 			rendered: map[string]string{
 				"gitops": gitopsParents,
-				"addons": appDoc("traefik-dependencies", "7", "charts/traefik-dependencies", "traefik") +
-					appDoc("traefik", "6", "", "traefik"),
+				"addons": appDoc("envoy-gateway-dependencies", "7", "charts/envoy-gateway-dependencies", "envoy-gateway-system") +
+					appDoc("envoy-gateway", "6", "", "envoy-gateway-system"),
 			},
 			wantStatus: StatusFail,
-			wantFind:   "traefik-dependencies",
+			wantFind:   "envoy-gateway-dependencies",
 		},
 		{
 			name:       "waves fail when config shares the wave of its chart",
@@ -373,14 +373,14 @@ spec:
 			// equal waves are a violation, not a pass.
 			name:       "waves fail when dependencies share the wave of its chart",
 			rule:       "waves",
-			repoCharts: []string{"bootstrap", "addons", "applications", "traefik-dependencies"},
+			repoCharts: []string{"bootstrap", "addons", "applications", "envoy-gateway-dependencies"},
 			rendered: map[string]string{
 				"gitops": gitopsParents,
-				"addons": appDoc("traefik-dependencies", "6", "charts/traefik-dependencies", "traefik") +
-					appDoc("traefik", "6", "", "traefik"),
+				"addons": appDoc("envoy-gateway-dependencies", "6", "charts/envoy-gateway-dependencies", "envoy-gateway-system") +
+					appDoc("envoy-gateway", "6", "", "envoy-gateway-system"),
 			},
 			wantStatus: StatusFail,
-			wantFind:   "must be lower than traefik",
+			wantFind:   "must be lower than envoy-gateway",
 		},
 		{
 			name:       "waves fail on a non-numeric sync-wave annotation",
@@ -849,8 +849,10 @@ spec:
       name: letsencrypt-account-key
     solvers:
       - http01:
-          ingress:
-            class: traefik
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: envoy-external
+                namespace: envoy-gateway-system
 `,
 			},
 			wantStatus: StatusPass,
@@ -949,18 +951,18 @@ spec:
   destination:
     namespace: argocd
 `,
-				"addons": appDoc("tls", "3", "charts/tls", "traefik"),
+				"addons": appDoc("tls", "3", "charts/tls", "envoy-gateway-system"),
 				"tls": `
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: traefik
+  name: envoy-gateway-system
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: dashboard
-  namespace: traefik
+  namespace: envoy-gateway-system
 spec:
   secretName: dashboard-tls
 ---
@@ -968,7 +970,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: consumer
-  namespace: traefik
+  namespace: envoy-gateway-system
 spec:
   volumes:
     - name: tls

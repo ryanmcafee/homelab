@@ -26,11 +26,11 @@ global:
   # Environment identifier
   environment: {{ .Set }}
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: {{ .Values.DOMAIN.Value }}
 
   # Git repository for local charts
-  repoUrl: https://github.com/ryanmcafee/homelab.git
+  repoUrl: {{ .GitOps.CloneURL }}
   # homelab: main is what production tracks. localdev: a placeholder that the
   # parent Application overrides through helm.valuesObject with the PR head
   # (scripts/localdev-argocd.ts install --revision).
@@ -237,24 +237,20 @@ plex:
       readOnly: false
   # (dev-dri mount is also added by plex.yaml — see note above.)
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the external Gateway (GATEWAY_EXTERNAL);
+  # Cloudflare CNAMEs the hostname to the Gateway's target, EXTERNAL_DNS_DEFAULT_TARGET.
+  httpRoute:
     enabled: true
-    ingressClassName: {{ .Values.INGRESS_CLASS_EXTERNAL.Value }}
-    url: "https://{{ .Values.PLEX_HOSTNAME.Value }}"
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt
       external-dns.alpha.kubernetes.io/hostname: {{ .Values.PLEX_HOSTNAME.Value }}
-      external-dns.alpha.kubernetes.io/target: {{ .Values.EXTERNAL_DNS_DEFAULT_TARGET.Value }}
-    hosts:
-      - host: {{ .Values.PLEX_HOSTNAME.Value }}
-        paths:
-          - path: /
-            pathType: Prefix
-    tls:
-      - secretName: plex-tls
-        hosts:
-          - {{ .Values.PLEX_HOSTNAME.Value }}
+    parentRefs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: {{ .Values.GATEWAY_EXTERNAL.Value }}
+        namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+        sectionName: https
+    hostnames:
+      - {{ .Values.PLEX_HOSTNAME.Value }}
 
   # Environment variables
   extraEnv:
@@ -301,7 +297,7 @@ sonarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: {{ if $localdev }}512Mi{{ else }}896Mi{{ end }}
               limits:
                 cpu: 1000m
@@ -349,22 +345,20 @@ sonarr:
 {{- end }}
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.SONARR_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.SONARR_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: sonarr-tls
-          hosts:
-            - {{ .Values.SONARR_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.SONARR_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -410,7 +404,7 @@ radarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: {{ if $localdev }}512Mi{{ else }}640Mi{{ end }}
               limits:
                 cpu: 1000m
@@ -458,22 +452,20 @@ radarr:
 {{- end }}
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.RADARR_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.RADARR_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: radarr-tls
-          hosts:
-            - {{ .Values.RADARR_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.RADARR_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -543,22 +535,20 @@ prowlarr:
       size: 1Gi
 {{- end }}
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.PROWLARR_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.PROWLARR_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: prowlarr-tls
-          hosts:
-            - {{ .Values.PROWLARR_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.PROWLARR_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -643,22 +633,20 @@ nzbget:
 {{- end }}
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.NZBGET_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.NZBGET_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: nzbget-tls
-          hosts:
-            - {{ .Values.NZBGET_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.NZBGET_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -704,7 +692,7 @@ tautulli:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: {{ if $localdev }}256Mi{{ else }}288Mi{{ end }}
               limits:
                 cpu: 500m
@@ -720,22 +708,20 @@ tautulli:
       size: 1Gi
 {{- end }}
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.TAUTULLI_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.TAUTULLI_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: tautulli-tls
-          hosts:
-            - {{ .Values.TAUTULLI_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.TAUTULLI_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -781,7 +767,7 @@ lazylibrarian:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: {{ if $localdev }}256Mi{{ else }}192Mi{{ end }}
               limits:
                 cpu: 500m
@@ -821,22 +807,20 @@ lazylibrarian:
 {{- end }}
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: lazylibrarian-tls
-          hosts:
-            - {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -902,22 +886,20 @@ homeassistant:
       size: 1Gi
 {{- end }}
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: homeassistant-tls
-          hosts:
-            - {{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
 
@@ -1020,11 +1002,6 @@ mosquitto:
           nodePort: 31901
 {{- end }}
           protocol: tcp
-
-  # Authentication configuration
-  mosquitto:
-    auth:
-      enabled: true
 
   TZ: {{ .Values.TIMEZONE.Value }}
 
@@ -1172,8 +1149,169 @@ paperclip:
       authItemPath: {{ .Values.PAPERCLIP_AUTH_1P_PATH.Value }}
       apiKeysItemPath: {{ .Values.PAPERCLIP_API_KEYS_1P_PATH.Value }}
       exporterItemPath: {{ .Values.PAPERCLIP_EXPORTER_1P_PATH.Value }}
+      dotfilesItemPath: "{{ if .Values.PAPERCLIP_DOTFILES_REPO_URL.Value }}{{ .Values.PAPERCLIP_DOTFILES_1P_PATH.Value }}{{ end }}"
 
   # charts/paperclip-database: CloudNativePG Cluster paperclip-postgres. The image is
+  # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.
+  database:
+    instances: 1
+    imageName: "ghcr.io/cloudnative-pg/postgresql:{{ index .Versions.Images "cloudnative-pg-postgresql" }}"
+    # Block storage: PostgreSQL refuses a data directory whose files are not
+    # owned by uid 26, which is what every file on the NFS classes looks like
+    # (mapall). STORAGE_CLASS_SSD is NFS on the SSD pool; this is iSCSI on it.
+    storageClass: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+{{- if $localdev }}
+    # Kind sizing: local-path volume, small footprint
+    storageSize: 1Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+{{- else }}
+    storageSize: 10Gi
+    # Steady load is 0.4-0.9 cores; a 1-core limit throttled Postgres and slowed the paperclip route
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 1Gi
+{{- end }}
+
+  # charts/paperclip: the paperclip.inc Instance (external database mode,
+  # authenticated, private exposure behind the internal Gateway).
+  instance:
+    image:
+      repository: ghcr.io/paperclipai/paperclip
+      tag: "{{ index .Versions.Images "paperclip" }}"
+    # Seeded by the operator's admin-seed Job; the password is the ADMIN_PASSWORD
+    # field of the paperclip-auth item. Homelab's admin exists since 2026-09-15,
+    # so bootstrap is off there (operator 0.19.1 re-runs the Job while adminUser
+    # is rendered, bugs.md 2026-09-30); set it true for one sync on a fresh
+    # database. Kind starts from an empty database every time and keeps it on.
+    admin:
+      bootstrap: {{ if $localdev }}true{{ else }}false{{ end }}
+      email: {{ .Values.PAPERCLIP_ADMIN_EMAIL.Value }}
+      name: Admin
+    route:
+      gateway:
+        name: {{ .Values.GATEWAY_INTERNAL.Value }}
+        namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+    persistence:
+{{- if $localdev }}
+      size: 1Gi
+{{- else }}
+      size: 200Gi
+{{- end }}
+      # Block storage, like the database: the server asserts that its secrets
+      # directory (/paperclip/instances/default/secrets) is owned by uid 1000,
+      # which no file on the NFS classes is (mapall). bugs.md 2026-09-15.
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+    resources:
+{{- if $localdev }}
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+{{- else }}
+      requests:
+        cpu: "1"
+        memory: 16Gi
+      limits:
+        cpu: "2"
+        memory: 16Gi
+{{- end }}
+{{- if not $localdev }}
+    # Pin the server and the operator's admin bootstrap Job to one labelled
+    # node: the Job mounts the ReadWriteOnce iSCSI data volume too, and only
+    # nodeSelector/tolerations reach it (charts/paperclip values.yaml).
+    # kubectl label node <name> paperclip.homelab/pin=true
+    availability:
+      nodeSelector:
+        paperclip.homelab/pin: "true"
+{{- end }}
+{{- if .Values.PAPERCLIP_DOTFILES_REPO_URL.Value }}
+    # The operator's Claude Code setup from a dotfiles repository (charts/paperclip
+    # dotfiles); a private repository reads GIT_TOKEN from the paperclip-dotfiles item.
+    dotfiles:
+      enabled: true
+      repoUrl: {{ .Values.PAPERCLIP_DOTFILES_REPO_URL.Value | printf "%q" }}
+      ref: {{ .Values.PAPERCLIP_DOTFILES_REF.Value | printf "%q" }}
+      claudeDir: {{ .Values.PAPERCLIP_DOTFILES_CLAUDE_DIR.Value | printf "%q" }}
+      profile: {{ .Values.PAPERCLIP_DOTFILES_PROFILE.Value | printf "%q" }}
+      setupCommand: {{ .Values.PAPERCLIP_DOTFILES_SETUP_COMMAND.Value | printf "%q" }}
+{{- if and $onepassword .Values.PAPERCLIP_DOTFILES_1P_PATH.Value }}
+      gitToken:
+        secretName: paperclip-dotfiles
+{{- end }}
+      bunVersion: "{{ index .Versions.Images "bun" }}"
+{{- if eq .Values.PAPERCLIP_MCP_CODESEARCH.Value "true" }}
+      codesearch:
+        repo: {{ .Values.PAPERCLIP_CODESEARCH_REPO.Value | printf "%q" }}
+        version: "{{ with .Values.PAPERCLIP_CODESEARCH_VERSION.Value }}{{ . }}{{ else }}{{ .Versions.Tools.codesearch }}{{ end }}"
+      mcpServers:
+        codesearch:
+          type: stdio
+          command: /paperclip/.local/bin/codesearch
+          args: ["mcp"]
+{{- end }}
+{{- end }}
+    # Agent health exporter for the homelab-paperclip alerts; its board API key
+    # is the paperclip-exporter item (docs/runbooks/paperclip-agents.md).
+    exporter:
+      enabled: true
+      image: "oven/bun:{{ index .Versions.Images "bun" }}"
+{{- if not $localdev }}
+    # One run per agent at a time (templates/agent-policy.yaml). Off in Kind:
+    # the fake board key gets 403 and every Job would fail.
+    agentPolicy:
+      enabled: true
+      image: "oven/bun:{{ index .Versions.Images "bun" }}"
+      maxConcurrentRuns: 1
+{{- end }}
+
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): the
+  # operator's health path on the Instance Service (port 3100).
+  smoke:
+    enabled: true
+    url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
+    expect: ["200"]
+
+# ============================================================================
+# LiteLLM - OpenAI-compatible LLM gateway (componentized chart + CloudNativePG)
+# Sync Waves: 10 namespace, 11 litellm-dependencies, 12 litellm-database
+# (issue #424); the proxy itself follows in a later wave.
+# ============================================================================
+# Runs wherever CloudNativePG runs (both environments). The three 1Password
+# items only render with a secret store; Kind seeds the same Secrets from
+# localdev/fakes/secrets.yaml. Derived values reach the child charts through
+# the parent Applications' helm.valuesObject (ADR-010).
+
+litellm:
+  enabled: true
+  namespace: litellm
+  hostname: {{ .Values.LITELLM_HOSTNAME.Value }}
+
+  # charts/litellm-dependencies: 1Password items -> Secrets
+  # litellm-master-key-secret (field master-key), litellm-salt-key (field
+  # salt-key) and litellm-api-keys (one field per provider credential). Field
+  # names in 1Password must equal these keys. The salt key is a separate item
+  # because rotating it makes every credential already stored in the database
+  # undecryptable, while the master key is safe to rotate.
+  dependencies:
+    onePassword:
+      enabled: {{ $onepassword }}
+      masterKeyItemPath: {{ .Values.LITELLM_MASTER_KEY_1P_PATH.Value }}
+      saltKeyItemPath: {{ .Values.LITELLM_SALT_KEY_1P_PATH.Value }}
+      apiKeysItemPath: {{ .Values.LITELLM_API_KEYS_1P_PATH.Value }}
+
+  # charts/litellm-database: CloudNativePG Cluster litellm-db. The image is
   # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.
   database:
     instances: 1
@@ -1202,72 +1340,3 @@ paperclip:
         cpu: "1"
         memory: 1Gi
 {{- end }}
-
-  # charts/paperclip: the paperclip.inc Instance (external database mode,
-  # authenticated, private exposure behind the internal Traefik).
-  instance:
-    image:
-      repository: ghcr.io/paperclipai/paperclip
-      tag: "{{ index .Versions.Images "paperclip" }}"
-    # Bootstrapped once by the operator's admin-seed Job; the password is the
-    # ADMIN_PASSWORD field of the paperclip-auth item.
-    admin:
-      email: {{ .Values.PAPERCLIP_ADMIN_EMAIL.Value }}
-      name: Admin
-    ingress:
-      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
-    persistence:
-{{- if $localdev }}
-      size: 1Gi
-{{- else }}
-      size: 200Gi
-{{- end }}
-      # Block storage, like the database: the server asserts that its secrets
-      # directory (/paperclip/instances/default/secrets) is owned by uid 1000,
-      # which no file on the NFS classes is (mapall). bugs.md 2026-09-15.
-      storageClass: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
-    resources:
-{{- if $localdev }}
-      requests:
-        cpu: 250m
-        memory: 512Mi
-      limits:
-        cpu: "2"
-        memory: 2Gi
-{{- else }}
-      requests:
-        cpu: 500m
-        memory: 16Gi
-      limits:
-        cpu: "2"
-        memory: 16Gi
-{{- end }}
-{{- if not $localdev }}
-    # Pin the server and the operator's admin bootstrap Job to one labelled
-    # node: the Job mounts the ReadWriteOnce iSCSI data volume too, and only
-    # nodeSelector/tolerations reach it (charts/paperclip values.yaml).
-    # kubectl label node <name> paperclip.homelab/pin=true
-    availability:
-      nodeSelector:
-        paperclip.homelab/pin: "true"
-{{- end }}
-    # Agent health exporter for the homelab-paperclip alerts; its board API key
-    # is the paperclip-exporter item (docs/runbooks/paperclip-agents.md).
-    exporter:
-      enabled: true
-      image: "oven/bun:{{ index .Versions.Images "bun" }}"
-{{- if not $localdev }}
-    # One run per agent at a time (templates/agent-policy.yaml). Off in Kind:
-    # the fake board key gets 403 and every Job would fail.
-    agentPolicy:
-      enabled: true
-      image: "oven/bun:{{ index .Versions.Images "bun" }}"
-      maxConcurrentRuns: 1
-{{- end }}
-
-  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): the
-  # operator's health path on the Instance Service (port 3100).
-  smoke:
-    enabled: true
-    url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
-    expect: ["200"]

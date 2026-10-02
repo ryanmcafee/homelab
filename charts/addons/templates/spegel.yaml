@@ -61,13 +61,9 @@ spec:
         {{- end }}
         spegel:
           logLevel: {{ .Values.spegel.spegel.logLevel }}
-          registries:
-            {{- toYaml .Values.spegel.spegel.registries | nindent 12 }}
           containerdRegistryConfigPath: {{ .Values.spegel.spegel.containerdRegistryConfigPath }}
           containerdContentPath: {{ .Values.spegel.spegel.containerdContentPath }}
           resolveTags: {{ .Values.spegel.spegel.resolveTags }}
-          resolveLatestTag: {{ .Values.spegel.spegel.resolveLatestTag }}
-          appendMirrors: {{ .Values.spegel.spegel.appendMirrors }}
         {{- if .Values.spegel.resources }}
         resources:
           {{- toYaml .Values.spegel.resources | nindent 10 }}

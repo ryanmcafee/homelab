@@ -184,22 +184,25 @@ variable "template_vm_id" {
 }
 
 # Network Configuration (for Ansible)
+#
+# Deliberately no defaults. These three carried one operator's address, gateway
+# and domain, and a default that happens to work on the maintainer's cluster is
+# exactly how that survives unnoticed. The caller resolves them from the
+# ConfigSet (environments/homelab/env.hcl); a caller that does not is stopped by
+# terraform rather than building against somebody else's network.
 variable "truenas_static_ip" {
   description = "Static IP for TrueNAS (CIDR notation)"
   type        = string
-  default     = "172.16.100.150/24"
 }
 
 variable "truenas_gateway" {
   description = "Gateway for TrueNAS network"
   type        = string
-  default     = "172.16.100.1"
 }
 
 variable "truenas_hostname" {
   description = "Hostname for TrueNAS"
   type        = string
-  default     = "truenas.ryanmcafee.com"
 }
 
 # Ansible Configuration

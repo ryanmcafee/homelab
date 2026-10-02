@@ -104,7 +104,7 @@ test("normalizePath and relativeToRoot", () => {
 
 test("watchedPaths: only charts/ and configuration/ of the project root", () => {
   const paths = [
-    `${ROOT}/charts/addons/templates/traefik.yaml`,
+    `${ROOT}/charts/addons/templates/envoy-gateway.yaml`,
     `${ROOT}/configuration/versions.yaml`,
     `${ROOT}/docs/runbooks/verification.md`,
     `${ROOT}/scripts/lib/verify-result.ts`,
@@ -112,7 +112,7 @@ test("watchedPaths: only charts/ and configuration/ of the project root", () => 
     "/elsewhere/charts/addons/values.yaml",
   ];
   assertEquals(watchedPaths(paths, ROOT, ROOT), [
-    "charts/addons/templates/traefik.yaml",
+    "charts/addons/templates/envoy-gateway.yaml",
     "configuration/versions.yaml",
   ]);
 });

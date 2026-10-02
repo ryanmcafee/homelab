@@ -1,8 +1,0 @@
-# traefik-internal-config — local development overrides
-#
-# No overrides are needed here:
-# the internal dashboard IngressRoute takes no per-cluster values.
-#
-# The file still has to exist. The parent Application always appends
-# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails
-# the sync when a declared value file is missing.

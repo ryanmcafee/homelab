@@ -12,6 +12,54 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-30 - `paperclip-bootstrap` Job re-created every ~70 min after the admin exists
+- **Issue**: `KubeJobFailed` for `paperclip/paperclip-bootstrap` kept coming back. Over 7 days the operator re-created the admin-seed Job about every 70 minutes (~80 pods, 47 containers terminated `Error`, none `Completed`), each run ending `BackoffLimitExceeded` and re-mounting the RWO data volume on the pinned node. The server itself stayed healthy
+- **Root Cause**: The Instance still carried `spec.auth.adminUser` (`helm-apps.tmpl` always passes `PAPERCLIP_ADMIN_EMAIL`, `instance.yaml` rendered `adminUser` whenever the e-mail was set). Operator 0.19.1 keeps reconciling the bootstrap Job for that spec and does not short-circuit on `status.bootstrap`, contrary to the assumption in the 2026-09-15 entry below; a re-run against the existing admin fails. The exact error line was not read (pod logs need kubectl)
+- **Solution**: `charts/paperclip` gained `admin.bootstrap` (default `true`); `adminUser` renders only when it is true and an e-mail is set. `helm-apps.tmpl` sets it `false` for homelab and `true` for Kind, whose database starts empty. A fresh homelab database needs `true` for one sync. The leftover failed Job may need a one-time removal after rollout if the operator does not garbage-collect it
+- **Prevention**: Drop one-shot bootstrap specs from operator CRs once they are done; do not assume an operator's seed Job is idempotent without watching it for a few reconcile periods
+
+### 2026-09-30 - Kind ArgoCD Redis pull hit ECR Public data limit (MCAA-852)
+- **Issue**: Cold-cache Kind bootstrap at PR #487 head `aa8d475` timed out on `argocd-redis` with `ImagePullBackOff`; the original CI diagnostics retained no kubelet error
+- **Root Cause**: A reproduced pull through `kind-registry-ecr` returned HTTP 500 for the Redis manifest. All 12 proxy manifest requests logged `toomanyrequests: Data limit exceeded` from ECR Public (QA artifact, run 36713254067)
+- **Solution**: Kind's ArgoCD values use `docker.io/library/redis` with the chart's existing `8.2.3-alpine` tag and Docker Hub pull-through cache. CI diagnostics retain pod events and both registry cache logs; the cache key includes the ArgoCD values file
+- **Prevention**: Keep the required Kind readiness gate; validate the rendered Redis image and use registry logs to diagnose future pull errors. A local render proves image selection, while the required Kind level-2 check establishes end-to-end readiness
+
+### 2026-09-28 - spegel's ten-registry mirror list never reached the DaemonSet (#469)
+- **Issue**: MCAA-396 asked whether spegel mirrors argo-cd's redis, whose image is `ecr-public.aws.com/docker/library/redis` while `charts/addons/values.yaml` listed `https://public.ecr.aws`
+- **Root Cause**: spegel chart 0.6.0 has no `registries` key at all -- it is `mirroredRegistries`, and its empty default mirrors every registry. `resolveLatestTag` and `appendMirrors` were renamed to `registryFilters` and `prependExisting`. The chart ships no `values.schema.json`, so helm accepted all three unknown keys, ArgoCD reported Synced, and `tests/snapshots/` recorded them as expected output
+- **Solution**: Removed the three dead keys from `charts/addons/values.yaml` and `charts/addons/templates/spegel.yaml`. Rendering the upstream chart with the Application's own `spec.source.helm.values` is byte-identical before and after, which is the proof they were inert. Mirroring was already all-registries, so argo-cd's redis was never missing a cache hit
+- **Prevention**: `helm show values <chart> --version <v>` before trusting a values key; translating a dead allowlist to its real key name would have been a regression here. MCAA-434 tracks a CI gate for this class
+
+### 2026-10-01 - argo-workflows workflow-controller CrashLoopBackOff under a 48Mi limit
+- **Issue**: `KubePodCrashLooping` for `argo-workflows-workflow-controller` (container `controller`); while it is down no Workflows are reconciled or archived, so the triage and CI workflows stall
+- **Root Cause**: The homelab render capped the controller at 32Mi request / 48Mi limit (and the server the same) since the block was introduced in 9835d66. The controller holds informer caches for Workflows, Pods, ConfigMaps and WorkflowTemplates plus the Postgres archive pool and needs about 100-250Mi, so it is OOM-killed. Inferred from the config: the pod's `lastState.terminated.reason` and logs could not be read during triage; the other documented cause is an unreachable `argo-workflows-postgres-rw` (docs/runbooks/argo-workflows.md)
+- **Solution**: homelab controller memory request 128Mi, limit 256Mi; server request 64Mi, limit 128Mi (`configuration/templates/helm-addons.tmpl`)
+- **Prevention**: Size Argo controllers for their informer caches; 48Mi is below a Go controller's baseline. Confirm `lastState.terminated.reason` before assuming OOM on a crash loop
+
+### 2026-09-26 - plex and otel-collector-gateway permanently OutOfSync on their HTTPRoute (#387)
+- **Issue**: After the Envoy Gateway cutover, `plex` and `otel-collector-gateway` stayed `OutOfSync`/`Healthy` with only the HTTPRoute out of sync; `argocd app diff` showed nothing
+- **Root Cause**: The `plex-media-server` and `opentelemetry-collector` chart templates render `backendRefs` with only `name` and `port` and accept no `group`/`kind`, so the API server adds `group: ""`, `kind: Service` and `weight: 1`, which the controller's diff flags on every refresh
+- **Solution**: Both Applications ignore those three fields only when they hold the API server default (`jqPathExpressions` with `select`), so a real backend change still shows as drift
+- **Prevention**: When a chart's HTTPRoute template cannot set every defaulted backendRef field, add the same `ignoreDifferences` block to its Application
+
+### 2026-09-26 - kube-state-metrics OOMKilled after the Gateway API custom-resource metrics (#387)
+- **Issue**: `kube-prometheus-stack-kube-state-metrics` crash-looped with `OOMKilled` about one second after start, under its 80Mi limit
+- **Root Cause**: #387 enabled `customResourceState` for Gateway and HTTPRoute. With a custom-resource config, kube-state-metrics runs CRD discovery and caches every CRD; homelab has 139 CRDs (52 MB of JSON). Run locally against the cluster with the same config, its Go heap held at ~115Mi (was ~31Mi without it)
+- **Solution**: homelab memory request 160Mi, limit 256Mi (`configuration/templates/helm-addons.tmpl`)
+- **Prevention**: Size kube-state-metrics for the CRD count, not for the objects it exports, whenever `customResourceState` is on
+
+### 2026-09-26 - HTTPRoute hostnames stopped resolving after the Envoy Gateway cutover (#387)
+- **Issue**: `argocd.<domain>`, `grafana.<domain>` and every other route host returned no answer from UniFi DNS; Cloudflare logged `DELETE plex.<domain>`. `envoy-internal`/`envoy-external` reported `Programmed` False (`AddressNotAssigned`) with their Services `<pending>`
+- **Root Cause**: A manual `addons` sync without prune left the Traefik Applications `PruneSkipped`, so their Services kept the pinned addresses, and the sync waited forever on `envoy-gateway-config` health. external-dns's `gateway-httproute` source takes targets only from the Gateway (target annotation, else `status.addresses`); with no address and `policy: sync` it deleted every record. The route-level `target` annotation on Plex and oauth2-proxy was never read
+- **Solution**: `charts/envoy-gateway-config` annotates each Gateway with `external-dns.alpha.kubernetes.io/target` (`dnsTarget`: `GATEWAY_INTERNAL_STATIC_IP` internal, `EXTERNAL_DNS_DEFAULT_TARGET` external), route-level targets were removed and policy `httproute-target` rejects them. Recovery on the cluster: `argocd app terminate-op addons`, then `argocd app sync addons --prune`
+- **Prevention**: Sync `addons` with prune whenever an Application is removed that holds a LoadBalancer address. DNS for Gateway routes never depends on LoadBalancer status
+
+### 2026-09-26 - addons/applications ComparisonError: required keys missing, then a stale CMP subPath mount
+- **Issue**: After #393 made `DNS_SERVER_IP`, `GITOPS_REPO_URL`, `LAN_CIDR` and `PROXMOX_NODE` required, `addons` and `applications` failed with `validation failed for set "homelab"`; adding the keys to the 1Password document `homelab-environment-config` synced the Secret but the error stayed
+- **Root Cause**: The production env doc never got the four keys. Once added, the `homelab-cmp` sidecar still read the old file: it mounted the Secret with `subPath: homelab.yaml`, and kubelet never refreshes `subPath` mounts. ArgoCD then served the failure from its manifest cache (`Manifest generation error (cached)`)
+- **Solution**: Added the keys to the env doc, restarted `argocd-repo-server` and hard-refreshed the Applications. The sidecar now mounts the whole Secret volume at `/config` (`charts/bootstrap/values.yaml`, `terragrunt/modules/gitops-bootstrap/templates/argocd-values.yaml.tpl`), so doc edits arrive without a restart
+- **Prevention**: When a PR adds a required key, add it to the 1Password env doc before merge. Never mount a Secret the CMP reads with `subPath`; after fixing a CMP render error, hard-refresh the Application to drop the cached failure
+
 ### 2026-09-25 - netflowreceiver emits no receiver self-metrics, alert could never clear
 - **Issue**: `HomelabUniFiTelemetrySilent` fired for `netflow` without end although ClickHouse `otel.otel_logs` held thousands of flow records (`ScopeName = otelcol/netflowreceiver`); the flows also had an empty ServiceName and the gateway logged OTTL "silently ignored a nil value" warnings
 - **Root Cause**: The alert read `otelcol_receiver_accepted_log_records{receiver=~"syslog.*|netflow"}`, but the contrib `netflowreceiver` (v0.160.0) does not use the receiver obsreport helper, so Prometheus had no series with `receiver="netflow"` and the `absent()` branch stayed true. `transform/service-name` set `service.name` from `k8s.container.name`, which flows do not carry
@@ -365,7 +413,7 @@ These are documented errors with known solutions:
 ### 2026-09-15 - Admin bootstrap Job fails with `EMAIL_PASSWORD_SIGN_UP_DISABLED` when `auth.disableSignUp` is true
 - **Issue**: With the node pin in place the bootstrap Job finally ran and failed: `Sign-up returned HTTP 400 ... {"code":"EMAIL_PASSWORD_SIGN_UP_DISABLED"}`, then `Invalid email or password` on the sign-in fallback, so no admin exists and nobody can log in
 - **Root Cause**: The operator's Job (0.19.1) registers the admin through `POST /api/auth/sign-up/email`; `spec.auth.disableSignUp: true` maps to `PAPERCLIP_AUTH_DISABLE_SIGN_UP`, which Better Auth applies to every sign-up including the first (`server/src/auth/better-auth.ts`, no first-user exception). The operator README nevertheless recommends combining the two ("provision the only account")
-- **Solution**: Bootstrap with sign-up enabled, then disable it: PR sets `auth.disableSignUp: false`, the Job registers the admin and the operator records `status.bootstrap`; a follow-up PR sets it back to `true` (the Job short-circuits on an already-bootstrapped instance). The instance is private (internal Traefik only) during the window. Reported upstream so the operator can gate the env var on bootstrap completion
+- **Solution**: Bootstrap with sign-up enabled, then disable it: PR sets `auth.disableSignUp: false`, the Job registers the admin and the operator records `status.bootstrap`; a follow-up PR sets it back to `true` (the assumption that the Job short-circuits on an already-bootstrapped instance was wrong, see 2026-09-30 `paperclip-bootstrap` Job re-created every ~70 min). The instance is private (internal Traefik only) during the window. Reported upstream so the operator can gate the env var on bootstrap completion
 - **Prevention**: For a new Instance with `adminUser`, deploy with `disableSignUp: false` first and flip it after `status.bootstrap` appears; do not trust the operator README on this combination until the upstream fix lands
 
 ### 2026-09-15 - Sporadic Kubernetes API loss: etcd WAL fsync stalled by worker I/O on the shared ZFS pool
@@ -509,3 +557,26 @@ These are documented errors with known solutions:
 - **Root Cause**: `unifi_setting.syslog` set `this_controller = true` and `this_controller_encrypted_only = true`; `this_controller` makes the controller itself the syslog destination and excludes the remote SIEM server
 - **Solution**: Both flags are `false` in `terragrunt/modules/unifi-gateway/main.tf`; apply with `task tf:apply:component COMPONENT=unifi-gateway`
 - **Prevention**: Test an export end to end with one synthetic message before trusting the controller's setting page
+
+### 2026-09-30 - PR dependency triage label write returned 403
+- **Issue**: `pull_request_target` run 36656956730 failed on `PUT /repos/ryanmcafee/homelab/issues/511/labels` although the job log granted `Issues: write`.
+- **Diagnosis**: The workflow labels pull requests through the shared Issues endpoint. The response advertises `issues=write; pull_requests=write`, but the granted Issues scope did not authorize the operation in this run. Repository Actions permission settings could not be read by the current integration (403), so the exact server-side policy remains unconfirmed.
+- **Candidate fix**: PR #533 changes the job to only `pull-requests: write`, adds a one-PR dispatch guard, and documents fork behavior. Security signed off on the token scope. This integration gets 403 when dispatching the branch workflow, so a successful live label write is still required before calling this resolved.
+- **Prevention**: Confirm effective token permissions in the job setup log and exercise a real write; a green static workflow check does not prove authorization.
+
+### 2026-09-30 - PR dependency triage cancelled unrelated PR events
+- **Issue**: A single `pr-dependency-triage` concurrency group let any PR event or hourly sweep cancel a run for a different PR.
+- **Solution**: Key `pull_request_target` runs by the base repository's PR number and put schedule/manual sweeps in a distinct `sweep` group, retaining `cancel-in-progress` for same-PR supersession.
+- **Prevention**: `scripts/pr-dependency-triage-concurrency_test.ts` checks different-PR isolation, same-PR supersession, and sweep separation.
+
+### 2026-09-30 - Cold-draw policy tests timed out on unavailable external commands
+- **Issue**: PR #460's policy job exceeded Bun's five-second limit in two `kind-cold-draw` cases.
+- **Likely Cause**: The capture unit test ran four real `kubectl` and two real `docker` commands through synchronous `Bun.spawnSync`; their latency and host state were outside the test's control. The fixture-only verdict case also timed out in that run, consistent with the synchronous capture blocking the runner. The CI log does not isolate which external command consumed the time.
+- **Solution**: Let the capture test inject a failing command runner, while production capture retains the real runner. The test still checks missing pod and registry evidence and the written artifacts, and now asserts that all six commands ran through the fixture.
+- **Prevention**: In script unit tests, simulate external command results and assert the commands issued; reserve real `kubectl` and `docker` for integration checks.
+
+### 2026-10-01 - KubeCPUOvercommit after the Paperclip/NATS request increases
+- **Issue**: `KubeCPUOvercommit` from 2026-10-01 02:35 UTC: pod CPU requests 13.97 CPU against 13.75 CPU allocatable with the largest node (7.95 CPU) down, 0.22 CPU over
+- **Root Cause**: Requests grew from 12.79 to 13.97 CPU in two days: ca1e123 (Paperclip request to one core, +0.5), #438 (NATS, +0.325), #562 (paperclip-postgres 250m -> 500m, +0.25, merged 18 minutes before the alert) and argo-rollouts (+0.1). Paperclip and postgres use what they request; several other workloads asked for 10-40x their 7-day peak
+- **Solution**: CPU requests sized from the 7-day peak, limits unchanged: sonarr and radarr 200m -> 75m (peak ~50m), tautulli 100m -> 25m (~9m), lazylibrarian 100m -> 25m (~3m), production NATS 100m -> 25m per replica (~6m, 3 replicas). Frees ~0.6 CPU, enough for the overcommit plus one 250m triage stage pod
+- **Prevention**: Before raising a request, check `sum(namespace_cpu:kube_pod_container_resource_requests:sum) - (sum(kube_node_status_allocatable{resource="cpu"}) - max(kube_node_status_allocatable{resource="cpu"}))` stays below 0 with the new value; same failure as the 2026-09-23 entry (KubeCPUOvercommit after the observability rollout)

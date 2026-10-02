@@ -11,7 +11,7 @@ global:
   # Placeholder only. The real base domain never lives in git: Terraform
   # (terragrunt/modules/gitops-bootstrap) injects it into the root gitops
   # Application as a helm parameter (`helm.parameters` global.domain) and the
-  # bootstrap template derives the ArgoCD ingress hostname from it. Level 0
+  # bootstrap template derives the ArgoCD route hostname from it. Level 0
   # mirrors this with --set global.domain=<config DOMAIN>.
   domain: example.com
 
@@ -138,3 +138,11 @@ notifications:
 previews:
   # The `previews` ApplicationSet + AppProject (docs/runbooks/previews.md).
   enabled: true
+  github:
+    # Authenticated polling: the anonymous per-IP quota is shared with the
+    # cluster's other GitHub callers and runs out. Human step: the 1Password
+    # item must exist (field `token`, read-only token for this repository)
+    # before this syncs.
+    tokenSecret:
+      name: previews-github-token
+      onePasswordItemPath: "vaults/homelab/items/previews-github-token"

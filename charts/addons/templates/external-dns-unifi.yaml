@@ -135,7 +135,7 @@ spec:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
 ---
-# Instance 2: Ingress/Service sources with annotation filter
+# Instance 2: internal Gateway HTTPRoute and Service sources with annotation filter
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -194,12 +194,13 @@ spec:
             {{- end }}
 
         sources:
-          - ingress
+          - gateway-httproute
           - service
 
         extraArgs:
           - --annotation-filter=external-dns.alpha.kubernetes.io/hostname
-          - --ingress-class=internal
+          - --gateway-name={{ .Values.global.gateway.internal }}
+          - --gateway-namespace={{ .Values.global.gateway.namespace }}
           - --txt-owner-id=homelab-unifi-ingress
 
         domainFilters:

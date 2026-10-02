@@ -1,0 +1,42 @@
+---
+# CloudNativePG Cluster for LiteLLM. The operator (cloudnative-pg addon,
+# cnpg-system) creates the pods, the -rw/-ro/-r Services and the Secret
+# <name>-app whose username/password keys feed the chart's
+# database.writer.passwordSecret, so no database credential is ever templated
+# here or stored in 1Password.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  instances: {{ .Values.instances }}
+  {{- if .Values.ambientOptOut }}
+  # In an ambient-enrolled namespace the database stays out of the mesh: a
+  # ztunnel restart must never cut PostgreSQL connections, and its Services
+  # bypass the namespace's waypoint (docs/service-mesh.md).
+  inheritedMetadata:
+    labels:
+      istio.io/dataplane-mode: none
+      istio.io/use-waypoint: none
+  {{- end }}
+  {{- with .Values.imageName }}
+  imageName: {{ . | quote }}
+  {{- end }}
+  primaryUpdateStrategy: unsupervised
+  storage:
+    {{- with .Values.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+    size: {{ .Values.storageSize }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.database }}
+      owner: {{ .Values.owner }}
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  monitoring:
+    enablePodMonitor: {{ .Values.monitoring.enablePodMonitor }}
+  postgresql:
+    parameters:
+      {{- toYaml .Values.postgresql.parameters | nindent 6 }}

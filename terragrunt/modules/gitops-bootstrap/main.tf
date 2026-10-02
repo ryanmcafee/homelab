@@ -56,12 +56,12 @@ resource "helm_release" "argocd" {
 
   values = [
     templatefile("${path.module}/templates/argocd-values.yaml.tpl", {
-      admin_enabled          = var.admin_enabled
-      server_ingress_enabled = var.server_ingress_enabled
-      server_host            = var.server_host
-      dex_enabled            = var.dex_enabled
-      notifications_enabled  = var.notifications_enabled
-      cmp_image_version      = var.cmp_image_version
+      admin_enabled         = var.admin_enabled
+      server_route_enabled  = var.server_route_enabled
+      server_host           = var.server_host
+      dex_enabled           = var.dex_enabled
+      notifications_enabled = var.notifications_enabled
+      cmp_image_version     = var.cmp_image_version
     })
   ]
 

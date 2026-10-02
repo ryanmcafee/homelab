@@ -1,0 +1,24 @@
+# argo-rollouts-config values
+#
+# canary-http-health is the only analysis the golden path ships. Its source is
+# an in-cluster HTTP probe Job against the canary Service — not Prometheus — so
+# a fork gets the same rollback behaviour without a metrics pipeline, and the
+# verdict does not depend on a scrape landing inside the analysis window.
+#
+# The parent addons chart overrides images.curl from configuration/versions.yaml.
+
+images:
+  # curlimages/curl tag; configuration/versions.yaml images.curl is the source.
+  curl: "8.22.0"
+
+canaryHttpHealth:
+  # Probes after the canary pods report Ready, then again on each interval.
+  initialDelay: 10s
+  count: 3
+  interval: 15s
+  # One failed probe aborts the rollout: a canary that cannot serve its own
+  # health endpoint has nothing to average out.
+  failureLimit: 0
+  probeTimeoutSeconds: 5
+  jobDeadlineSeconds: 60
+  jobTTLSeconds: 300

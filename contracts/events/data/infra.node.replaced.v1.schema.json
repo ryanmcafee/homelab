@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/infra.node.replaced.v1.schema.json",
+  "title": "infra.node.replaced v1 data",
+  "description": "A cluster node was replaced. Reported after the replacement joined and the old member was removed, so a consumer never sees a half-replaced pair. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "newNode",
+    "role",
+    "reason"
+  ],
+  "properties": {
+    "oldNode": {
+      "type": "string",
+      "description": "Object name.",
+      "maxLength": 253
+    },
+    "newNode": {
+      "type": "string",
+      "description": "Object name.",
+      "maxLength": 253
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "control-plane",
+        "worker"
+      ],
+      "description": "Role of the replaced node."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "upgrade",
+        "hardware-failure",
+        "scale-in",
+        "scale-out",
+        "manual"
+      ],
+      "description": "Why the replacement happened."
+    },
+    "talosVersion": {
+      "type": "string",
+      "description": "Talos version the new node booted, as reported by the node \u2014 not the pinned value from config.",
+      "maxLength": 64
+    },
+    "etcdMemberRemoved": {
+      "type": "boolean",
+      "description": "Control planes only: whether the old etcd member was removed from the member list. False here means quorum arithmetic still counts the old member."
+    }
+  }
+}

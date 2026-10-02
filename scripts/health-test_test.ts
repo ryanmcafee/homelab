@@ -284,12 +284,12 @@ test("argocdErrorSummary: pulls the fatal msg out of argocd's JSON log lines", (
   const stderr = [
     '{"level":"info","msg":"Starting configmap/secret informers","time":"2026-09-12T23:12:39-05:00"}',
     '{"level":"info","msg":"Ignore status for all objects","time":"2026-09-12T23:12:39-05:00"}',
-    '{"level":"fatal","msg":"failed to get resource health for traefik/traefik-external: \\u003cstring\\u003e:2: attempt to index a non-table object(nil) with key \'phase\'","time":"2026-09-12T23:12:39-05:00"}',
+    '{"level":"fatal","msg":"failed to get resource health for envoy-gateway-system/envoy-external: \\u003cstring\\u003e:2: attempt to index a non-table object(nil) with key \'phase\'","time":"2026-09-12T23:12:39-05:00"}',
     "",
   ].join("\n");
   assertEquals(
     argocdErrorSummary(stderr),
-    "fatal: failed to get resource health for traefik/traefik-external: <string>:2: attempt to index a non-table object(nil) with key 'phase'",
+    "fatal: failed to get resource health for envoy-gateway-system/envoy-external: <string>:2: attempt to index a non-table object(nil) with key 'phase'",
   );
 });
 

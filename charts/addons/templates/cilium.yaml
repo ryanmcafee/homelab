@@ -65,8 +65,8 @@ spec:
         - /metadata/annotations
         - /metadata/labels
 ---
-# Config Application: the Cilium objects that need CRDs, cert-manager or
-# Traefik, which the Talos-applied release cannot carry (charts/cilium-config).
+# Config Application: the Cilium objects that need the monitoring or Gateway
+# API CRDs, which the Talos-applied release cannot carry (charts/cilium-config).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -88,6 +88,9 @@ spec:
         - values-{{ .Values.global.environment }}.yaml
       valuesObject:
         {{- toYaml .Values.cilium.config | nindent 8 }}
+        gateway:
+          name: {{ .Values.global.gateway.internal }}
+          namespace: {{ .Values.global.gateway.namespace }}
   destination:
     server: https://kubernetes.default.svc
     namespace: kube-system

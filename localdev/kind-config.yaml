@@ -12,7 +12,7 @@
 # Architecture:
 # - 1 control-plane node with ingress-ready label
 # - 2 worker nodes for application workloads
-# - Port mappings for Traefik and ArgoCD access
+# - Port mappings for the Envoy Gateway and ArgoCD access
 ---
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -31,7 +31,7 @@ nodes:
           kubeletExtraArgs:
             node-labels: "ingress-ready=true"
     extraPortMappings:
-      # Traefik HTTP/HTTPS (NodePort mode)
+      # Gateway HTTP/HTTPS; on macOS use task localdev:gateway instead
       # Access via http://localhost:9080 and https://localhost:9443
       - containerPort: 80
         hostPort: 9080

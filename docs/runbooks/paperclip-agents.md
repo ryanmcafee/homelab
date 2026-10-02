@@ -11,7 +11,7 @@ alerts route like every other rule (warning -> Pushover low priority, critical -
 | Metrics | Source |
 |---|---|
 | `container_memory_working_set_bytes`, `kube_pod_container_resource_limits`, `kube_pod_container_status_*` | cAdvisor and kube-state-metrics (kube-prometheus-stack) |
-| `paperclip_*` | `paperclip-exporter` Deployment in namespace `paperclip` (`charts/paperclip/templates/exporter.yaml`) |
+| `paperclip_*` | `paperclip-exporter` Rollout in namespace `paperclip` (`charts/paperclip/templates/exporter.yaml`, [progressive-delivery.md](../progressive-delivery.md)) |
 
 The exporter is `charts/paperclip/files/paperclip-exporter.ts` run by the stock `oven/bun` image
 (`configuration/versions.yaml` `images.bun`). On each scrape (every 60 s) it reads, for every
@@ -24,10 +24,14 @@ board API key. Unit tests: `task test:scripts -- scripts/paperclip-exporter_test
 | `paperclip_up` | | 1 if every API read of the last scrape succeeded |
 | `paperclip_agent_runs_finished` | `company_id`, `company`, `status` | runs that finished in the last hour (`paperclip_agent_runs_window_seconds`) by status: succeeded, failed, interrupted, cancelled, timed_out |
 | `paperclip_agent_runs_errors` | `company_id`, `company`, `error_code` | the same runs by error code (`orphaned_running_run`, `process_lost`, `acpx_turn_failed`, ...) |
-| `paperclip_agent_runs_live` | `company_id`, `company` | queued, running or scheduled-retry runs |
+| `paperclip_agent_runs_live` | `company_id`, `company` | queued, running or scheduled-retry runs: the larger of the `/live-runs` count and the count among the newest `RUN_LIMIT` heartbeat runs |
 | `paperclip_agents` | `company_id`, `company`, `status` | agents by status |
-| `paperclip_agents_phantom_running` | `company_id`, `company` | agents in status `running` without a live run |
+| `paperclip_agents_phantom_running` | `company_id`, `company` | agents in status `running` with a live run in neither `/live-runs` nor the newest heartbeat runs |
 | `paperclip_recovery_rate_percent`, `paperclip_recovery_threshold_percent`, `paperclip_recovery_breached`, `paperclip_recovery_week_runs`, `paperclip_recovery_week_actions` | `company_id`, `company` | the latest week of recovery-observability and Paperclip's own breach verdict |
+
+`/live-runs` returns at most 50 entries. A live gauge flat at exactly 50 means that cap, not 50
+real runs; the exporter reads the heartbeat runs too, so agents whose run is past the cap are not
+counted as phantom.
 
 ## The 1Password item
 
@@ -71,10 +75,10 @@ recovery alerts. Follow the memory steps above, then check that agents restarted
 
 ### PaperclipMetricsUnavailable (warning, 15 m)
 
-The agent alerts below cannot fire. `kubectl -n paperclip logs deploy/paperclip-exporter`
+The agent alerts below cannot fire. `kubectl -n paperclip logs -l app.kubernetes.io/name=paperclip-exporter`
 names the endpoint and HTTP status: 401/403 = the item is missing or the key was revoked
 (create a new board key, update the field; the operator refreshes the Secret, then
-`kubectl -n paperclip rollout restart deploy/paperclip-exporter` picks it up); connection errors
+`kubectl argo rollouts restart paperclip-exporter -n paperclip` picks it up); connection errors
 = Paperclip itself is down (`HomelabProbeFailing` on `paperclip-direct` says the same).
 
 ### PaperclipAgentFailureRateHigh (warning, > 20 % of >= 5 runs in 1 h, for 15 m)

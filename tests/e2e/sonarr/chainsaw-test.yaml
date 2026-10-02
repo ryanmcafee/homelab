@@ -6,7 +6,7 @@ metadata:
   name: sonarr
 spec:
   description: >-
-    Sonarr /ping answers through the internal Traefik with Host sonarr.homelab.local.
+    Sonarr /ping answers through the internal Envoy Gateway with Host sonarr.homelab.local.
   steps:
     - name: applications-healthy
       description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
@@ -46,10 +46,34 @@ spec:
             kind: Application
             name: sonarr-config
             namespace: argocd
+    - name: route-sonarr
+      description: >-
+        The HTTPRoute for sonarr.homelab.local is Accepted by envoy-internal
+        and its backend refs resolve.
+      try:
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: HTTPRoute
+              metadata:
+                namespace: media
+              spec:
+                (contains(hostnames, 'sonarr.homelab.local')): true
+              status:
+                (parents[?parentRef.name == 'envoy-internal']):
+                  - (conditions[?type == 'Accepted']):
+                      - status: "True"
+                    (conditions[?type == 'ResolvedRefs']):
+                      - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            namespace: media
     - name: curl-sonarr
       description: >-
         A curl Job must get one of [200]
-        from https://sonarr.homelab.local/ping via traefik-internal.traefik.svc.cluster.local.
+        from https://sonarr.homelab.local/ping via envoy-internal.envoy-gateway-system.svc.cluster.local.
       timeouts:
         assert: 5m
       try:
@@ -89,7 +113,7 @@ spec:
                           - name: HOST
                             value: "sonarr.homelab.local"
                           - name: GATEWAY
-                            value: "traefik-internal.traefik.svc.cluster.local"
+                            value: "envoy-internal.envoy-gateway-system.svc.cluster.local"
                           - name: URL_PATH
                             value: "/ping"
                           - name: EXPECT

@@ -144,20 +144,15 @@ if mode == "direct":
     # Core Addons
     # ========================================================================
 
-    # Traefik Ingress Controller (NodePort mode for Kind)
+    # Envoy Gateway controller (Gateway API)
     helm_resource(
-        "traefik",
-        chart="traefik",
-        namespace="traefik",
+        "envoy-gateway",
+        chart="oci://docker.io/envoyproxy/gateway-helm",
+        namespace="envoy-gateway-system",
         flags=[
             "--create-namespace",
-            "--repo=https://traefik.github.io/charts",
-            "--set=service.type=NodePort",
-            "--set=ports.web.nodePort=30080",
-            "--set=ports.websecure.nodePort=30443",
-            "--set=additionalArguments={--global.checknewversion=false,--global.sendanonymoususage=false}",
-            "--set=resources.requests.cpu=50m",
-            "--set=resources.requests.memory=128Mi",
+            "--set=deployment.envoyGateway.resources.requests.cpu=50m",
+            "--set=deployment.envoyGateway.resources.requests.memory=128Mi",
         ],
         resource_deps=["local-path-provisioner"],
         labels=["addons"],
@@ -265,7 +260,7 @@ local_resource(
         echo "              Username: admin"
         echo "              Password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
     fi
-    echo "  Traefik:    http://localhost:9080"
+    echo "  Gateway:    http://localhost:9080 (task localdev:gateway)"
     echo "  Grafana:    http://localhost:3000 (if enabled)"
     echo "              Username: admin"
     echo "              Password: admin"

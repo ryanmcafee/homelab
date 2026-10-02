@@ -18,7 +18,7 @@ global:
   # Environment identifier (localdev, homelab)
   environment: homelab
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: example.com
 
   # Git repository containing chart sources
@@ -256,12 +256,19 @@ previews:
     # A pull request gets a preview while it carries every label listed here.
     labels:
       - preview
-    # Optional Secret in namespace argocd holding a GitHub token. The repo is
-    # public, so anonymous requests work (60/hour; polling every 300s uses
-    # about 12). Empty name = anonymous.
+    # Secret in namespace argocd holding a read-only GitHub token (public
+    # repository / pull requests: read), produced from 1Password by
+    # templates/previews-github-token.yaml. Empty name = anonymous, which is
+    # fine only where nothing else polls GitHub: the anonymous limit (60/hour)
+    # is per egress IP and shared with every other anonymous caller in the
+    # cluster. Once it is exhausted the generator fails, the ApplicationSet
+    # reports ErrorOccurred and the gitops Application goes Degraded, so
+    # production sets a token (values-homelab.yaml).
     tokenSecret:
       name: ""
       key: token
+      # 1Password item path; required when name is set.
+      onePasswordItemPath: ""
   # Poll interval in seconds: GitHub webhooks cannot reach the internal-only
-  # ArgoCD ingress.
+  # ArgoCD route.
   requeueAfterSeconds: 300

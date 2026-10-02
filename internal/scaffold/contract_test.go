@@ -98,7 +98,7 @@ func TestScaffoldedRepoSatisfiesConfigContract(t *testing.T) {
 		}
 	}
 	if _, ok := schema.Keys["CONTRACT_OPERATOR_HOSTNAME"]; ok {
-		t.Error("the operator pattern has no Ingress and must not declare a hostname key")
+		t.Error("the operator pattern has no HTTPRoute and must not declare a hostname key")
 	}
 
 	versionsText, _ := os.ReadFile(filepath.Join(cfg, "versions.yaml"))

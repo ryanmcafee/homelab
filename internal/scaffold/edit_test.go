@@ -111,14 +111,14 @@ systemNamespaces:
 }
 
 func TestInsertSortedListItem(t *testing.T) {
-	const huge = "# c\n---\ncharts:\n  - argocd\n  - cilium\n  - traefik\n"
+	const huge = "# c\n---\ncharts:\n  - argocd\n  - cilium\n  - tailscale-operator\n"
 	tests := []struct {
 		item string
 		want string
 	}{
-		{"cert-manager", "# c\n---\ncharts:\n  - argocd\n  - cert-manager\n  - cilium\n  - traefik\n"},
-		{"aaa", "# c\n---\ncharts:\n  - aaa\n  - argocd\n  - cilium\n  - traefik\n"},
-		{"zzz", "# c\n---\ncharts:\n  - argocd\n  - cilium\n  - traefik\n  - zzz\n"},
+		{"cert-manager", "# c\n---\ncharts:\n  - argocd\n  - cert-manager\n  - cilium\n  - tailscale-operator\n"},
+		{"aaa", "# c\n---\ncharts:\n  - aaa\n  - argocd\n  - cilium\n  - tailscale-operator\n"},
+		{"zzz", "# c\n---\ncharts:\n  - argocd\n  - cilium\n  - tailscale-operator\n  - zzz\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.item, func(t *testing.T) {

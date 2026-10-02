@@ -10,12 +10,12 @@ import (
 const versionsFixture = `charts:
   # renovate: datasource=helm depName=argo-cd registryUrl=https://argoproj.github.io/argo-helm
   argocd: "9.5.17"
+  # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
+  external-dns: "1.21.1"
   # renovate: datasource=helm depName=connect registryUrl=https://1password.github.io/connect-helm-charts
   onepassword-connect: "2.4.1"
   # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
   renovate: "46.106.12"
-  # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
-  traefik: "39.0.9"
   unifi-port-forward: "1.1.1"
 images:
   # renovate: datasource=docker depName=curlimages/curl
@@ -50,7 +50,7 @@ func TestLoadVersionPinsReadsRenovateDepNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"argocd": "argo-cd", "onepassword-connect": "connect", "renovate": "renovate", "traefik": "traefik"}
+	want := map[string]string{"argocd": "argo-cd", "onepassword-connect": "connect", "renovate": "renovate", "external-dns": "external-dns"}
 	for k, v := range want {
 		if pins.DepNames[k] != v {
 			t.Errorf("DepNames[%s] = %q, want %q", k, pins.DepNames[k], v)
@@ -81,7 +81,7 @@ func TestCheckVersions(t *testing.T) {
 	}{
 		{
 			name:       "pins matched by chart name, depName and application name",
-			render:     app("argocd", "https://argoproj.github.io/argo-helm", "argo-cd", "9.5.17", "a: 1") + app("onepassword-operator", "https://1password.github.io/connect-helm-charts", "connect", "2.4.1", "a: 1") + app("traefik-internal", "https://traefik.github.io/charts", "traefik", "39.0.9", "a: 1") + gitApp,
+			render:     app("argocd", "https://argoproj.github.io/argo-helm", "argo-cd", "9.5.17", "a: 1") + app("onepassword-operator", "https://1password.github.io/connect-helm-charts", "connect", "2.4.1", "a: 1") + app("external-dns-unifi", "https://kubernetes-sigs.github.io/external-dns/", "external-dns", "1.21.1", "a: 1") + gitApp,
 			wantStatus: StatusPass,
 			wantDetail: "3 chart source(s) match configuration/versions.yaml; 0 allowed",
 		},
@@ -245,6 +245,7 @@ func TestCheckPins(t *testing.T) {
 		{"lag entry without a reason is rejected", envHCL, bootstrap, strings.Replace(talosLag, "    reason: upgrade in progress\n", "", 1), StatusFail, "has no reason"},
 		{"bootstrap argocd chart drifted", envHCL, strings.Replace(bootstrap, "9.7.1", "9.4.7", 1), "", StatusFail, "charts.argocd at 9.4.7"},
 		{"one cmp tag stale", envHCL, strings.Replace(bootstrap, "homelab-cmp:0.1.31\n      extraContainers", "homelab-cmp:0.1.30\n      extraContainers", 1), "", StatusFail, "images.homelab-cmp at 0.1.30"},
+		{"renovate annotation above the version line", envHCL, strings.ReplaceAll(bootstrap, "    version: ", "    # renovate: datasource=helm depName=x\n    version: "), "", StatusPass, "6 pin(s)"},
 		{"pin missing", "locals {}\n", bootstrap, "", StatusFail, "no pin found for tools.talos"},
 	}
 	for _, tc := range tests {

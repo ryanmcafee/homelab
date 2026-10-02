@@ -108,10 +108,14 @@ inputs = {
   template_vm_id = 9000
 
   # Network for Ansible configuration
-  truenas_static_ip     = "${include.env.locals.truenas_ip}/24"
-  truenas_gateway       = include.env.locals.gateway
-  truenas_hostname      = include.env.locals.truenas_hostname
-  truenas_lan_static_ip = "172.16.10.150/24"
+  # Prefix length comes from LAN_CIDR rather than a hard-coded /24: a fork on a
+  # /23 or /16 would otherwise get a netmask that does not match its own LAN.
+  truenas_static_ip = "${include.env.locals.truenas_ip}/${split("/", include.env.locals.subnet)[1]}"
+  truenas_gateway   = include.env.locals.gateway
+  truenas_hostname  = include.env.locals.truenas_hostname
+  # TRUENAS_LAN_IP is optional in the schema — not every fork has a separate
+  # storage VLAN — and the module's default for this variable is "".
+  truenas_lan_static_ip = try(include.env.locals.config.TRUENAS_LAN_IP, "")
 
   # Ansible setup (runs after VM is up)
   run_ansible_setup      = true

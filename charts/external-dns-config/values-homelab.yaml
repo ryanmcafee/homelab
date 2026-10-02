@@ -1,11 +1,13 @@
 # external-dns-config homelab values
+#
+# The onePasswordItemPath keys are NOT set here: the addons external-dns-config
+# Application passes them through helm.valuesObject from EXTERNAL_DNS_1P_PATH and
+# EXTERNAL_DNS_UNIFI_1P_PATH, so a fork's keys are what reach the OnePasswordItems.
 
 cloudflare:
   enabled: true
   namespace: external-dns
-  onePasswordItemPath: "vaults/homelab/items/cloudflare"
 
 unifi:
   enabled: true
   namespace: external-dns-unifi
-  onePasswordItemPath: "vaults/homelab/items/unifi"

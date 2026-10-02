@@ -850,7 +850,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Requests per second into the internal and external Traefik, by status class (Prometheus).",
+      "description": "Requests per second into envoy-internal and envoy-external, by listener and status class (Prometheus).",
       "gridPos": {
         "h": 8,
         "w": 24,
@@ -865,13 +865,13 @@
             "uid": "prometheus"
           },
           "editorType": "code",
-          "expr": "sum by (container, entrypoint, code_class) (label_replace(rate(traefik_entrypoint_requests_total[$__rate_interval]), \"code_class\", \"${1}xx\", \"code\", \"([0-9])..\"))",
-          "legendFormat": "{{container}} {{entrypoint}} {{code_class}}",
+          "expr": "sum by (gateway, envoy_http_conn_manager_prefix, code_class) (label_replace(rate(envoy_http_downstream_rq_xx{envoy_http_conn_manager_prefix=~\"https?-.*\"}[$__rate_interval]), \"code_class\", \"${1}xx\", \"envoy_response_code_class\", \"([0-9])\"))",
+          "legendFormat": "{{gateway}} {{envoy_http_conn_manager_prefix}} {{code_class}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Traefik requests by entrypoint",
+      "title": "Envoy Gateway requests by listener",
       "type": "timeseries",
       "fieldConfig": {
         "defaults": {

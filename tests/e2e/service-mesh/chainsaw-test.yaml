@@ -1,13 +1,14 @@
 ---
 # Istio ambient mesh (docs/service-mesh.md): control plane and node agents are
-# up, and Kiali answers through the internal Traefik on servicemesh.homelab.local.
+# up, and Kiali answers through the internal Envoy Gateway on servicemesh.homelab.local.
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: service-mesh
 spec:
   description: >-
-    istiod, istio-cni and ztunnel are Healthy, paperclip is enrolled with a programmed waypoint, and Kiali /healthz answers through the internal Traefik.
+    istiod, istio-cni and ztunnel are Healthy, paperclip is enrolled with a programmed waypoint,
+    and Kiali /healthz answers through the internal Envoy Gateway.
   steps:
     - name: applications-healthy
       description: The ArgoCD Applications behind the mesh are Healthy and their last sync Succeeded.
@@ -173,10 +174,34 @@ spec:
             namespace: paperclip
         - events:
             namespace: paperclip
+    - name: route-service-mesh
+      description: >-
+        The HTTPRoute for servicemesh.homelab.local is Accepted by envoy-internal
+        and its backend refs resolve.
+      try:
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: HTTPRoute
+              metadata:
+                namespace: istio-system
+              spec:
+                (contains(hostnames, 'servicemesh.homelab.local')): true
+              status:
+                (parents[?parentRef.name == 'envoy-internal']):
+                  - (conditions[?type == 'Accepted']):
+                      - status: "True"
+                    (conditions[?type == 'ResolvedRefs']):
+                      - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            namespace: istio-system
     - name: curl-kiali
       description: >-
         A curl Job must get 200 from https://servicemesh.homelab.local/healthz
-        via traefik-internal.traefik.svc.cluster.local.
+        via envoy-internal.envoy-gateway-system.svc.cluster.local.
       timeouts:
         assert: 5m
       try:
@@ -216,7 +241,7 @@ spec:
                           - name: HOST
                             value: "servicemesh.homelab.local"
                           - name: GATEWAY
-                            value: "traefik-internal.traefik.svc.cluster.local"
+                            value: "envoy-internal.envoy-gateway-system.svc.cluster.local"
                           - name: URL_PATH
                             value: "/healthz"
                           - name: EXPECT

@@ -165,6 +165,7 @@ spec:
         operator:
           create: true
           autoRestart: true
+          pollingInterval: 60
           # Use token from the SOPS-encrypted credentials secret
           token:
             name: onepassword-credentials
@@ -249,6 +250,7 @@ spec:
         configs:
           cm:
             accounts.agent: apiKey
+            accounts.triage-agent: apiKey
             kustomize.buildOptions: --enable-alpha-plugins --enable-exec
             resource.customizations.health.argoproj.io_Application: |
               -- ArgoCD Application: propagate the child Application's own health so the
@@ -311,22 +313,163 @@ spec:
                 hs.message = "Waiting for external-dns to observe generation " .. tostring(generation) .. " (observed " .. tostring(observed) .. ")"
               end
               return hs
-            resource.customizations.health.networking.k8s.io_Ingress: |
-              -- Ingress: treat as Healthy even without a loadBalancer address.
-              -- This prevents a circular dependency during the initial sync when Traefik
-              -- (which would populate status.loadBalancer) is not deployed yet.
+            resource.customizations.health.gateway.networking.k8s.io_HTTPRoute: |
+              -- HTTPRoute: Degraded when a Gateway rejects it or a reference is invalid;
+              -- Healthy otherwise, also before any Gateway has written status. Routes sync
+              -- before their Gateway exists (argocd at bootstrap wave 1, Gateways at addons
+              -- wave 6), so waiting for status, as the built-in check does, would deadlock.
               hs = {}
               hs.status = "Healthy"
-              hs.message = ""
-              if obj.status ~= nil then
-                if obj.status.loadBalancer ~= nil then
-                  if obj.status.loadBalancer.ingress ~= nil then
-                    hs.message = "Load balancer ingress configured"
-                  else
-                    hs.message = "Waiting for load balancer (non-blocking)"
+              hs.message = "Waiting for the Gateway to accept the route (non-blocking)"
+              local generation = nil
+              if obj.metadata ~= nil then
+                generation = obj.metadata.generation
+              end
+              if obj.status == nil or obj.status.parents == nil then
+                return hs
+              end
+              local accepted = 0
+              local pending = nil
+              for _, parent in ipairs(obj.status.parents) do
+                local name = ""
+                if parent.parentRef ~= nil and parent.parentRef.name ~= nil then
+                  name = parent.parentRef.name
+                end
+                if parent.conditions ~= nil then
+                  for _, condition in ipairs(parent.conditions) do
+                    local current = generation == nil or condition.observedGeneration == nil or condition.observedGeneration == generation
+                    if current and (condition.type == "Accepted" or condition.type == "ResolvedRefs") then
+                      if condition.type == "ResolvedRefs" and condition.status == "False" and condition.reason == "BackendNotFound" then
+                        -- The backend often syncs later (kiali at wave 10); HomelabHTTPRouteNotAccepted alerts if it never appears.
+                        pending = "Gateway " .. name .. ": backend not found yet"
+                      elseif condition.status == "False" then
+                        hs.status = "Degraded"
+                        hs.message = "Gateway " .. name .. ": " .. condition.type .. " is False"
+                        if condition.message ~= nil and condition.message ~= "" then
+                          hs.message = hs.message .. ": " .. condition.message
+                        end
+                        return hs
+                      end
+                      if condition.type == "Accepted" and condition.status == "True" then
+                        accepted = accepted + 1
+                      end
+                    end
                   end
                 end
               end
+              if pending ~= nil then
+                hs.message = pending
+              elseif accepted > 0 then
+                hs.message = "Accepted by " .. accepted .. " Gateway(s)"
+              end
+              return hs
+            resource.customizations.health.jetstream.nats.io_Consumer: |
+              -- NACK reconciles a jetstream.nats.io Consumer into a durable consumer on the
+              -- NATS server and reports the outcome as condition Ready. Without a script for
+              -- the kind ArgoCD reports the resource Healthy on apply, so a consumer NACK
+              -- rejected -- a filterSubject outside the stream's subjects, or a durable whose
+              -- stream does not exist -- would read as a working subscriber with nothing
+              -- consuming the stream.
+              -- NACK often leaves condition.message empty, and "" is truthy in Lua, so fall
+              -- back explicitly instead of relying on `or`.
+              local function messageOr(condition, fallback)
+                if condition.message ~= nil and condition.message ~= "" then
+                  return condition.message
+                end
+                return fallback
+              end
+        
+              hs = {}
+              hs.status = "Progressing"
+              hs.message = "Waiting for NACK to report a Ready condition"
+              if obj.status ~= nil and obj.status.conditions ~= nil then
+                for _, condition in ipairs(obj.status.conditions) do
+                  if condition.type == "Ready" then
+                    if condition.status == "True" then
+                      hs.status = "Healthy"
+                      hs.message = messageOr(condition, "Consumer created on the NATS server")
+                    elseif condition.status == "False" then
+                      hs.status = "Degraded"
+                      hs.message = messageOr(condition, "NACK could not reconcile the consumer")
+                    else
+                      hs.message = messageOr(condition, "Ready condition is Unknown")
+                    end
+                  end
+                end
+              end
+        
+              -- An ackWait or maxDeliver edit NACK has not observed yet still carries the
+              -- previous generation's Ready=True, which would report the old delivery
+              -- behaviour as the new one. Trust the condition only once it has caught up.
+              if
+                hs.status == "Healthy"
+                and obj.metadata ~= nil
+                and obj.metadata.generation ~= nil
+                and obj.status.observedGeneration ~= nil
+                and obj.status.observedGeneration < obj.metadata.generation
+              then
+                hs.status = "Progressing"
+                hs.message = "Waiting for NACK to observe generation "
+                  .. tostring(obj.metadata.generation)
+                  .. " (observed "
+                  .. tostring(obj.status.observedGeneration)
+                  .. ")"
+              end
+        
+              return hs
+            resource.customizations.health.jetstream.nats.io_Stream: |
+              -- NACK reconciles a jetstream.nats.io Stream into a real stream on the NATS
+              -- server and reports the outcome as condition Ready. With no script for the
+              -- kind ArgoCD has no health for it at all, so it calls the resource Healthy the
+              -- moment it is applied and nats-config goes green whether or not the stream
+              -- exists: an overlapping-subject rejection (10065) or a replica count the
+              -- cluster cannot satisfy (10074) would never surface.
+              -- NACK often leaves condition.message empty, and "" is truthy in Lua, so fall
+              -- back explicitly instead of relying on `or`.
+              local function messageOr(condition, fallback)
+                if condition.message ~= nil and condition.message ~= "" then
+                  return condition.message
+                end
+                return fallback
+              end
+        
+              hs = {}
+              hs.status = "Progressing"
+              hs.message = "Waiting for NACK to report a Ready condition"
+              if obj.status ~= nil and obj.status.conditions ~= nil then
+                for _, condition in ipairs(obj.status.conditions) do
+                  if condition.type == "Ready" then
+                    if condition.status == "True" then
+                      hs.status = "Healthy"
+                      hs.message = messageOr(condition, "Stream created on the NATS server")
+                    elseif condition.status == "False" then
+                      hs.status = "Degraded"
+                      hs.message = messageOr(condition, "NACK could not reconcile the stream")
+                    else
+                      hs.message = messageOr(condition, "Ready condition is Unknown")
+                    end
+                  end
+                end
+              end
+        
+              -- A retention or subject edit NACK has not observed yet still carries the
+              -- previous generation's Ready=True, which would report the old stream as the
+              -- new one. Trust the condition only once the controller has caught up.
+              if
+                hs.status == "Healthy"
+                and obj.metadata ~= nil
+                and obj.metadata.generation ~= nil
+                and obj.status.observedGeneration ~= nil
+                and obj.status.observedGeneration < obj.metadata.generation
+              then
+                hs.status = "Progressing"
+                hs.message = "Waiting for NACK to observe generation "
+                  .. tostring(obj.metadata.generation)
+                  .. " (observed "
+                  .. tostring(obj.status.observedGeneration)
+                  .. ")"
+              end
+        
               return hs
             resource.customizations.health.onepassword.com_OnePasswordItem: |
               -- 1Password Connect operator OnePasswordItem: Healthy once the operator has
@@ -420,10 +563,14 @@ spec:
               return hs
           params:
             application.namespaces: preview-*
+            controller.diff.server.side: "true"
             server.insecure: true
           rbac:
             policy.csv: |
               g, agent, role:readonly
+              p, role:triage-agent, applications, get, */*, allow
+              p, role:triage-agent, applications, sync, */*, allow
+              g, triage-agent, role:triage-agent
         controller:
           metrics:
             enabled: true
@@ -443,7 +590,7 @@ spec:
             requests:
               memory: 48Mi
         notifications:
-          argocdUrl: https://argocd.REPLACEME-domain.com
+          argocdUrl: https://argocd.replaceme-domain.com
           enabled: true
           metrics:
             enabled: true
@@ -474,7 +621,7 @@ spec:
             env:
             - name: ARGOCD_EXEC_TIMEOUT
               value: "90"
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.50
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.54
             name: homelab-cmp
             resources:
               limits:
@@ -491,10 +638,9 @@ spec:
               name: plugins
             - mountPath: /tmp
               name: cmp-tmp
-            - mountPath: /config/homelab.yaml
+            - mountPath: /config
               name: homelab-config
               readOnly: true
-              subPath: homelab.yaml
           initContainers:
           - args:
             - /usr/local/bin/ksops
@@ -502,7 +648,7 @@ spec:
             - /custom-tools/
             command:
             - /bin/cp
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.50
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.54
             name: install-ksops
             volumeMounts:
             - mountPath: /custom-tools
@@ -548,17 +694,20 @@ spec:
               optional: true
               secretName: homelab-environment-config
         server:
-          ingress:
+          httproute:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: argocd.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: argocd.replaceme-domain.com
             enabled: true
-            extraTls:
-            - hosts:
-              - argocd.REPLACEME-domain.com
-              secretName: argocd-server-tls
-            hostname: argocd.REPLACEME-domain.com
-            ingressClassName: internal
+            hostnames:
+            - argocd.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
+          ingress:
+            enabled: false
           metrics:
             enabled: true
             serviceMonitor:
@@ -593,6 +742,8 @@ spec:
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
+      # The HTTPRoute CRD arrives with addons wave 1, after this Application.
+      - SkipDryRunOnMissingResource=true
 
   # Ignore differences in fields that change frequently
   ignoreDifferences:

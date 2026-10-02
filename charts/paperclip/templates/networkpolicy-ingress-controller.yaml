@@ -1,8 +1,8 @@
 {{- /*
 The app calls itself on its public URL; Cilium checks egress after the
-LoadBalancer DNAT, so the Traefik container ports must be allowed, not 80/443.
+LoadBalancer DNAT, so the Envoy listener container ports must be allowed, not 80/443.
 */}}
-{{- if .Values.security.networkPolicy.enabled }}
+{{- if and .Values.security.networkPolicy.enabled .Values.route.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -18,10 +18,13 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ .Values.security.networkPolicy.ingressController.namespace }}
+              kubernetes.io/metadata.name: {{ .Values.route.gateway.namespace }}
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: traefik
+              app.kubernetes.io/name: envoy
+              app.kubernetes.io/component: proxy
+              gateway.envoyproxy.io/owning-gateway-name: {{ .Values.route.gateway.name }}
+              gateway.envoyproxy.io/owning-gateway-namespace: {{ .Values.route.gateway.namespace }}
       ports:
         {{- range .Values.security.networkPolicy.ingressController.ports }}
         - protocol: TCP

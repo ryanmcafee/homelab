@@ -8,9 +8,11 @@ iscsi:
   portal: ""
 
 # Alert "Source" links (Prometheus generatorURL, /graph?g0.expr=...) on the
-# Grafana host redirect to the Alert query dashboard. The parent Application
-# sets ingressClassName so the CRD provider of that Traefik loads the Middleware.
+# Grafana host redirect to the Alert query dashboard. An EnvoyExtensionPolicy
+# runs the redirect on the HTTPRoute that routeLabels select.
 alertSource:
-  ingressClassName: ""
-  middlewareName: grafana-alert-source
+  policyName: grafana-alert-source
   dashboardUid: alert-query
+  routeLabels:
+    app.kubernetes.io/name: grafana
+    app.kubernetes.io/instance: kube-prometheus-stack

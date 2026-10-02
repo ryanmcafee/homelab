@@ -1,6 +1,6 @@
 # paperclip values: one paperclip.inc/v1alpha1 Instance (wave 14, after the
 # operator at 11, the 1Password items at 12 and the CloudNativePG Cluster at 13).
-# Hostname, admin e-mail, image tag, ingress class and storage class arrive
+# Hostname, admin e-mail, image tag, Gateway and storage class arrive
 # through the parent Application's helm.valuesObject from configuration/
 # (ADR-010); nothing environment-specific lives in this chart.
 
@@ -9,8 +9,8 @@ namespace: paperclip
 # Instance name = StatefulSet, Service and ConfigMap name.
 name: paperclip
 
-# Public hostname (PAPERCLIP_HOSTNAME); publicURL, allowedHostnames, the Ingress
-# host and the certificate are all derived from it.
+# Public hostname (PAPERCLIP_HOSTNAME); publicURL, allowedHostnames and the
+# HTTPRoute hostname are derived from it.
 hostname: ""
 
 # The operator refuses an Instance without a tag or digest (no :latest); the
@@ -20,7 +20,7 @@ image:
   tag: ""
 
 # authenticated + private: sign-in required, reachable only through the internal
-# Traefik (LAN/tailnet), every request must carry an allowed hostname (the
+# Gateway (LAN/tailnet), every request must carry an allowed hostname (the
 # operator always adds the in-cluster Service names for its own bootstrap Job).
 # `public` exposure is not possible with this operator: app 2026.831+ then
 # requires auth.baseUrlMode=explicit, and the operator's onboarding quickstart
@@ -46,14 +46,18 @@ auth:
   # through the e-mail/password sign-up API, which PAPERCLIP_AUTH_DISABLE_SIGN_UP
   # blocks for everyone, first user included (EMAIL_PASSWORD_SIGN_UP_DISABLED;
   # bugs.md 2026-09-15, upstream paperclipinc/paperclip-operator issue). Flip back
-  # to true in a follow-up PR as soon as the Instance reports status.bootstrap;
-  # the Job short-circuits afterwards and never re-registers.
+  # to true in a follow-up PR. The Job does NOT short-circuit once the admin
+  # exists (bugs.md 2026-09-30); admin.bootstrap false removes it instead.
   disableSignUp: false
 
 # One-time admin bootstrap (spec.auth.adminUser): e-mail from PAPERCLIP_ADMIN_EMAIL
 # through the parent, password from the ADMIN_PASSWORD key of the same Secret.
 # An empty e-mail renders no adminUser (the first human to log in claims the instance).
+# bootstrap false renders no adminUser even with an e-mail: set it once the admin
+# exists, because operator 0.19.1 keeps re-creating the bootstrap Job while
+# adminUser is in the spec and every re-run fails (bugs.md 2026-09-30).
 admin:
+  bootstrap: true
   email: ""
   name: Admin
   passwordKey: ADMIN_PASSWORD
@@ -105,13 +109,13 @@ service:
   type: ClusterIP
   port: 3100
 
-# Ingress on the hostname; className comes from INGRESS_CLASS_INTERNAL through
-# the parent. The letsencrypt ClusterIssuer is self-signed in Kind under the same name.
-ingress:
+# HTTPRoute (spec.networking.httpRoute) on the https listener of the internal
+# Gateway, which terminates TLS; the parent passes GATEWAY_INTERNAL/GATEWAY_NAMESPACE.
+route:
   enabled: true
-  className: internal
-  clusterIssuer: letsencrypt
-  tlsSecretName: paperclip-tls
+  gateway:
+    name: envoy-internal
+    namespace: envoy-gateway-system
 
 # In an ambient-enrolled namespace (serviceMesh.ambient, set by the parent)
 # templates/networkpolicy-ambient.yaml adds HBONE (TCP 15008) in both
@@ -121,14 +125,14 @@ serviceMesh:
 
 # The operator's default policy: ingress on the service port from any source,
 # egress to DNS, TCP 443 (LLM APIs), OTLP 4317/4318 and, in external database
-# mode, TCP 5432. That already covers Traefik -> app and app -> paperclip-postgres-rw.
+# mode, TCP 5432. That already covers Envoy -> app and app -> paperclip-postgres-rw.
 security:
   networkPolicy:
     enabled: true
-    # templates/networkpolicy-ingress-controller.yaml: app -> its own public URL (Traefik web/websecure).
+    # templates/networkpolicy-ingress-controller.yaml: app -> its own public URL
+    # through the Envoy proxy of route.gateway (listener container ports http/https).
     ingressController:
-      namespace: traefik
-      ports: [8000, 8443]
+      ports: [10080, 10443]
   # The operator adds a privileged "selinux-relabel" init container (chcon on the
   # data volume) unless told not to. It is rejected by the namespace's PodSecurity
   # baseline admission (no pod is ever created and the Instance stays
@@ -147,7 +151,7 @@ observability:
 
 resources:
   requests:
-    cpu: 500m
+    cpu: "1"
     memory: 1Gi
   limits:
     cpu: "2"
@@ -167,6 +171,54 @@ probes:
 # onboarding quickstart honours it but drops the public URL, then fails its own
 # "auth.baseUrlMode=explicit requires auth.publicBaseUrl" check.
 extraEnv: []
+
+# The operator's own Claude Code setup for the agents (templates/dotfiles.yaml,
+# files/paperclip-dotfiles.ts): an init container clones any dotfiles repository
+# into the data volume, runs its setup command, symlinks its Claude directory into
+# ~/.claude, installs the plugins that settings.json enables and registers
+# mcpServers. Off by default: without a repository the agents keep the image's
+# stock Claude Code configuration.
+dotfiles:
+  enabled: false
+  # https clone URL of the dotfiles repository (any fork).
+  repoUrl: ""
+  # Branch, tag or commit.
+  ref: main
+  # Directory in the repository that mirrors ~/.claude.
+  claudeDir: claude
+  # Exported to setupCommand as DOTFILES_PROFILE; the repository decides what it means.
+  profile: ""
+  # sh command run in the checkout before linking, e.g. to render settings.json
+  # from a profile. It sees HOME, DOTFILES_DIR, DOTFILES_PROFILE and ~/.local/bin on PATH.
+  setupCommand: ""
+  # Token for a private repository (sent as an HTTP header, never written to disk);
+  # empty secretName = public repository.
+  gitToken:
+    secretName: ""
+    secretKey: GIT_TOKEN
+  # bun release installed from npm into ~/.local/bin for setupCommand and plugin
+  # hooks that need it; an oven/bun image tag works too (the variant suffix is
+  # dropped). Empty skips it.
+  bunVersion: ""
+  # codesearch release (GitHub repository URL + tag publishing
+  # codesearch-linux-x86_64.tar.gz) installed into ~/.local/bin; empty version skips it.
+  codesearch:
+    repo: ""
+    version: ""
+  # Claude Code MCP servers registered at user scope, name -> server config.
+  mcpServers: {}
+  # The operator's data volume and its mount path, which is also HOME.
+  dataVolume: paperclip-data
+  home: /paperclip
+  # PATH of the image; ~/.local/bin is prepended for the server and the agents.
+  basePath: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
 
 # Agent health exporter (templates/exporter.yaml, docs/runbooks/paperclip-agents.md):
 # files/paperclip-exporter.ts run by the stock Bun image reads the REST API with

@@ -1,4 +1,32 @@
 # Network configuration — IPs, CIDRs, BGP, load balancer pool
+
+# Key FAMILIES, declared by key-name pattern rather than by literal name. The map
+# key is the pattern; it must be anchored, and it may not be required, const or
+# defaulted (internal/config.validateKeyPattern rejects all three at load).
+keyPatterns:
+  # The control plane, as a list. Listing your control-plane addresses IS the act
+  # of stating your topology — there is deliberately no CONTROL_PLANE_COUNT key,
+  # because a second key stating the same fact can disagree with the first, and
+  # the operator who adds a node and forgets to bump a count gets a guard
+  # refusing to proceed on a healthy cluster (ADR-035).
+  #
+  # This string MUST equal contracts/cluster/topology.v1.yaml
+  # controlPlane.countKeyPattern. TestControlPlaneKeyPatternMatchesContract
+  # asserts they are identical, so the rule has one statement and not two: a copy
+  # here that drifted from the contract would be the duplication ADR-035 removed,
+  # reintroduced in the file whose job is to end it.
+  #
+  # The capture group is the member ordinal, and it is what lets a template name
+  # cp-N without re-deriving the key-name rule. Ordinals need not be contiguous:
+  # CP1/CP2/CP5 is a three-member control plane, not a five-member one.
+  #
+  # CP_VIP is the shared virtual IP and is not a member; the anchors are what
+  # keep it, WORKER1_IP and a stray OLD_CP1_IP_BACKUP out of the count.
+  "^CP([0-9]+)_IP$":
+    description: Control plane node IP, one key per member (CP1_IP, CP2_IP, ...)
+    role: control-plane-address
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
 keys:
   DOMAIN:
     description: Base domain for all services
@@ -6,6 +34,22 @@ keys:
 
   GATEWAY_IP:
     description: Default gateway / router IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  LAN_CIDR:
+    description: CIDR of the LAN the cluster nodes sit on. Terragrunt builds the
+      VM network from it. Deliberately its own key rather than a reuse of
+      NFS_SHARE_ALLOW or TAILSCALE_ADVERTISE_ROUTES - those are an export ACL and
+      a route advertisement, which an operator may narrow below the LAN without
+      meaning to move the cluster onto a different subnet.
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+
+  DNS_SERVER_IP:
+    description: Upstream DNS resolver the cluster nodes are configured with. Often
+      the same address as GATEWAY_IP, but not always, and no default is supplied
+      because a wrong resolver fails after the cluster is already built.
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
@@ -30,18 +74,12 @@ keys:
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
+  # The first control-plane address, and the only one that is individually
+  # required: a control plane with no first address is a typo rather than a
+  # topology, and Taskfile.yml:689 bootstraps the cluster from this key by name.
+  # Every other member is admitted by the CPn_IP pattern under keyPatterns.
   CP1_IP:
     description: Control plane node 1 IP
-    required: true
-    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
-
-  CP2_IP:
-    description: Control plane node 2 IP
-    required: true
-    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
-
-  CP3_IP:
-    description: Control plane node 3 IP
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
@@ -70,10 +108,15 @@ keys:
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
-  TRAEFIK_STATIC_IP:
-    description: Static LoadBalancer IP for Traefik ingress
+  GATEWAY_EXTERNAL_STATIC_IP:
+    description: Static LoadBalancer IP of the external Envoy Gateway (WAN port forwards target it)
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  GATEWAY_INTERNAL_STATIC_IP:
+    description: Static LoadBalancer IP of the internal Envoy Gateway; empty lets Cilium LB IPAM pick one
+    required: false
+    pattern: "^$|^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
   PLEX_LB_IP:
     description: Static LoadBalancer IP for Plex
@@ -119,24 +162,12 @@ keys:
     const: "grafana.{{.DOMAIN}}"
 
   ALERTMANAGER_HOSTNAME:
-    description: Alertmanager UI hostname on the internal ingress
+    description: Alertmanager UI hostname on the internal Gateway
     const: "alertmanager.{{.DOMAIN}}"
-
-  TRAEFIK_HOSTNAME:
-    description: Traefik dashboard hostname
-    const: "traefik.{{.DOMAIN}}"
-
-  TRAEFIK_INTERNAL_HOSTNAME:
-    description: Traefik internal dashboard hostname
-    const: "traefik-internal.{{.DOMAIN}}"
 
   WORKFLOWS_HOSTNAME:
     description: Argo Workflows hostname
     const: "workflows.{{.DOMAIN}}"
-
-  AUTH_HOSTNAME:
-    description: OAuth2 proxy hostname
-    const: "auth.{{.DOMAIN}}"
 
   OP_CONNECT_HOSTNAME:
     description: 1Password Connect hostname

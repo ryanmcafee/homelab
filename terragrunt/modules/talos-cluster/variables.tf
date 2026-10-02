@@ -156,7 +156,7 @@ variable "network_gateway" {
 }
 
 variable "network_cidr" {
-  description = "Network CIDR for etcd advertised subnets (e.g., '172.16.100.0/24')"
+  description = "Network CIDR for etcd advertised subnets (the ConfigSet's LAN_CIDR, e.g. '192.0.2.0/24')"
   type        = string
 }
 
@@ -303,7 +303,7 @@ variable "install_kubelet_csr_approver_inline" {
 
 # Image Cache Configuration
 variable "image_cache_endpoint" {
-  description = "Image cache registry endpoint URL (e.g., 'https://192.168.1.100:5000'). When set, registry mirrors will use this cache as the primary endpoint."
+  description = "Image cache registry endpoint URL (e.g., 'https://198.51.100.100:5000'). When set, registry mirrors will use this cache as the primary endpoint."
   type        = string
   default     = ""
 }

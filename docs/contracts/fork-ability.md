@@ -1,9 +1,10 @@
 # The fork-ability contract
 
-Normative. Decision records: ADR-029 and ADR-033 (which splits check 3) in
+Normative. Decision records: ADR-029, refined by ADR-033 (check 3a/3b and the status
+column) and ADR-037 (the scan scope and check 4), in
 [`docs/project_notes/decisions.md`](../project_notes/decisions.md).
 
-**Read [Current status](#current-status) before citing a check.** Of the four checks below, two
+**Read [Current status](#current-status) before citing a check.** Of the five checks below, three
 are specified and not implemented, one has never been executed by anyone, and one is automated and
 passing. The table states what each check *is*; the status section states what has actually run,
 when, and with what result.
@@ -41,24 +42,34 @@ resolved at render time. `homelab.yaml.example` is the fork's starting point, an
 key in it **should** carry a `REPLACEME-` or RFC 5737 value so that forgetting one fails loudly
 instead of rendering somebody else's network.
 
-It does not, today. Measured on `main` at `295e0a9`: of 29 top-level keys, 7 carry a `REPLACEME-`
-value and 21 lines carry a concrete `192.168.1.x` address — RFC 1918 space, and the most common
-home LAN in the world, so a fork on `10.0.0.0/24` fills in the placeholders, gets `[OK]` from
-`task config:validate`, and renders a `CP_VIP`, `LB_POOL_*` and `BGP_PEER_IP` pointing into a
-subnet it does not have. That is this document's own `DOMAIN` argument turned on itself, and it
-is why check 2 cannot pass as written. Tracked in
+The address half holds today; the `REPLACEME-` half does not. Of 30 top-level keys, 19 carry a
+concrete `198.51.100.x` address (RFC 5737 TEST-NET-2) and only 7 carry a `REPLACEME-` value, so a
+fork on `10.0.0.0/24` that fills in the domain and leaves the addresses alone still gets `[OK]`
+from `task config:validate` and still renders a `CP_VIP`, `LB_POOL_*` and `BGP_PEER_IP` pointing
+into a subnet it does not have. It now fails visibly rather than plausibly, because TEST-NET-2 is
+unroutable, but it does not fail loudly at render. That is this document's own `DOMAIN` argument
+turned on itself, and it is why check 2 cannot pass as written. Tracked in
 [homelab#359](https://github.com/ryanmcafee/homelab/issues/359); the sentence above states the
 contract, not the current state of the file.
+
+Those addresses were `192.168.1.x` until MCAA-79. RFC 1918 is the wrong space for a template: for
+a forker whose LAN really is `192.168.1.x` — the most common home LAN in the world — every
+placeholder in the template matched their own `GATEWAY_IP`, `TRUENAS_IP` and node addresses, so
+the value detector reported the template itself as a leak and could not tell a genuinely pasted
+address from a placeholder. The fork-ability gate was not fork-able. That range is now
+**absent** from `examplePlaceholderSubnets` in `internal/config/guard.go` rather than joined
+there, and `TestIsExamplePlaceholder` pins it that way.
 
 **No two example ConfigSets may draw from the same reserved address range.** Check 1 greps a
 render for values from the real environment; that grep can only tell a leak from a placeholder if
 each `configuration/environments/*.yaml.example` owns its range outright — `homelab.yaml.example`
-RFC 1918, a one-node example RFC 5737, a third whatever is left. This is enforced, not
+RFC 5737 TEST-NET-2 (`198.51.100.0/24`), `single-node.yaml.example` TEST-NET-1 (`192.0.2.0/24`),
+a third whatever is left. This is enforced, not
 aspirational: `TestExampleConfigSetsAreDisjoint` (over
 [`internal/config/exampleranges.go`](../../internal/config/exampleranges.go)) fails the build and
 names the shared range and the declaration in each file that claims it. Adding a range to the
-template placeholder allowlist in `internal/config/guard.go` does not entitle a second file to
-reuse it.
+template placeholder allowlist (`examplePlaceholderSubnets` in `internal/config/guard.go`) does
+not entitle a second file to reuse it.
 
 `DOMAIN` is deliberately absent from `defaults.yaml`. That is the pattern to copy: **a default
 that silently papers over a missing required value is worse than no default**, because the
@@ -66,15 +77,16 @@ fork then comes up wrong instead of failing at render.
 
 ## The check
 
-Fork-ability is checked in four places, in increasing cost. A check may be listed here as
+Fork-ability is checked in five places, in increasing cost. A check may be listed here as
 specified-and-not-implemented; it may **not** be listed with no status (ADR-033).
 
 | # | Check | When | What it catches | Status |
 |---|---|---|---|---|
-| 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic (`DOMAIN: example.invalid`, RFC 5737 addresses), then grep the rendered output for any value from the real environment. | Level-0 static verification, every PR | A literal that escaped the ConfigSet | **Specified, not implemented** |
-| 2 | **`homelab.yaml.example` completeness.** Every key the render requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Specified, not implemented — and fails on `main` today** |
-| 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron and on demand | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — `18m 55s` cold, 2026-09-25 |
-| 3b | **The production bootstrap on foreign hardware.** A filled-in ConfigSet and `task setup -- --environment homelab`, on a machine holding none of the maintainer's credentials. | Before a declared platform milestone | Undeclared physical prerequisites, secret-store and identity assumptions, anything the Kind path cannot reach | **Never executed** |
+| 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic (`DOMAIN: example.invalid`, RFC 5737 addresses), then grep the rendered output for any value from the real environment. Paired with `homelab config guard` over the repository's own source. | Level-0 static verification, every PR | A literal that escaped the ConfigSet | **Specified, not implemented** |
+| 2 | **`homelab.yaml.example` completeness.** Every key the render **or the bootstrap** requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Specified, not implemented — and fails on `main` today** |
+| 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron, on demand, **and every pull request that changes the surface 3a executes** — enforced by the `Fork-ability check 3a change gate` job in [`verify.yml`](../../.github/workflows/verify.yml); two discharge routes, see [Current status](#current-status) | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — cold `up` + `wait` `18m55s`-`23m04s` across 3 runs, 2026-09-25 to 2026-09-29 |
+| 3b | **The production bootstrap on foreign hardware.** A filled-in ConfigSet and `task setup -- --environment homelab`, on a machine holding none of the maintainer's credentials **and not in this cluster's topology**. | Before a declared platform milestone | Undeclared physical prerequisites, secret-store and identity assumptions, anything the Kind path cannot reach, a shape that only this cluster has | **Never executed** |
+| 4 | **Bootstrap key resolution.** The bootstrap resolves every operator-specific value from the ConfigSet and exits non-zero naming the missing key — every missing key, not the first one. | Runtime, in the Go CLI; exercised by 3b | A value the bootstrap needs that no render requires, so checks 1–2 never see it | **Specified, not implemented** |
 
 Checks 1 and 2 are static and belong in the existing level-0 gate, so a violation fails a pull
 request rather than being found by a stranger months later. Neither is built yet:
@@ -84,6 +96,12 @@ against — `configuration/environments/` holds only `defaults.yaml`, `homelab.y
 synthetic environment, but it uses `homelab.local` and `127.0.0.x` rather than the
 `example.invalid` and RFC 5737 values check 1 specifies. Tracked in
 [homelab#360](https://github.com/ryanmcafee/homelab/issues/360).
+
+Check 4 is mechanical too, but it runs inside the Go CLI rather than in level 0, and 3b is what
+exercises it. It is not built either: ADR-037 records that the resolver it needs already exists —
+`internal/config/eval.go` collects `required key %q is missing or empty` for every missing key —
+so what is missing is the wiring from the bootstrap to that resolver, and the exposure of the
+bootstrap's required-key set as data so check 2 can consume it rather than fork the list.
 
 Check 3 was one check until ADR-033. It read "the documented bootstrap", which in this repository
 means either `task localdev:up` (Kind, Docker only) or `task setup -- --environment homelab`
@@ -99,22 +117,34 @@ for 3b, whose prerequisites are physical and cannot be faked in CI.
 
 Dated, because a check's status is a claim about the past and decays.
 
-- **3a — automated, and green on its first run: cold time to first success `18m 55s`, measured
-  2026-09-25.** `.github/workflows/fork-path-cold.yml` restores no cache and saves none, and fails
-  if a cache directory exists. Added in [#352](https://github.com/ryanmcafee/homelab/pull/352);
-  its first execution
-  ([run 36099151539](https://github.com/ryanmcafee/homelab/actions/runs/36099151539)) succeeded,
-  with `task localdev:up` at `18m 54s`, `task localdev:wait` at `1s`, `task localdev:report` at
-  `11s` and `task localdev:down` at `33s`, the cluster confirmed gone afterwards. **`18m 55s`
-  (`up` + `wait`) is the number to quote for the fork path** — not `tilt-ci.yml`'s, which restores
-  a `kind-registry-*` pull-through cache and is therefore a lower bound rather than a newcomer's
-  experience. Re-measure and re-date this line on each weekly run; a cold number more than a few
-  weeks old is a claim about a tree that no longer exists.
-- **One thing #352 predicted did not reproduce, and one doc defect did.** #352 expected
-  `localdev:up` to return well before anything reported Healthy, which is why `localdev:wait` is
-  timed separately. On this run `wait` returned in `487ms` with everything already Healthy, so on
-  the cold path `localdev:up` alone was sufficient. Keep the two timings separate anyway — one run
-  is not a pattern, and the split is what would show the gap reopening. The defect that *is* real:
+- **3a — automated and passing: cold time to first success `18m55s`-`23m04s`, measured across
+  three runs from 2026-09-25 to 2026-09-29.** `.github/workflows/fork-path-cold.yml` restores no
+  cache and saves none, and fails if a cache directory exists. Added in
+  [#352](https://github.com/ryanmcafee/homelab/pull/352). `up` + `wait`, per run:
+
+  | Date | Run | Trigger | `up` | `wait` | `up` + `wait` |
+  |---|---|---|---|---|---|
+  | 2026-09-25 | [36099151539](https://github.com/ryanmcafee/homelab/actions/runs/36099151539) | pull request | `18m54s` | `1s` | **`18m55s`** |
+  | 2026-09-27 | [36318031100](https://github.com/ryanmcafee/homelab/actions/runs/36318031100) | weekly cron on `main` | `21m02s` | `1s` | **`21m03s`** |
+  | 2026-09-29 | [36514919340](https://github.com/ryanmcafee/homelab/actions/runs/36514919340) | pull request | `23m03s` | `1s` | **`23m04s`** |
+
+  **Quote this range for the fork path, not `tilt-ci.yml`'s duration** — because tilt-ci times
+  `task localdev:ci`, which appends `test:e2e`, so it measures different work. It is *not* because
+  tilt-ci is warmer: its `kind-registry-*` restore missed on all seven consecutive runs sampled on
+  2026-09-29, so no cold-vs-cached comparison exists to make
+  ([homelab#512](https://github.com/ryanmcafee/homelab/issues/512)). Earlier revisions of this line
+  asserted the cache flattered tilt-ci's number; that was never measured and is now contradicted.
+
+  Three points trending upward is not yet a regression signal -- runner variance is wide and the
+  sample is tiny. Re-measure and re-date on each weekly run; a cold number more than a few weeks
+  old is a claim about a tree that no longer exists.
+- **One thing [#352](https://github.com/ryanmcafee/homelab/pull/352) predicted did not
+  reproduce, and one doc defect did.** [#352](https://github.com/ryanmcafee/homelab/pull/352)
+  expected `localdev:up` to return well before anything reported Healthy, which is why `localdev:wait` is
+  timed separately. On that run `wait` returned in `487ms` with everything already Healthy, and it
+  has cost about a second on all three cold runs since, so on the cold path `localdev:up` alone has
+  always been sufficient. Keep the two timings separate anyway — the split is what would show the
+  gap reopening, and it costs a second to keep. The defect that *is* real:
   `readme.md:31` describes `task localdev:up` as syncing "all 87 Applications", and the run
   reported **60 Applications · 60 Healthy**. Filed as
   [homelab#379](https://github.com/ryanmcafee/homelab/issues/379).
@@ -127,17 +157,64 @@ Dated, because a check's status is a claim about the past and decays.
   caused, and a check that cries wolf gets muted. A regression is therefore read by a human from
   the trend, not enforced by CI. If that stops being good enough, the fix is a threshold on a
   rolling median across runs, not on a single run.
-- **3a's change-triggered half is not enforced.** "For any change to bootstrap, secrets or
-  identity" is policy in prose. `fork-path-cold.yml`'s `pull_request` filter covers only the
-  workflow file itself, deliberately, to keep a cold uncached loop off the pull-request critical
-  path. A CODEOWNERS rule cannot carry the obligation either: `.github/CODEOWNERS` assigns
-  `* @ryanmcafee`, so every path already has the same single owner and the rule cannot
-  discriminate. Closing this needs a `paths:`-triggered check, not a review assignment.
+- **3a's change-triggered half is enforced from [#396](https://github.com/ryanmcafee/homelab/pull/396)
+  onward**, by the `Fork-ability check 3a change gate` job in [`verify.yml`](../../.github/workflows/verify.yml)
+  ([`scripts/fork-path-gate.ts`](../../scripts/fork-path-gate.ts)). It replaced a sentence of
+  prose. `fork-path-cold.yml`'s own `pull_request` filter still covers only the workflow file,
+  deliberately, because a cold uncached loop costs 19-23 minutes and must stay off the critical
+  path; and a CODEOWNERS rule could never have carried the obligation, because
+  `.github/CODEOWNERS` assigns `*` to the single repository owner and therefore cannot
+  discriminate one path from another. What the gate does instead is classify the changed
+  files and make somebody decide:
+  - **Tier 1 — hard fail, dischargeable.** Exactly the surface `fork-path-cold.yml` executes:
+    the tool pins, the `localdev` scripts, the documented commands a stranger types, and the cold
+    workflow itself. A regression here is invisible to every static check —
+    [#331](https://github.com/ryanmcafee/homelab/issues/331), the `pipx:` backend pinned with no
+    `python`/`pipx` pin, is the real-world instance. The authoritative list is `TIER1_PATHS` in
+    `scripts/fork-path-gate.ts`. `Taskfile.yml` counts only when the diff lands in a task the
+    cold workflow runs (`COLD_PATH_TASKS`), in a task one of those calls or depends on, or outside
+    `tasks:`, where `vars` and `env` reach every task. Most changes to that file have nothing to
+    do with the cold path, and a `paths:` glob cannot tell them apart — the difference between a
+    check people read and a check people mute. `readme.md` counts only when it changes outside what
+    `docs-check` generates: the `badges` region and the addon/application/suite counters
+    (`README_COUNTERS`). Both are rewritten by `docs:check -- --fix` -- a badge on `renovate/*`
+    branches by a bot that can neither link a cold run nor apply the label, a counter by any
+    pull request that adds an addon -- and neither is a command the cold path types. A moved
+    region marker, a counter's words changing, or a readme added or deleted, still counts. `renovate/*` branches are not exempt
+    wholesale, because a Renovate `mise.toml` bump is exactly the
+    [#331](https://github.com/ryanmcafee/homelab/issues/331) class.
+  - **Tier 2 — advisory, never fails.** The configuration, secrets and identity surface
+    (`TIER2_PATHS` in the same file, and this document). Genuinely "secrets or identity", but the
+    literal-leak class is already caught on every pull request by checks 1 and 2, so a second
+    hard gate over the same surface would buy detection we already have.
+  - **Tier 2, infrastructure trees:** `terragrunt/**`, `talos/**`, `packer/**`. Check 3a
+    executes none of it — it is a Kind/ArgoCD localdev loop — so these can never be Tier 1:
+    telling an author who touched `terragrunt/` to "run the cold fork path" demands a run that
+    structurally cannot detect their regression, and a gate that greenlights an unchecked change
+    is worse than no gate. Their literal leaks are the config guard's
+    (see the scan scope below). The Tier 2 note covers what no static check can see: undeclared
+    hardware prerequisites, a fixed topology shape, and secret-store or identity assumptions.
+    It is advice, not detection: check 3b, the only check that would exercise this surface, has
+    never been executed.
+  - **Outside the Tier 2 note, not outside the scan:** `ansible/**`. Check 1's guard reads it on
+    every pull request and always has. Check 3a does not execute it either, and the inventory is
+    rendered from `configuration/`.
+  - **The escape hatch is the point.** The label `fork-path: cold-run-waived` plus a one-line
+    reason discharges a Tier 1 hit in about ten seconds. Before the gate there was no decision
+    point at all, so nobody was ever recorded as having judged a bootstrap change safe; now
+    somebody is, by name, in the pull request. Using it is not a bypass to apologise for — using
+    it *without* reading the diff is. **A contributor working from a fork cannot apply a label**,
+    and should not be expected to: for them the discharge is a `fork-path-cold` run in their own
+    fork at the same head SHA, or a maintainer recording the waiver on their behalf.
 - **3b — never executed, by anyone, as of 2026-09-25.** Not "overdue" and not "pending": it has
   never been run. The nearest measurement is `task validate -- --environment homelab`, which
   reaches 10 of 16 prerequisites with no hardware present and stops at the `proxmox` row. The
   blocker is hardware and secret access, not effort or priority, and it is escalated as a budget
   question in its own right rather than folded into this document.
+- **4 — specified 2026-09-25, not implemented.** Added by ADR-037 on the same day, so it has
+  never run and no fork has been caught by it. The resolver it will call already exists and is
+  covered; the unwritten part is the bootstrap calling it. Read this row as a commitment, not as
+  coverage.
 
 This section says so plainly because a named check that has never been executed is worse than an
 unnamed one: the table's format invites a reader to assume a listed check has passed. Recording
@@ -146,18 +223,106 @@ the gap is not contingent on the gap being funded (ADR-033).
 Neither 3a nor 3b substitutes for the other. "The fork path is green" is not a statement anyone
 may make without naming which half they mean.
 
+### The scan scope is part of the check (ADR-037)
+
+Check 1's real scope is two lists in `internal/config/guard.go`: `DefaultGuardPathspecs` and
+`guardScanExtensions`. The rule above says "no file in this repository"; the scan sees only what
+those lists admit. **Any file type or directory outside them is unenforced, whatever this
+document says.** Go source is outside both today: that is how a defaulted node name in
+`cmd/homelab/commands/talos.go` sits in a file the gate cannot read. ADR-037 decided that
+`cmd/**`, `internal/**` and `.go` are admitted; that half of the decision is not implemented
+yet, so read the two lists in `guard.go` — not this paragraph and not the ADR — for what is
+actually scanned.
+
+`terragrunt/**`, `talos/**` and `packer/**` are admitted as of the widening that followed
+[#393](https://github.com/ryanmcafee/homelab/pull/393) — the pull request that removed a literal
+domain, a literal address, a cluster name and a Proxmox node name from `terragrunt/`. `.hcl` and
+`.tf` were admitted with them, because the Terragrunt units, the modules they call and the Packer
+build are written in those two and would otherwise be unreadable. That leak is the worked example
+for this whole section: a human sweep caught it, and the guard could not, because `terragrunt/`
+was outside the scan on the pathspec axis and the extension axis at once.
+
+Being named in `DefaultGuardPathspecs` is not the same as being covered: a directory is only
+read for the extensions the scan admits. The `templatefile()` inputs under `terragrunt/` and
+`talos/` (`*.yaml.tpl`, `*.tftpl`) are admitted for that reason, as ordinary files rather than
+`.example` placeholders, because they are rendered into the cluster. Read the two lists together,
+or a directory name will tell you the wrong thing.
+
+Note also what the widening does and does not buy: those trees are now covered for the
+**literal-leak class only**. Undeclared hardware prerequisites, topology shape, and secret-store
+and identity assumptions in them remain the business of check 3b — which, per the row above, has
+never been executed.
+
+Three standing conditions follow:
+
+- Adding a language or a top-level directory to the repository means adding it to the scan.
+  A new unscanned directory is a silent hole, not a deferred task.
+- **`DefaultGuardPathspecs` and the `config-guard` hook in `.pre-commit-config.yaml` are one
+  scope expressed twice and must be changed in the same commit.** `internal/config/guard.go`
+  says so in a comment at the list itself, and the hook is the half a contributor meets first.
+  Both halves name `terragrunt/`, `talos/` and `packer/`, and the hook now spells its extension
+  list out in `files:` — `yaml yml json md ts svg hcl tf tftpl`, plus a template suffix — rather than
+  delegating it to `types_or:`, so the two can be diffed by eye and the hook stops silently
+  dropping `homelab.yaml.example`. What neither half admits is Go: no `cmd/`, no `internal/`,
+  no `.go`. Widening one and not the other produces a gate that passes locally and fails in CI
+  — or, worse, the reverse.
+- **Every example ConfigSet uses reserved documentation space, and no two share a range.** Check 1
+  renders `configuration/environments/homelab.yaml.example` itself — there is no second synthetic
+  file to hold apart from it — so the requirement lands on the example files directly:
+  `homelab.yaml.example` owns RFC 5737 TEST-NET-2 (`198.51.100.0/24`), `single-node.yaml.example`
+  owns TEST-NET-1 (`192.0.2.0/24`), and a third would take TEST-NET-3. Reserved space is what
+  keeps a forker's real address distinguishable from a placeholder; distinct ranges are what keep
+  the grep able to say which file an address came from.
+
+### Values are parameterised; so is shape
+
+Checks 1, 2 and 4 all verify that operator-specific *values* come from the ConfigSet. They do not
+verify that the cluster's *shape* does. The failure mode this section is really about: a *pattern*
+of required keys encodes a shape just as firmly as a literal does, and no value-level check can
+see it.
+
+That was the state until MCAA-118. `homelab.yaml.example` named `CP1_IP`, `CP2_IP`, `CP3_IP` and
+stated no count, and all three were individually required — so a fork running one or five
+control-plane nodes could not express its topology even with every value correctly externalised.
+The shape was fixed at three whatever the values were.
+
+ADR-035's rule now holds: the count derives from the `^CP([0-9]+)_IP$` key set, so listing your
+control plane *is* the act that states your topology. In the schema that set is a `keyPatterns`
+entry carrying `role: control-plane-address`; `CP1_IP` stays required on its own and higher
+ordinals are optional. The resolver derives the list once into `ResolvedConfig.ControlPlane`, and
+templates range over that field instead of naming ordinals.
+
+Two things keep this from sliding back into a shape nothing can see:
+
+- `configuration/environments/single-node.yaml.example` is a committed one-control-plane ConfigSet,
+  rendered through every template by `TestExampleRendersEveryTemplate`. Before it existed every
+  environment file in the repository declared three control-plane addresses, so nothing in CI had
+  ever rendered a topology that was not this cluster's. It uses RFC 5737 TEST-NET-1
+  (`192.0.2.0/24`), distinct from the RFC 1918 range above, per the standing condition stated
+  earlier in this document.
+- `TestSyntheticTopologiesRenderEveryTemplate` covers the remaining permitted counts (3, 5, 7), so
+  the contract's `permittedCounts` ceiling is not a set of topologies nothing has ever rendered.
+
+Check 3b's non-matching topology remains the end-to-end proof; the two above are what make a
+regression fail in CI rather than in a stranger's fork.
+
 ## Who owns the check
 
 | Check | Owner |
 |---|---|
-| 1 and 2 (static, in level 0) | **SRE & Observability Engineer** — owner of CI quality gates |
+| 1 and 2 (static, in level 0), and the scan scope | **SRE & Observability Engineer** — owner of CI quality gates |
 | 3a (the cold Kind workflow, and the docs it validates) | **DX & Docs Advocate** — owner of fork-path validation and the ambassador funnel |
 | 3b (the hardware run, and its written result) | **DX & Docs Advocate** runs it; **Senior Platform Engineer (GitOps & Infrastructure)** supplies the bootstrap path and prerequisites it exercises |
+| 4 (bootstrap key resolution) | **Senior Platform Engineer** — owner of the bootstrap path |
 | The rule itself, and adjudicating a claimed exception | **Principal Platform Architect** |
 
 Naming an owner is the point. A rule everybody agrees with and nobody runs is a rule that is
 not enforced — and splitting check 3 is what lets 3a's owner be accountable for a check they can
 actually run, instead of carrying one they cannot.
+
+One check, one owner. An issue or acceptance criterion that assigns "the fork-ability gate" to a
+single person is malformed — it resolves to either two owners or none. Split it by check against
+this table.
 
 ## Review conditions
 
@@ -175,9 +340,11 @@ is reviewed against:
 
 ## A live example
 
-The three open GitHub issues that specify ingress hostnames — #40 (`dashboard.…`), #41
-(`status.…`) and #51 (`workflows.…`) — all write a concrete personal domain into the issue
-body. Written that way they would each violate this contract. The correct form is
-`dashboard.<DOMAIN>`, resolved from the ConfigSet, and that is a merge condition on all three
-rather than a follow-up. This is not a criticism of those issues; it is what the contract is
-for, caught at the point it is cheap.
+The three open GitHub issues that specify ingress hostnames —
+[#40](https://github.com/ryanmcafee/homelab/issues/40) (`dashboard.…`),
+[#41](https://github.com/ryanmcafee/homelab/issues/41) (`status.…`) and
+[#51](https://github.com/ryanmcafee/homelab/issues/51) (`workflows.…`) — all write a concrete
+personal domain into the issue body. Written that way they would each violate this contract.
+The correct form is `dashboard.<DOMAIN>`, resolved from the ConfigSet, and that is a merge
+condition on all three rather than a follow-up. This is not a criticism of those issues; it is
+what the contract is for, caught at the point it is cheap.

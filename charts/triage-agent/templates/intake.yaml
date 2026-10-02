@@ -1,0 +1,167 @@
+{{- if .Values.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "triage-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: intake
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "triage-agent.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "triage-agent.labels" . | nindent 8 }}
+        app.kubernetes.io/component: intake
+    spec:
+      serviceAccountName: {{ .Values.name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: intake
+          image: {{ required "image is required" .Values.image }}
+          args: ["serve"]
+          env:
+            - name: ALERTMANAGER_URL
+              value: {{ required "alertmanagerUrl is required" .Values.alertmanagerUrl | quote }}
+            - name: WORKFLOW_NAMESPACE
+              value: {{ .Values.namespace | quote }}
+            - name: WORKFLOW_TEMPLATE
+              value: {{ .Values.workflow.templateName | quote }}
+            - name: SWEEP_INTERVAL_SECONDS
+              value: {{ .Values.intake.sweepIntervalSeconds | quote }}
+            - name: COOLDOWN_SECONDS
+              value: {{ .Values.intake.cooldownSeconds | quote }}
+            - name: IGNORED_ALERTS
+              value: {{ join "," .Values.intake.ignoredAlerts | quote }}
+            - name: MAX_RECORDS
+              value: {{ .Values.intake.maxRecords | quote }}
+            - name: DRY_RUN
+              value: {{ .Values.intake.dryRun | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.intake.logLevel | quote }}
+            - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+              value: "0"
+            {{- with .Values.intake.janitor }}
+            - name: WORKSPACE_ROOT
+              value: /workspaces
+            - name: CACHE_ROOT
+              value: /cache
+            - name: CACHE_PRUNE_DIRS
+              value: {{ join "," .cachePruneDirs | quote }}
+            - name: JANITOR_INTERVAL_SECONDS
+              value: {{ .intervalSeconds | quote }}
+            - name: FAILED_RETENTION_SECONDS
+              value: {{ .failedRetentionSeconds | quote }}
+            - name: ORPHAN_GRACE_SECONDS
+              value: {{ .orphanGraceSeconds | quote }}
+            - name: HIGH_WATERMARK
+              value: {{ .highWatermark | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.intake.resources | nindent 12 }}
+          securityContext:
+            {{- include "triage-agent.restricted" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: workspace
+              mountPath: /workspaces
+            - name: cache
+              mountPath: /cache
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: {{ .Values.name }}-workspace
+        - name: cache
+          persistentVolumeClaim:
+            claimName: {{ .Values.name }}-cache
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "triage-agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: intake
+spec:
+  selector:
+    {{- include "triage-agent.selector" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- if .Values.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "triage-agent.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "triage-agent.selector" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+---
+# The webhook takes unauthenticated alerts, so only the listed namespaces
+# (Alertmanager, Prometheus) may reach the intake.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.name }}-intake
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "triage-agent.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "triage-agent.selector" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- range .Values.networkPolicy.allowedNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 8080
+{{- end }}
+{{- end }}

@@ -1,30 +1,29 @@
 ---
-# Source: istio-config/templates/kiali-ingress.yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# Source: istio-config/templates/kiali-route.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
   name: kiali
   namespace: istio-system
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt
     external-dns.alpha.kubernetes.io/hostname: servicemesh.homelab.local
 spec:
-  ingressClassName: internal
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-internal
+      namespace: envoy-gateway-system
+      sectionName: https
+  hostnames:
+    - servicemesh.homelab.local
   rules:
-    - host: servicemesh.homelab.local
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: kiali
-                port:
-                  number: 20001
-  tls:
-    - secretName: kiali-tls
-      hosts:
-        - servicemesh.homelab.local
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: kiali
+          port: 20001
 
 ---
 # Source: istio-config/templates/monitors.yaml

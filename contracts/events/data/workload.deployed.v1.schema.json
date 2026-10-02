@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/workload.deployed.v1.schema.json",
+  "title": "workload.deployment.deployed v1 data",
+  "description": "A workload reached its desired replica count and passed readiness at a known revision. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "namespace",
+    "name",
+    "revision",
+    "observedGeneration"
+  ],
+  "properties": {
+    "namespace": {
+      "type": "string",
+      "description": "Kubernetes namespace the object lives in.",
+      "maxLength": 253
+    },
+    "name": {
+      "type": "string",
+      "description": "Object name.",
+      "maxLength": 253
+    },
+    "revision": {
+      "type": "string",
+      "description": "Git revision (full SHA) the desired state came from.",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "image": {
+      "type": "string",
+      "description": "Fully-qualified image reference, digest-pinned where the workload is.",
+      "maxLength": 512
+    },
+    "replicas": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Ready replica count observed at the time of the event."
+    },
+    "observedGeneration": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "metadata.generation the controller had reconciled. Lets a consumer discard a stale event without ordering guarantees."
+    }
+  }
+}
