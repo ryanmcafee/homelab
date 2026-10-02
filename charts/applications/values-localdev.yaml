@@ -209,7 +209,7 @@ sonarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: 512Mi
               limits:
                 cpu: 1000m
@@ -298,7 +298,7 @@ radarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: 512Mi
               limits:
                 cpu: 1000m
@@ -550,7 +550,7 @@ tautulli:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: 256Mi
               limits:
                 cpu: 500m
@@ -619,7 +619,7 @@ lazylibrarian:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: 256Mi
               limits:
                 cpu: 500m
