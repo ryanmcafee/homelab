@@ -12,12 +12,6 @@ Each entry should include:
 
 ## Entries
 
-### 2026-10-02 - Union merge kept a stale table row beside the edited one (#527)
-- **Issue**: `task pr:refresh` on #527 merged `docs/runbooks/verification.md` with two `decisions/adr-numbers` rows: the PR's edited row and main's unedited original.
-- **Root Cause**: git's `merge=union` concatenates both sides of a hunk. That is right only when both sides inserted at the same spot; here the PR edited a row while main inserted the row after it, so the hunk's ancestor held the original row and union kept it from main's side.
-- **Solution**: `pr-refresh.ts` re-resolves every union hunk from the diff3 view (`resolveUnionHunk`): drop ancestor lines the other side removed, keep both sides' insertions, and leave two rewrites of the same line as a conflict.
-- **Prevention**: Union is an insert-only merge; anything that may edit existing lines must resolve against the ancestor, not concatenate.
-
 ### 2026-09-30 - `paperclip-bootstrap` Job re-created every ~70 min after the admin exists
 - **Issue**: `KubeJobFailed` for `paperclip/paperclip-bootstrap` kept coming back. Over 7 days the operator re-created the admin-seed Job about every 70 minutes (~80 pods, 47 containers terminated `Error`, none `Completed`), each run ending `BackoffLimitExceeded` and re-mounting the RWO data volume on the pinned node. The server itself stayed healthy
 - **Root Cause**: The Instance still carried `spec.auth.adminUser` (`helm-apps.tmpl` always passes `PAPERCLIP_ADMIN_EMAIL`, `instance.yaml` rendered `adminUser` whenever the e-mail was set). Operator 0.19.1 keeps reconciling the bootstrap Job for that spec and does not short-circuit on `status.bootstrap`, contrary to the assumption in the 2026-09-15 entry below; a re-run against the existing admin fails. The exact error line was not read (pod logs need kubectl)
