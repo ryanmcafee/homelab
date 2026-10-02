@@ -49,6 +49,22 @@ fileStoreSize: 20Gi
 # being applied. The chart refuses to render above it.
 maxBytesBudgetFraction: 0.75
 
+# The tenant account every Stream and Consumer belongs to, injected by the parent
+# Application from the same values that render the server's `accounts {}` block, so the
+# account NACK writes into and the account the server enforces cannot drift.
+#
+# Empty leaves `spec.account` off every resource, which is the pre-ADR-043 anonymous bus:
+# NACK connects through its server-wide credential and the stream lands in whatever
+# account that one reaches.
+account:
+  # Metadata name of the Account resource. RFC 1123, so never the NATS account name.
+  name: ""
+  # The NATS account name, `TENANT_<TENANT>` (ADR-043 D12).
+  natsName: ""
+  # Secret holding NACK's PRIVATE nkey seed, delivered by External Secrets.
+  credentialSecret: ""
+  credentialSecretKey: nats.nk
+
 streams:
   - name: PF_EVENTS
     description: The only ingestion point for .ev; general fan-out of every v1 platform event
@@ -119,6 +135,13 @@ consumers:
     streamName: PF_EVENTS
     filterSubject: pf.*.workload.*.*.v1.ev
     description: Durable consumer the event-backbone e2e test publishes through
+
+  # workload-operator's work queue. NACK creates it because the principal holds no
+  # consumer-create grant (ADR-043 D6b); the operator binds it and fails if it is absent.
+  - name: workload-operator-deployment-promote-v1
+    streamName: PF_WORK
+    filterSubject: pf.*.workload.deployment.promote.v1.wq
+    description: Durable pull consumer workload-operator binds for promote work
 
 # Consumer defaults from the contract. A per-consumer value overrides them.
 consumerDefaults:

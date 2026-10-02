@@ -233,6 +233,77 @@ stream means lowering another or growing the store (ADR-042).
 JetStream's file store takes the **iSCSI SSD** class, never an NFS one: it is a write-ahead
 log and needs real fsync semantics.
 
+## Authentication: accounts, principals and credentials
+
+The bus is anonymous until an operator supplies a key, and authenticated from the first one.
+`NATS_PRINCIPAL_NKEYS` carries comma-separated `<principal>=<public nkey>` pairs; one pair
+renders the server's `accounts {}` block, and a client with no key is then refused at connect
+time. There is no `no_auth_user`, so there is no account an unauthenticated connection lands
+in. Set it only once every principal a workload runs as is listed -- this is the change that
+flips the bus, and a rendered account block without the matching credentials refuses every
+client, NACK included.
+
+```text
+contracts/events/bus-principals.v1.yaml   the declaration: grants per principal, no keys
+              |  bun scripts/render-nats-accounts.ts
+              v
+charts/addons/files/nats-accounts.gen.yaml   the expansion, committed, <tenant> intact
+              |  charts/addons/templates/_nats-accounts.tpl  + NATS_PRINCIPAL_NKEYS
+              v
+config.merge.accounts  ->  nats.conf  ->  TENANT_LOCAL { jetstream {...} users [...] }
+                                          $SYS        { users [] }
+```
+
+Permissions are contract and identity is operator-supplied. The declaration holds no key, no
+real account name and no tenant token other than `<tenant>`; the public keys come from
+configuration and the private seeds reach workloads as Secrets through External Secrets. A
+tenant's permission set is generated, never hand-written per customer, which is why the
+committed expansion is pinned to its source by `task test:scripts`.
+
+`$SYS` is declared with an empty user list. No platform component holds the system account --
+NACK included, which the `nack` chart's `nats-sys-creds` default invites. NACK connects as the
+`nack` principal through an `Account` resource using `spec.nkey`, and every `Stream` and
+`Consumer` names that account through `spec.account`.
+
+**Measured**, against the `nats.conf` this chart renders, on nats-server v2.15.0:
+
+```text
+anonymous connect                     -ERR 'Authorization Violation'
+verify, with its nkey                 connected
+platform-api -> its own .wq subject   accepted
+platform-api -> identity-broker's .ev -ERR 'Permissions Violation for Publish'
+verify       -> _INBOX.platform-api.x -ERR 'Permissions Violation for Publish'
+verify       -> $JS.API.STREAM.DELETE -ERR 'Permissions Violation for Publish'
+nack         -> $JS.API.STREAM.CREATE accepted
+nack         -> $JS.API.ACCOUNT.PURGE -ERR 'Permissions Violation for Publish'
+platform-api -> pf.other....wq        -ERR 'Permissions Violation for Publish'
+```
+
+Two failure modes are worth knowing because neither is visible in the values and neither is
+caught by `nats-server -t`:
+
+- `system_account` naming an account the config does not declare exits with `error resolving
+  system account: account missing`, so the pod crash-loops on sync rather than failing to
+  render. `$SYS` is therefore always declared.
+- An account limit above the server's matching store refuses JetStream for *every* account:
+  `max_memory` above `max_memory_store` gives `insufficient memory resources (10028)` and
+  `max_store` above `max_file_store` gives `insufficient storage resources (10047)`. This
+  chart enables only the file store, so `max_memory` is 0 and a non-zero value is refused at
+  render rather than at startup.
+
+Generation, custody, activation prerequisites, offline `$SYS` break-glass and the rotation and
+revocation procedures are `docs/runbooks/nats-credentials.md`. Generate the pairs with
+`bun scripts/nats-principals-keygen.ts --dir <a directory outside the repository>`; Kind mints
+its own at bootstrap through `bun scripts/localdev-kind.ts nats-seeds`, because a committed Kind
+seed is still a committed secret.
+
+Rotation is a Secret update plus a config reload: the server holds only public keys. This
+renderer accepts ONE key per principal -- the values map holds one per name and a duplicate is
+refused at render -- so there is no acceptance overlap and rotation is a bounded maintenance
+interruption rather than a staged cut-over. The drill that proves an old session is actually cut,
+and the `$SYS` recovery path that works while the identity service is down, are level-2
+conformance (`rotation_and_revocation_drill` in the declaration) and are not claimed here.
+
 ## Operating notes
 
 - **Never purge a stream, delete a consumer group, or reset a namespace.** Every `Stream`
@@ -246,12 +317,22 @@ log and needs real fsync semantics.
   Two streams in one account may not have overlapping filters, so a third-party bus that
   widens into `pf.>` does not degrade the platform bus, it makes a platform stream
   uncreatable.
-- **The monitoring port is open too.** Port 8222 is plain HTTP with no auth on every NATS
-  pod, published through the `nats-headless` Service (`service.ports.monitor` is off, so
-  the `nats` ClusterIP Service carries 4222 only). `/jsz?accounts=true` returns every
-  stream's name, subject filters and message counts, and `/connz` returns per-connection
-  detail. Accounts partition the client port, so ADR-043 will not close this; restricting
-  it is a separate decision.
+- **The monitoring port and the exporter are scoped at pod ingress.** Port 8222 is plain
+  HTTP with no auth on every NATS pod, published through the `nats-headless` Service
+  (`service.ports.monitor` is off, so the `nats` ClusterIP Service carries 4222 only).
+  `/jsz?accounts=true` returns every stream's name, subject filters and message counts, and
+  `/connz` returns per-connection detail; the exporter on 7777 republishes the same
+  metadata. Accounts partition the client port only, so the `nats-server-ingress`
+  NetworkPolicy admits 8222 and 7777 from Prometheus pods in the kube-prometheus-stack
+  namespace and nothing else. The peer is matched by `app.kubernetes.io/name: prometheus`,
+  so only a server-mode Prometheus in that namespace can scrape: a `PrometheusAgent` pod
+  (`prometheus-agent`), a Prometheus in another namespace, or any other scraper needs
+  `nats-server-ingress` widened first. The API server's pod proxy is denied too: read `/jsz` with
+  `kubectl port-forward pod/<nats pod> 8222`, which enters the pod's own network namespace.
+  `config.monitor.tls` is not enabled. TLS would protect the scrape in transit; it is not
+  authorization, and neither it nor the account block substitutes for the policy.
+  `tests/e2e/nats` step `monitoring-network-policy` proves both the authorized scrape and
+  the untrusted-pod denial.
 - **An Argo Events `nats` EventSource is a core-NATS subscribe** — at-most-once, no
   durability, no replay. Pointing one at a `.ev` subject silently downgrades an
   at-least-once path. The bridge between this bus and the Argo Events bus is an explicit
@@ -289,19 +370,28 @@ Every hop carries the `correlationid` from the envelope. To follow one event:
 ```bash
 # 1. Stream state, and the head sequence the age alerts watch
 kubectl --context kind-homelab-localdev -n nats exec deploy/nats-box -- \
-  nats stream info PF_EVENTS
+  nats --context verify stream info PF_EVENTS
 
 # 2. Watch a subject live, including the tenant token
 kubectl --context kind-homelab-localdev -n nats exec deploy/nats-box -- \
-  nats sub 'pf.local.workload.>'
+  nats --context verify sub 'pf.local.workload.>'
 
 # 3. What a durable consumer has and has not acked
 kubectl --context kind-homelab-localdev -n nats exec deploy/nats-box -- \
-  nats consumer info PF_EVENTS verify-workload-v1
+  nats --context verify consumer info PF_EVENTS verify-workload-v1
 
 # 4. The dead-letter record, by correlation id
 kubectl --context kind-homelab-localdev -n nats exec deploy/nats-box -- \
-  nats stream view PF_DLQ
+  nats --context dlq-reporter stream view PF_DLQ
 ```
+
+Every command names a context, and each context carries one principal's credential. That is
+not decoration. `verify` reads `PF_EVENTS` and holds no grant on `PF_DLQ`, so command 4 names
+`dlq-reporter` instead -- and command 2 shows only what `verify` is allowed to see. Running
+these as one super-user would make the runbook prove less than the system enforces.
+
+`nats` without `--context` is the shape that stops working once the accounts block renders:
+the connection is refused with `Authorization Violation` before any subject permission is
+consulted. `nats context ls` inside the box lists what the operator has.
 
 Production is read-only for agents: never apply, patch or sync against the homelab cluster.

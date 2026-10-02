@@ -94,6 +94,8 @@ type GitOpsRepo struct {
 	CloneURL string
 	// Owner is the forge account: ryanmcafee in github.com/ryanmcafee/homelab.
 	Owner string
+	// ImageOwner is Owner lowercased, because OCI repository paths must be lowercase.
+	ImageOwner string
 	// Name is the repository: homelab in github.com/ryanmcafee/homelab.
 	Name string
 	// Slug is Owner/Name, the form the GitHub search API and gh take.

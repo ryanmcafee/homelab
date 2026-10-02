@@ -126,6 +126,56 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
 
 ---
+# Source: addons/templates/nats.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-server-ingress
+  namespace: nats
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/instance: nats
+      app.kubernetes.io/component: nats
+  policyTypes:
+    - Ingress
+  ingress:
+    # Client port. Authentication and subject permissions are the account block's job.
+    - ports:
+        - protocol: TCP
+          port: 4222
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+              app.kubernetes.io/instance: nats
+              app.kubernetes.io/component: nats
+      ports:
+        - protocol: TCP
+          port: 6222
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8222
+        - protocol: TCP
+          port: 7777
+
+---
 # Source: addons/templates/envoy-gateway.yaml
 apiVersion: v1
 kind: Secret
@@ -2347,11 +2397,11 @@ spec:
               - name: homelab-nats-jetstream
                 rules:
                   - record: homelab:nats_stream_first_seq:authoritative
-                    expr: 'max by (stream_name, namespace, job) (nats_stream_first_seq{is_stream_leader="true"}) or max by (stream_name, namespace, job) (nats_stream_first_seq)'
+                    expr: 'max by (account, stream_name, namespace, job) (nats_stream_first_seq{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_first_seq)'
                   - record: homelab:nats_stream_total_messages:authoritative
-                    expr: 'max by (stream_name, namespace, job) (nats_stream_total_messages{is_stream_leader="true"}) or max by (stream_name, namespace, job) (nats_stream_total_messages)'
+                    expr: 'max by (account, stream_name, namespace, job) (nats_stream_total_messages{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_total_messages)'
                   - record: homelab:nats_consumer_ack_floor_stream_seq:authoritative
-                    expr: 'max by (stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq{is_consumer_leader="true"}) or max by (stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq)'
+                    expr: 'max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq{is_consumer_leader="true"}) or max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq)'
                   - alert: PFWorkOldestUnackedAging
                     expr: 'changes(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) == 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[5m]) > 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[12h]) > 0 and count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) >= 11 * count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[1h])'
                     for: 15m
@@ -2368,11 +2418,11 @@ spec:
                     annotations:
                       summary: 'PF_WORK work is 18h old and max_age deletes it silently in under 6h'
                       description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Get a consumer taking work, or copy the queue out now. docs/runbooks/pf-work-age-expiry.md.'
-                  # Grouped by (stream_name, namespace, job): one Prometheus can
-                  # scrape two NATS installs, and stream_name alone max'd their
-                  # head sequences together into one unattributable alert.
+                  # Grouped by (account, stream_name, namespace, job): PF_WORK
+                  # exists once per NATS account (ADR-043) and per install, and
+                  # dropping either label nets one stream's head against another's.
                   - alert: PFWorkMessagesExpiredUnacked
-                    expr: '(max by (stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) - max by (stream_name, namespace, job) (min_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (stream_name, namespace, job) (max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m])) or (max by (stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
+                    expr: '(max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) - max by (account, stream_name, namespace, job) (min_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (account, stream_name, namespace, job) (max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m])) or (max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
                     labels:
                       severity: critical
                     annotations:
@@ -2382,7 +2432,7 @@ spec:
                   # so it cannot be joined on them and it reads the whole
                   # selector - one install still reporting hid a blind one.
                   - alert: PFWorkStreamMetricsAbsent
-                    expr: 'max by (stream_name, namespace, job) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0 unless on (stream_name, namespace, job) homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}'
+                    expr: 'max by (account, stream_name, namespace, job) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0 unless on (account, stream_name, namespace, job) homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}'
                     for: 30m
                     labels:
                       severity: warning
@@ -2463,7 +2513,7 @@ spec:
                   # PF_AUDIT keeps refusing. Without the lag term an idle full
                   # stream pages.
                   - alert: PFAuditRefusingWrites
-                    expr: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} / (nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} > 0) >= 0.99 and changes(nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) == 0 and on (namespace, server_name, stream_name) min_over_time(nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) > 0'
+                    expr: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} / (nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} > 0) >= 0.99 and changes(nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) == 0 and on (namespace, server_name, account, stream_name) min_over_time(nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) > 0'
                     for: 10m
                     labels:
                       severity: critical
@@ -3441,6 +3491,19 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+# Pod-ingress scope for the NATS server pods (event-contract.md Sec. 5.3, ADR-043 D9).
+#
+# Accounts partition the client port only. The monitoring port (8222) answers /jsz and /connz
+# across every account with no tenant authorization, and the exporter (7777) republishes the
+# same stream, consumer and config metadata, so both are reachable from Prometheus alone.
+# Only server-mode Prometheus pods match; a PrometheusAgent or other scraper needs a new peer.
+# The exporter reads 8222 over the pod's loopback, which no NetworkPolicy polices.
+#
+# Selecting a pod for Ingress denies every port not listed, so the client and cluster ports
+# are listed explicitly. `kubectl port-forward` enters the pod's own network namespace and is
+# unaffected; the API server's pod proxy is not, and is denied on 8222 and 7777.
+#
+# Sync Wave: 10, with the server it scopes.
 
 ---
 # Source: addons/templates/node-feature-discovery.yaml

@@ -1447,7 +1447,11 @@ argo-workflows:
     version: "{{ index .Versions.Charts "argo-workflows" }}"
 
   server:
-    authMode: server
+    # `server` serves the UI and API with full controller privileges and no
+    # credential at all. The server runs arbitrary containers, so anyone who can
+    # reach the route can execute code in the cluster. `client` makes the caller
+    # supply their own Kubernetes bearer token; SSO replaces it in #51.
+    authMode: client
 
     # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
     route:
@@ -1457,19 +1461,21 @@ argo-workflows:
     resources:
       requests:
         cpu: 50m
-        memory: 32Mi
+        memory: 64Mi
       limits:
         cpu: 200m
-        memory: 48Mi
+        memory: 128Mi
 
   controller:
+    # Informer caches (Workflows, Pods, ConfigMaps, templates) plus the archive
+    # DB pool; 48Mi crash-looped the controller (bugs.md 2026-10-01).
     resources:
       requests:
         cpu: 100m
-        memory: 32Mi
+        memory: 128Mi
       limits:
         cpu: 500m
-        memory: 48Mi
+        memory: 256Mi
 
     # Garbage collection of live objects. Completed workflows stay browsable in
     # the archive (retentionDays) after their TTL removes them from the cluster.
@@ -1581,6 +1587,47 @@ nats:
   # single-node fork cannot create any stream (10074).
   replicas: {{ .Values.NATS_SERVER_REPLICAS.Value }}
 
+  # ADR-043's static backend. Identity is operator-supplied, permissions are contract:
+  # contracts/events/bus-principals.v1.yaml declares the grants and
+  # charts/addons/files/nats-accounts.gen.yaml is its expansion. PUBLIC keys only -- the
+  # private seeds reach workloads as Secrets through External Secrets.
+  #
+  # Empty NATS_PRINCIPAL_NKEYS leaves the bus anonymous. Setting it renders the accounts
+  # block, and the server then refuses every client that has no key, NACK and nats-box
+  # included, so every principal a workload runs as has to be listed before it is set.
+  tenant: {{ .Values.NATS_TENANT.Value }}
+  principalNkeys: "{{ .Values.NATS_PRINCIPAL_NKEYS.Value }}"
+  systemAccountNkey: "{{ .Values.NATS_SYSTEM_ACCOUNT_NKEY.Value }}"
+  natsBoxPrincipals: "{{ .Values.NATS_BOX_PRINCIPALS.Value }}"
+
+  # Where each principal's PRIVATE seed comes from. Exactly one source, or the accounts block
+  # refuses to render: a public key the server accepts is unusable until its seed reaches the
+  # client. Kind has no vault, so its bootstrap mints the seeds into Secrets directly
+  # (scripts/localdev-kind.ts); homelab delivers them through the 1Password operator.
+  credentials:
+    onePasswordVaultPath: "{{ if and $onepassword (not $localdev) }}{{ .Values.NATS_CREDENTIALS_1P_PATH.Value }}{{ end }}"
+    bootstrapSeeded: {{ $localdev }}
+    extraNamespaces: {}
+
+  # Per-account JetStream limits, mandatory rather than advisory (ADR-043 D8). Both store
+  # limits are checked against the SERVER's stores at startup and a limit above what the
+  # server offers is fatal for every account, not just the greedy one -- measured on v2.15.0
+  # against this chart's own rendered nats.conf. `max_memory: 0` is the declared limit for a
+  # file-store-only bus: no memory store is enabled, so a memory-backed stream is refused.
+  # `max_store` sits under the file store below, which is the ADR-043 budget rule at the
+  # account level for the one account homelab renders.
+  accountLimits:
+    max_memory: 0
+{{- if $localdev }}
+    max_store: << 1GB >>
+    max_streams: 16
+    max_consumers: 64
+{{- else }}
+    max_store: << 15GB >>
+    max_streams: 32
+    max_consumers: 256
+{{- end }}
+
   jetstream:
     streamReplicas: {{ .Values.NATS_STREAM_REPLICAS.Value }}
     storage:
@@ -1606,7 +1653,7 @@ nats:
 
   resources:
     requests:
-      cpu: 100m
+      cpu: 25m
       memory: 256Mi
     limits:
       cpu: 500m
@@ -1934,7 +1981,7 @@ triage-agent:
   namespace: triage-agent
   # Published by .github/workflows/triage-agent-image.yml to the fork's own
   # ghcr namespace; the image name there is fixed, only the owner varies.
-  image: "ghcr.io/{{ .GitOps.Owner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"
+  image: "ghcr.io/{{ .GitOps.ImageOwner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"
   repoSlug: "{{ .GitOps.Slug }}"
   workflowUiUrl: "https://{{ .Values.WORKFLOWS_HOSTNAME.Value }}"
   # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN plus optional fields (docs/runbooks/triage-agent.md).

@@ -14,6 +14,11 @@ spec:
   description: {{ $consumer.description | quote }}
   servers:
     - {{ $.Values.natsUrl }}
+  {{- with $.Values.account.name }}
+  # The same account as the stream it binds. A consumer created in another account reaches no
+  # stream at all, and the failure reads as a missing stream rather than a crossed boundary.
+  account: {{ . }}
+  {{- end }}
   {{- if $consumer.filterSubject }}
   # Consumers filter by subject, never by decoding the body and discarding.
   filterSubject: {{ $consumer.filterSubject }}
