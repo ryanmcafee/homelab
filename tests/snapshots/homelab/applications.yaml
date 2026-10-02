@@ -1580,6 +1580,10 @@ spec:
             memory: 1Gi
         route:
           enabled: false
+        tailnet:
+          enabled: false
+          hostname: ""
+          tag: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: openclaw

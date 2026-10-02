@@ -1374,19 +1374,24 @@ openclaw:
       apiKeysItemPath: {{ .Values.OPENCLAW_API_KEYS_1P_PATH.Value }}
       gatewayItemPath: {{ .Values.OPENCLAW_GATEWAY_1P_PATH.Value }}
 
-  # charts/openclaw: the openclaw.rocks OpenClawInstance, reachable in-cluster
-  # only. The internal Gateway serves the whole LAN, not just the tailnet, so no
-  # route is attached and no gateway is named -- a named Gateway here would keep
-  # openclaw in the docs/networking.md route inventory it no longer belongs to.
-  # A tailnet-only endpoint is the tracked way back to remote access:
-  #   route:
-  #     enabled: true
-  #     gateway:
-  #       name: {{ .Values.GATEWAY_INTERNAL.Value }}
-  #       namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+  # charts/openclaw: the openclaw.rocks OpenClawInstance. No HTTPRoute: the
+  # internal Gateway serves the whole LAN, not just the tailnet, and no gateway is
+  # named -- a named Gateway here would keep openclaw in the docs/networking.md
+  # route inventory it no longer belongs to. Remote access is the tailnet block
+  # below instead, whose proxy has no LAN listener at all. Both off leaves the
+  # Control UI in-cluster only (docs/apps/openclaw.md Exposure).
   instance:
     route:
       enabled: false
+    # OPENCLAW_TAILNET_EXPOSURE. The hostname and tag are PII and per-environment;
+    # the tag also needs a live tailnet policy grant before it answers anything
+    # (docs/runbooks/openclaw-tailnet-access.md).
+    # Both keys are optional, so each is guarded: dereferencing an unset key
+    # leaves the template's missing-key artifact here, not the empty string.
+    tailnet:
+      enabled: {{ eq .Values.OPENCLAW_TAILNET_EXPOSURE.Value "true" }}
+      hostname: "{{ if .Values.OPENCLAW_TAILNET_HOSTNAME }}{{ .Values.OPENCLAW_TAILNET_HOSTNAME.Value }}{{ end }}"
+      tag: "{{ if .Values.OPENCLAW_TAILNET_TAG }}{{ .Values.OPENCLAW_TAILNET_TAG.Value }}{{ end }}"
     image:
       repository: ghcr.io/openclaw/openclaw
       tag: "{{ index .Versions.Images "openclaw" }}"
