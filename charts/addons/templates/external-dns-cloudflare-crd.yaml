@@ -70,9 +70,6 @@ spec:
                 name: cloudflare-api-token
                 key: api_token
 
-        cloudflare:
-          proxied: {{ index .Values "external-dns" "cloudflare" "proxied" }}
-
         sources:
           - crd
 

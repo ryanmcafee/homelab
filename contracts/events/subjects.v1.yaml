@@ -80,6 +80,70 @@ replicas_defaults:
   commercial: 3
   commercial_minimum_peers: 3 # R=3 needs a 3-peer JetStream meta-group; size #50 for it
 
+# `max_bytes` is the second operator-supplied number, and it is REQUIRED on every stream
+# for the same reason `discard` is stated at all. JETSTREAM APPLIES `discard` ONLY WHEN A
+# STREAM HITS `max_msgs`, `max_bytes` OR `max_msgs_per_subject`. Age expiry is a separate
+# path that ignores it entirely. A stream with a `discard` policy and no size or count
+# limit therefore has a DECORATIVE `discard`: it never fills, so the policy never runs,
+# and the only thing the stream can exhaust is the shared JetStream file store. That
+# failure is not scoped to the stream — the server refuses writes for EVERY stream on the
+# peer with `insufficient resources (10023)`, which turns one stream's retention budget
+# into a whole-bus outage and inverts the isolation PF_AUDIT's `discard: new` claims to
+# buy. So: every stream carries the literal placeholder `<max_bytes>`, the checker
+# enforces that it stays a placeholder, and the checker also rejects any stream that
+# declares a `discard` policy with no limit for it to act on. (ADR-042)
+#
+# CAPACITY IN THIS CONTRACT IS EXPRESSED IN BYTES ONLY. `max_msgs` and
+# `max_msgs_per_subject` are rejected by the checker: a committed message count is one
+# operator's capacity in a different unit, and on a `discard: new` stream it silently
+# replaces the byte-based retention every number here is reasoned about — PF_AUDIT would
+# refuse writes at the count regardless of how much of its budget is used. Size a stream
+# in `max_bytes_defaults`. (ADR-042)
+max_bytes_defaults:
+  # Bytes. Per surface, summing BELOW the file store each surface provisions — see
+  # `max_bytes_sum_rule`. PF_AUDIT is the largest because 365d of identity and control
+  # history is what it exists to hold; PF_WORK is smallest because a work queue that is
+  # being drained is nearly empty and a deep one is already an alert.
+  # The two surfaces share one split — 33.3% / 50% / 4.2% / 12.5% of the budget — so a
+  # commercial operator reading a homelab install is reading the same shape scaled up.
+  homelab: # 20 GiB file store, 6 GiB budgeted (30%), 14 GiB headroom
+    PF_EVENTS: 2147483648 # 2 GiB
+    PF_AUDIT: 3221225472 # 3 GiB
+    PF_WORK: 268435456 # 256 MiB
+    PF_DLQ: 805306368 # 768 MiB
+  commercial: # 128 GiB file store, 96 GiB budgeted (75%), 32 GiB headroom
+    PF_EVENTS: 34359738368 # 32 GiB
+    PF_AUDIT: 51539607552 # 48 GiB
+    PF_WORK: 4294967296 # 4 GiB
+    PF_DLQ: 12884901888 # 12 GiB
+max_bytes_sum_rule: >-
+  THE FOUR STREAMS' `max_bytes` MUST TOTAL STRICTLY LESS THAN THE JETSTREAM FILE STORE,
+  with headroom. `max_bytes` bounds a stream against ITSELF; it does not reserve or
+  partition the store. Four streams whose limits sum above the store are individually
+  bounded and collectively unbounded, so the shared-store failure above is back unchanged
+  — the peer just reaches `insufficient resources (10023)` before any stream reaches its
+  own limit, and which stream's publish gets refused is a race rather than a policy. The
+  headroom is not decoration either: JetStream accounts for index and metadata alongside
+  message bytes, so a budget equal to the store fails before the last stream fills. 75% OF
+  THE STORE IS THE CEILING, NOT THE TARGET: the chart refuses to render above it
+  (`maxBytesBudgetFraction`), and the defaults above sit well under it — homelab budgets
+  6 GiB of the 20 GiB it provisions (30%), commercial 96 GiB of 128 GiB (75%). Homelab is
+  deliberately the conservative one: RAISING a `max_bytes` is additive and safe, while
+  lowering one below what a stream already holds makes JetStream discard or refuse at the
+  new limit, so the reversible direction is to start low. An operator who raises one stream
+  MUST keep the total under the ceiling — lower another or grow the store. THIS RULE IS
+  ARITHMETIC AN OPERATOR APPLIES AT SIZING TIME, NOT SOMETHING THE STATIC GATE CAN CHECK:
+  the file store size is a cluster fact (`nats.jetstream.storage.size` in
+  `configuration/templates/helm-addons.tmpl`, which renders into the upstream NATS chart's
+  `fileStore.pvc.size`), not a value in this contract.
+  What the gate does enforce is that the numbers live in `max_bytes_defaults` where the
+  sum is visible at all, rather than being scattered across four chart values. The
+  runtime side of the rule is an alert on file-store utilisation, named in ADR-042 and
+  owned by the SRE & Observability Engineer. The two failures an operator meets here are
+  different errors: a mis-summed budget surfaces at PUBLISH as `insufficient resources`
+  (10023), while a single stream sized above the whole store surfaces at CREATE as
+  `insufficient storage resources available` (10047) and never starts.
+
 # Streams. A subject that matches no stream is a configuration error, not a warning:
 # it means an event is being published into a void with nothing to replay it.
 streams:
@@ -89,7 +153,8 @@ streams:
     replicas: <replicas>
     retention: limits
     max_age: 168h # 7d
-    max_msg_size: 1048576 # 1 MiB; see `limits.max_event_bytes` below
+    max_bytes: <max_bytes>
+    max_msg_size: 983040 # 960 KiB; equals `limits.max_event_bytes` below
     discard: old
     duplicate_window: 2m
     delivery: at_least_once
@@ -113,6 +178,7 @@ streams:
     replicas: <replicas>
     retention: limits
     max_age: 8760h # 365d
+    max_bytes: <max_bytes>
     discard: new
     duplicate_window: 2m
     delivery: at_least_once
@@ -124,10 +190,13 @@ streams:
       the stream could not be created at all. Sourcing fixes three things at once: the
       stream is creatable; a consumer binds ONE stream so nobody sees an event twice; and
       one publish yields one PubAck and therefore one unambiguous envelope `sequence`, from
-      PF_EVENTS. `discard: new` still means what it should — when the audit stream is full
-      it refuses ITS OWN writes rather than dropping history, and it no longer blocks live
-      publishes on PF_EVENTS. PF_AUDIT's own stream sequences are internal and are never
-      the envelope's `sequence`. (ADR-038)
+      PF_EVENTS. `discard: new` means what it should ONLY BECAUSE `max_bytes` IS SET — when
+      the audit stream reaches its own ceiling it refuses ITS OWN writes rather than
+      dropping history, and it does not block live publishes on PF_EVENTS. Without a
+      ceiling that sentence was false: 365d of retention with no limit can only exhaust the
+      shared file store, and that refuses writes for every stream on the peer including
+      PF_EVENTS, which is the opposite of the isolation claimed here. PF_AUDIT's own stream
+      sequences are internal and are never the envelope's `sequence`. (ADR-038, ADR-042)
 
   - name: PF_WORK
     subjects: ['pf.*.*.*.*.*.wq']
@@ -135,6 +204,7 @@ streams:
     replicas: <replicas>
     retention: workqueue
     max_age: 24h
+    max_bytes: <max_bytes>
     discard: new
     duplicate_window: 2m
     delivery: at_least_once
@@ -146,9 +216,20 @@ streams:
       stream: it is core NATS, at-most-once, nothing persisted. The suffix is what
       separates them, so a reader of a subject knows the guarantee without opening the
       registry — the registry does not restate durability, it is DERIVED from the suffix.
-      `discard: new` is deliberate and stays: when the queue fills, publishers get an
-      error instead of the stream silently dropping work. Backpressure belongs on the
-      producer. See `silent_loss` below for what `max_age` costs here.
+      `discard: new` is deliberate and stays: when the queue reaches `max_bytes`, the publish
+      is REFUSED with `maximum bytes exceeded` (err_code 10077, HTTP 503) instead of the
+      stream silently dropping work — verified against nats-server 2.10.29, and identical on
+      `limits` retention, so a work queue needs no special case. Match the DESCRIPTION, not
+      the number: 10077 is a wrapper code whose description carries the real reason, so
+      `maximum bytes exceeded` (this stream is at its own ceiling, backpressure working) and
+      `insufficient resources` (10023, the peer is out of store, a bus-wide outage) both
+      arrive as 503 and mean opposite things.
+      Backpressure belongs on the producer, and it only exists because the ceiling exists —
+      an unbounded PF_WORK never fills, so it grows until the shared file store is exhausted
+      and the error surfaces as `insufficient resources (10023)` on every stream at once
+      rather than as backpressure on this one. See `silent_loss` below for what `max_age`
+      costs here; `max_bytes` bounds the queue's SIZE and `max_age` bounds its messages'
+      LIFETIME, and neither substitutes for the other. (ADR-042)
     silent_loss: >-
       AGE EXPIRY ON THIS STREAM IS A SILENT DATA-LOSS PATH. `max_age` deletes unacked
       work-queue messages with no per-message signal on the path that matters, and
@@ -186,6 +267,7 @@ streams:
     replicas: <replicas>
     retention: limits
     max_age: 720h # 30d
+    max_bytes: <max_bytes>
     discard: old
     duplicate_window: 2m
     delivery: at_least_once
@@ -201,7 +283,31 @@ streams:
 
 # Hard limits a producer would otherwise discover at publish time.
 limits:
-  max_event_bytes: 1048576 # 1 MiB, matching the nats-server default `max_payload`
+  server_max_payload: 1048576 # 1 MiB, the nats-server default `max_payload`. NOT a budget.
+  max_event_bytes: 983040 # 960 KiB — a PRODUCER budget strictly below server_max_payload
+  producer_budget_rule: >-
+    `max_event_bytes` IS A PRODUCER BUDGET, NOT THE SERVER LIMIT, and it is deliberately
+    BELOW `server_max_payload`. An earlier version set the two equal at 1 MiB, which made
+    the budget unreachable: `max_payload` bounds the whole NATS message, HEADERS PLUS BODY.
+    THE BOUND IS INCLUSIVE — `len(headers) + len(body) <= max_payload` is accepted, verified
+    at the protocol level — so a 1 MiB envelope is refused not because equality fails but
+    because the SDK always adds `Nats-Msg-Id` on top of it. A well-behaved client knows
+    `max_payload` from INFO and refuses locally (`nats: maximum payload exceeded`, nothing
+    sent, connection intact); only a client that sends anyway gets
+    `-ERR 'Maximum Payload Violation'` and the server closing the connection. The 64 KiB
+    reserved between the two covers the headers every publish carries — `Nats-Msg-Id` (the
+    CloudEvents `id`, which the SDK always sets) plus whatever a tracing propagator adds.
+    Measured worst case: `Nats-Msg-Id` with `traceparent`, `tracestate` and `baggage` all at
+    the W3C SHOULD-limits is 8862 wire bytes, so the reserve is 7.4x the worst propagator
+    and costs 6.67% of the producer budget — deliberate, because a budget that a header
+    someone adds later can silently invalidate is the same defect one size down. A producer checks its serialised envelope against
+    `max_event_bytes`; it never checks against `server_max_payload`. PF_EVENTS'
+    `max_msg_size` equals `max_event_bytes` so the budget is ENFORCED by the stream rather
+    than restated as advice. The checker requires at least one stream producers publish
+    into directly to declare `max_msg_size`, checks EVERY such stream against
+    `max_event_bytes`, and pins the strict inequality above — deleting the cap is a
+    violation rather than a skipped rule, because absence is what made this sentence
+    silently false before. (ADR-042)
   body_rule: >-
     The whole structured-JSON event — envelope plus `data` — must fit inside
     `max_event_bytes`. A payload that does not is REFERENCED, never embedded: publish a

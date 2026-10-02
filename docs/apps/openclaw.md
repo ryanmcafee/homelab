@@ -7,16 +7,17 @@ reuses its credential pattern. Issue #425.
 
 ## Applications
 
-All four are rendered by `charts/applications/templates/openclaw.yaml`, gated on
-`openclaw.enabled`, and never part of a PR preview (an operator, CRDs and 1Password items are
-cluster-level concerns). They run in both environments (Kind included), except
-`openclaw-dependencies`, which only exists where a secret store does
-(`SECRETS_PROVIDER=onepassword`): Kind seeds its two Secrets from `localdev/fakes/secrets.yaml`
-instead.
+Three `Application`s, plus the two namespaces as raw `Namespace` resources rather than Applications,
+are rendered by `charts/applications/templates/openclaw.yaml`, gated on `openclaw.enabled`, and never
+part of a PR preview (an operator, CRDs and 1Password items are cluster-level concerns). They run in
+both environments (Kind included), except `openclaw-dependencies`, which only exists where a secret
+store does (`SECRETS_PROVIDER=onepassword`): Kind seeds its two Secrets from
+`localdev/fakes/secrets.yaml` instead. A Kind cluster therefore shows **two** OpenClaw Applications,
+a `SECRETS_PROVIDER=onepassword` cluster **three**.
 
-| Wave | Application | Source | What it deploys |
+| Wave | Resource | Source | What it deploys |
 |---|---|---|---|
-| 10 | Namespaces `openclaw-system`, `openclaw` | inline (PodSecurity `baseline`) | targets for the other Applications |
+| 10 | Namespaces `openclaw-system`, `openclaw` (raw resources, not Applications) | inline (PodSecurity `baseline`) | targets for the Applications below |
 | 11 | `openclaw-operator` | OCI chart `ghcr.io/paperclipinc/charts/openclaw-operator` 0.40.0 (repository Secret `paperclipinc-oci`), `ServerSideApply=true`, CRDs kept | `openclaw.rocks` CRDs + controller, ServiceMonitor on |
 | 12 | `openclaw-dependencies` (secret store only) | `charts/openclaw-dependencies` | `OnePasswordItem`s `openclaw-api-keys`, `openclaw-gateway` |
 | 13 | `openclaw` | `charts/openclaw` | `openclaw.rocks/v1alpha1` `OpenClawInstance` `openclaw` + PostSync smoke Job `smoke-openclaw` |
@@ -107,24 +108,29 @@ This is the part of the stack most likely to cost money by accident, so it is wi
 
 ### The subscription variable is `ANTHROPIC_OAUTH_TOKEN`, not `CLAUDE_CODE_OAUTH_TOKEN`
 
-`charts/paperclip` carries the Claude subscription token in `CLAUDE_CODE_OAUTH_TOKEN`. **OpenClaw
-does not read that variable.** It lists it in `CLAUDE_CLI_CLEAR_ENV`
-(`extensions/anthropic/cli-constants.ts`) and strips it before every OpenClaw-managed Claude CLI
-run, because for the `claude-cli` backend the CLI's own config directory owns auth. An
-`OpenClawInstance` carrying `CLAUDE_CODE_OAUTH_TOKEN` reads as though it has subscription auth and
-has none, so `tests/policy/openclaw.rego` rejects it outright.
+`charts/paperclip` carries the Claude subscription token in `CLAUDE_CODE_OAUTH_TOKEN`. **OpenClaw's
+native Anthropic provider -- the path this chart wires -- does not read that variable.** Its
+credential list names only the other two, in both places that spell it out at `v2026.9.6`:
+`extensions/anthropic/provider-contract-api.ts` declares
+`envVars: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]`, and `src/secrets/provider-env-vars.ts`
+maps `anthropic` to the same pair. This chart wires that path -- `providerEnvPrecedence` feeds
+`config.models.providers` -- so an `OpenClawInstance` carrying `CLAUDE_CODE_OAUTH_TOKEN` reads as
+though it has subscription auth and has none, and `tests/policy/openclaw.rego` rejects it outright.
 
-OpenClaw reads the **same** `claude setup-token` credential from `ANTHROPIC_OAUTH_TOKEN`
-(`extensions/anthropic/provider-contract-api.ts` declares
-`envVars: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]`, and its `setup-token` auth method is
-documented as "Paste a long-lived token created with `claude setup-token`"). The cost model is
-therefore unchanged from Paperclip's; only the variable name differs.
+Note what is *not* the reason: `CLAUDE_CLI_CLEAR_ENV` (`extensions/anthropic/cli-constants.ts`) does
+strip inherited credentials on the `claude-cli` paths, but it lists **both**
+`ANTHROPIC_OAUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN`, so it cannot distinguish them. The provider's
+own `envVars` list is what does.
+
+`ANTHROPIC_OAUTH_TOKEN` takes the **same** `claude setup-token` credential: the provider's
+`setup-token` auth method is documented as "Paste a long-lived token created with
+`claude setup-token`". The cost model is therefore unchanged from Paperclip's; only the variable name
+differs.
 
 One difference worth knowing, because it runs the opposite way to Claude Code: OpenClaw ranks
-`ANTHROPIC_OAUTH_TOKEN` **above** `ANTHROPIC_API_KEY` (`packages/ai/src/env-api-keys.ts`:
-`// ANTHROPIC_OAUTH_TOKEN takes precedence over ANTHROPIC_API_KEY`). An API key that leaks into the
-Secret cannot silently move spend to metered billing the way it does for Paperclip. It still must not
-be in the pod unless someone asked for it.
+`ANTHROPIC_OAUTH_TOKEN` **above** `ANTHROPIC_API_KEY` -- it is the first entry of both lists cited
+above. An API key that leaks into the Secret cannot silently move spend to metered billing the way it
+does for Paperclip. It still must not be in the pod unless someone asked for it.
 
 ### Subscription (Claude Pro/Max/Team) — the default path
 

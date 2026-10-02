@@ -209,7 +209,7 @@ sonarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: 512Mi
               limits:
                 cpu: 1000m
@@ -298,7 +298,7 @@ radarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: 512Mi
               limits:
                 cpu: 1000m
@@ -550,7 +550,7 @@ tautulli:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: 256Mi
               limits:
                 cpu: 500m
@@ -619,7 +619,7 @@ lazylibrarian:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: 256Mi
               limits:
                 cpu: 500m
@@ -815,11 +815,6 @@ mosquitto:
           nodePort: 31901
           protocol: tcp
 
-  # Authentication configuration
-  mosquitto:
-    auth:
-      enabled: true
-
   TZ: America/New_York
 
   # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
@@ -987,9 +982,13 @@ paperclip:
     image:
       repository: ghcr.io/paperclipai/paperclip
       tag: "sha-d3e0f0a"
-    # Bootstrapped once by the operator's admin-seed Job; the password is the
-    # ADMIN_PASSWORD field of the paperclip-auth item.
+    # Seeded by the operator's admin-seed Job; the password is the ADMIN_PASSWORD
+    # field of the paperclip-auth item. Homelab's admin exists since 2026-09-15,
+    # so bootstrap is off there (operator 0.19.1 re-runs the Job while adminUser
+    # is rendered, bugs.md 2026-09-30); set it true for one sync on a fresh
+    # database. Kind starts from an empty database every time and keeps it on.
     admin:
+      bootstrap: true
       email: admin@homelab.local
       name: Admin
     route:
@@ -1021,6 +1020,53 @@ paperclip:
     enabled: true
     url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
     expect: ["200"]
+
+# ============================================================================
+# LiteLLM - OpenAI-compatible LLM gateway (componentized chart + CloudNativePG)
+# Sync Waves: 10 namespace, 11 litellm-dependencies, 12 litellm-database
+# (issue #424); the proxy itself follows in a later wave.
+# ============================================================================
+# Runs wherever CloudNativePG runs (both environments). The three 1Password
+# items only render with a secret store; Kind seeds the same Secrets from
+# localdev/fakes/secrets.yaml. Derived values reach the child charts through
+# the parent Applications' helm.valuesObject (ADR-010).
+
+litellm:
+  enabled: true
+  namespace: litellm
+  hostname: litellm.homelab.local
+
+  # charts/litellm-dependencies: 1Password items -> Secrets
+  # litellm-master-key-secret (field master-key), litellm-salt-key (field
+  # salt-key) and litellm-api-keys (one field per provider credential). Field
+  # names in 1Password must equal these keys. The salt key is a separate item
+  # because rotating it makes every credential already stored in the database
+  # undecryptable, while the master key is safe to rotate.
+  dependencies:
+    onePassword:
+      enabled: false
+      masterKeyItemPath: vaults/homelab/items/litellm-master-key
+      saltKeyItemPath: vaults/homelab/items/litellm-salt-key
+      apiKeysItemPath: vaults/homelab/items/litellm-api-keys
+
+  # charts/litellm-database: CloudNativePG Cluster litellm-db. The image is
+  # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.
+  database:
+    instances: 1
+    imageName: "ghcr.io/cloudnative-pg/postgresql:17.11"
+    # Block storage: PostgreSQL refuses a data directory whose files are not
+    # owned by uid 26, which is what every file on the NFS classes looks like
+    # (mapall). STORAGE_CLASS_SSD is NFS on the SSD pool; this is iSCSI on it.
+    storageClass: local-path
+    # Kind sizing: local-path volume, small footprint
+    storageSize: 1Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
 
 openclaw:
   enabled: true
