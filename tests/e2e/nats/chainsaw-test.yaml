@@ -11,7 +11,8 @@ spec:
     message is redelivered until maxDeliver and then abandoned without stalling the consumer,
     and a dead letter carrying the full original envelope is read back from PF_DLQ. Every nats
     command runs in the nats-box pod the chart already ships and uses only the consumers the
-    contract declares, so the test adds neither an image nor a consumer.
+    contract declares, so the test adds no consumer. The last step proves nats-server-ingress:
+    Prometheus scrapes 8222 and 7777, and an untrusted pod (the pinned curl image) cannot.
   steps:
     - name: applications-healthy
       description: nats, nack and nats-config are Healthy and Succeeded.
@@ -153,6 +154,17 @@ spec:
               kind: Consumer
               metadata:
                 name: dlq-reporter-observability-v1
+                namespace: nats
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
+        - assert:
+            resource:
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Consumer
+              metadata:
+                name: workload-operator-deployment-promote-v1
                 namespace: nats
               status:
                 conditions:
@@ -642,8 +654,9 @@ spec:
               fi
               echo "exporter: $pod:$port"
 
-              # The API server's pod proxy, so this needs no curl in the exporter image.
-              if ! metrics=$(kubectl get --raw "/api/v1/namespaces/nats/pods/$pod:$port/proxy/metrics" 2>&1); then
+              # Over the pod's loopback, which nats-server-ingress does not police.
+              if ! metrics=$(kubectl exec -n nats "$pod" -c nats -- \
+                wget -q -T 10 -O - "http://localhost:$port/metrics" 2>&1); then
                 echo "FAIL: the exporter scrape did not return 200, so EVERY nats_* series is absent:"
                 echo "$metrics"
                 echo "A 'collected before with the same name and label values' error means two"
@@ -676,3 +689,111 @@ spec:
             content: |
               kubectl get pods -n nats --show-labels || true
               kubectl get podmonitors -n nats -o yaml || true
+    # bus-principals.v1.yaml conformance.level_2 `monitoring_network_policy`. The denial half
+    # runs from a pod in the chainsaw namespace, which no rule admits to 8222 or 7777; its 4222
+    # control proves the pod has a network, so a timeout is the policy and not a dead probe.
+    - name: monitoring-network-policy
+      description: >-
+        The Prometheus pod reaches 8222 and 7777 on a NATS pod and holds the PF_WORK leader
+        series its alerts read, while an untrusted pod times out on both ports yet reaches 4222.
+      timeouts:
+        exec: 5m
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              kubectl get networkpolicy -n nats nats-server-ingress -o name
+              ip=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats \
+                -o jsonpath='{.items[0].status.podIP}')
+              prom=$(kubectl get pod -n monitoring -l app.kubernetes.io/name=prometheus \
+                -o jsonpath='{.items[0].metadata.name}')
+              echo "nats pod ip: $ip | authorized peer: monitoring/$prom"
+
+              # The Prometheus image ships promtool but no HTTP client. Any HTTP answer, even an
+              # error status, proves the TCP path; a dropped connection hangs until the timeout.
+              for port in 8222 7777; do
+                out=$(timeout 20 kubectl exec -n monitoring "$prom" -c prometheus -- \
+                  promtool query instant "http://$ip:$port" up 2>&1) && rc=0 || rc=$?
+                echo "promtool from monitoring/$prom to :$port (rc=$rc): $out"
+                if [ "$rc" = 124 ] || echo "$out" | grep -qiE 'timeout|deadline exceeded|refused|no route|unreachable'; then
+                  echo "FAIL: Prometheus could not reach :$port; the policy denies the monitoring path"
+                  exit 1
+                fi
+                echo "OK: authorized peer reached :$port"
+              done
+
+              promql() {
+                kubectl exec -n monitoring "$prom" -c prometheus -- \
+                  promtool query instant http://localhost:9090 "$1" \
+                  | sed -n 's/.* => \([0-9.e+-]*\) @.*/\1/p'
+              }
+              series=""
+              for i in $(seq 1 12); do
+                up=$(promql 'min(up{namespace="nats"})')
+                series=$(promql 'count(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"})')
+                echo "attempt $i/12: min(up{namespace=\"nats\"}) = ${up:-<no series>}" \
+                  "| PF_WORK leader first_seq series = ${series:-<none>}"
+                [ "${series:-0}" -gt 0 ] && break
+                sleep 10
+              done
+              if [ "${series:-0}" -le 0 ]; then
+                echo "FAIL: Prometheus has no PF_WORK nats_stream_first_seq{is_stream_leader=\"true\"} series;"
+                echo "the PF_WORK silent-loss alerts are blind, so the PodMonitor path is broken"
+                exit 1
+              fi
+
+              kubectl apply -n "$NAMESPACE" -f - <<JOB
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: monitor-untrusted
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 120
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            probe() { curl -s -o /dev/null --max-time 5 "\$1"; echo \$?; }
+                            client=\$(probe "http://$ip:4222/")
+                            monitor=\$(probe "http://$ip:8222/jsz?accounts=true")
+                            exporter=\$(probe "http://$ip:7777/metrics")
+                            echo "curl exit codes: 4222=\$client 8222=\$monitor 7777=\$exporter (28 = timed out)"
+                            [ "\$client" != 28 ] && [ "\$client" != 7 ] || { echo "FAIL: control 4222 unreachable"; exit 1; }
+                            [ "\$monitor" = 28 ] || { echo "FAIL: untrusted pod reached 8222"; exit 1; }
+                            [ "\$exporter" = 28 ] || { echo "FAIL: untrusted pod reached 7777"; exit 1; }
+              JOB
+              kubectl wait -n "$NAMESPACE" job/monitor-untrusted \
+                --for=condition=Complete --timeout=150s \
+                || { kubectl logs -n "$NAMESPACE" job/monitor-untrusted || true; exit 1; }
+              kubectl logs -n "$NAMESPACE" job/monitor-untrusted
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              kubectl get networkpolicy -n nats -o yaml || true
+              kubectl get pods -n nats --show-labels || true
+              kubectl logs -n "$NAMESPACE" job/monitor-untrusted || true

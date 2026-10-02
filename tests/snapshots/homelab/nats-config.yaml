@@ -49,6 +49,31 @@ spec:
   preventDelete: true
 
 ---
+# Source: nats-config/templates/consumers.yaml
+apiVersion: jetstream.nats.io/v1beta2
+kind: Consumer
+metadata:
+  name: workload-operator-deployment-promote-v1
+  labels:
+    app.kubernetes.io/part-of: nats
+    app.kubernetes.io/component: jetstream-consumer
+spec:
+  durableName: workload-operator-deployment-promote-v1
+  streamName: PF_WORK
+  description: "Durable pull consumer workload-operator binds for promote work"
+  servers:
+    - nats://nats.nats.svc.cluster.local:4222
+  # Consumers filter by subject, never by decoding the body and discarding.
+  filterSubject: pf.*.workload.deployment.promote.v1.wq
+  deliverPolicy: all
+  replayPolicy: instant
+  ackPolicy: explicit
+  ackWait: 30s
+  maxDeliver: 5
+  maxAckPending: 256
+  preventDelete: true
+
+---
 # Source: nats-config/templates/streams.yaml
 apiVersion: jetstream.nats.io/v1beta2
 kind: Stream

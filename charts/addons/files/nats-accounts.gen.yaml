@@ -45,7 +45,7 @@ principals:
       allow:
         - _INBOX.nack.>
   - name: workload-operator
-    role: puller
+    role: bound_puller
     publish:
       allow:
         - pf.<tenant>.workload.deployment.deployed.v1.ev
@@ -55,7 +55,6 @@ principals:
         - $JS.API.INFO
         - $JS.API.STREAM.INFO.PF_WORK
         - $JS.API.CONSUMER.INFO.PF_WORK.workload-operator-deployment-promote-v1
-        - $JS.API.CONSUMER.CREATE.PF_WORK.workload-operator-deployment-promote-v1.pf.<tenant>.workload.deployment.promote.v1.wq
         - $JS.API.CONSUMER.MSG.NEXT.PF_WORK.workload-operator-deployment-promote-v1
         - $JS.ACK.PF_WORK.workload-operator-deployment-promote-v1.>
         - $JS.ACK.*.*.PF_WORK.workload-operator-deployment-promote-v1.>

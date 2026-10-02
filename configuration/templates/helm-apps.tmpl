@@ -297,7 +297,7 @@ sonarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: {{ if $localdev }}512Mi{{ else }}896Mi{{ end }}
               limits:
                 cpu: 1000m
@@ -404,7 +404,7 @@ radarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: {{ if $localdev }}512Mi{{ else }}640Mi{{ end }}
               limits:
                 cpu: 1000m
@@ -692,7 +692,7 @@ tautulli:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: {{ if $localdev }}256Mi{{ else }}288Mi{{ end }}
               limits:
                 cpu: 500m
@@ -767,7 +767,7 @@ lazylibrarian:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: {{ if $localdev }}256Mi{{ else }}192Mi{{ end }}
               limits:
                 cpu: 500m
@@ -1282,6 +1282,64 @@ paperclip:
     enabled: true
     url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
     expect: ["200"]
+
+# ============================================================================
+# LiteLLM - OpenAI-compatible LLM gateway (componentized chart + CloudNativePG)
+# Sync Waves: 10 namespace, 11 litellm-dependencies, 12 litellm-database
+# (issue #424); the proxy itself follows in a later wave.
+# ============================================================================
+# Runs wherever CloudNativePG runs (both environments). The three 1Password
+# items only render with a secret store; Kind seeds the same Secrets from
+# localdev/fakes/secrets.yaml. Derived values reach the child charts through
+# the parent Applications' helm.valuesObject (ADR-010).
+
+litellm:
+  enabled: true
+  namespace: litellm
+  hostname: {{ .Values.LITELLM_HOSTNAME.Value }}
+
+  # charts/litellm-dependencies: 1Password items -> Secrets
+  # litellm-master-key-secret (field master-key), litellm-salt-key (field
+  # salt-key) and litellm-api-keys (one field per provider credential). Field
+  # names in 1Password must equal these keys. The salt key is a separate item
+  # because rotating it makes every credential already stored in the database
+  # undecryptable, while the master key is safe to rotate.
+  dependencies:
+    onePassword:
+      enabled: {{ $onepassword }}
+      masterKeyItemPath: {{ .Values.LITELLM_MASTER_KEY_1P_PATH.Value }}
+      saltKeyItemPath: {{ .Values.LITELLM_SALT_KEY_1P_PATH.Value }}
+      apiKeysItemPath: {{ .Values.LITELLM_API_KEYS_1P_PATH.Value }}
+
+  # charts/litellm-database: CloudNativePG Cluster litellm-db. The image is
+  # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.
+  database:
+    instances: 1
+    imageName: "ghcr.io/cloudnative-pg/postgresql:{{ index .Versions.Images "cloudnative-pg-postgresql" }}"
+    # Block storage: PostgreSQL refuses a data directory whose files are not
+    # owned by uid 26, which is what every file on the NFS classes looks like
+    # (mapall). STORAGE_CLASS_SSD is NFS on the SSD pool; this is iSCSI on it.
+    storageClass: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+{{- if $localdev }}
+    # Kind sizing: local-path volume, small footprint
+    storageSize: 1Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+{{- else }}
+    storageSize: 10Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+{{- end }}
 
 openclaw:
   enabled: true

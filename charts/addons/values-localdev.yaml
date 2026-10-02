@@ -1213,19 +1213,21 @@ argo-workflows:
     resources:
       requests:
         cpu: 50m
-        memory: 32Mi
+        memory: 64Mi
       limits:
         cpu: 200m
-        memory: 48Mi
+        memory: 128Mi
 
   controller:
+    # Informer caches (Workflows, Pods, ConfigMaps, templates) plus the archive
+    # DB pool; 48Mi crash-looped the controller (bugs.md 2026-10-01).
     resources:
       requests:
         cpu: 100m
-        memory: 32Mi
+        memory: 128Mi
       limits:
         cpu: 500m
-        memory: 48Mi
+        memory: 256Mi
 
     # Garbage collection of live objects. Completed workflows stay browsable in
     # the archive (retentionDays) after their TTL removes them from the cluster.
@@ -1349,6 +1351,15 @@ nats:
   principalNkeys: ""
   systemAccountNkey: ""
   natsBoxPrincipals: ""
+
+  # Where each principal's PRIVATE seed comes from. Exactly one source, or the accounts block
+  # refuses to render: a public key the server accepts is unusable until its seed reaches the
+  # client. Kind has no vault, so its bootstrap mints the seeds into Secrets directly
+  # (scripts/localdev-kind.ts); homelab delivers them through the 1Password operator.
+  credentials:
+    onePasswordVaultPath: ""
+    bootstrapSeeded: true
+    extraNamespaces: {}
 
   # Per-account JetStream limits, mandatory rather than advisory (ADR-043 D8). Both store
   # limits are checked against the SERVER's stores at startup and a limit above what the

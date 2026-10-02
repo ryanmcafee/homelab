@@ -176,6 +176,32 @@ same report (`--no-diff`, `--max-diff-bytes 0` for full diffs); it only reads.
 | `task docs:embedme` / `task docs:embedme:verify` | Regenerate or verify the snippets embedded in `Claude.md` (today only the `configuration/versions.yaml` block). Verify runs in the `policy` CI job, so a bump that moves `versions.yaml` without regenerating turns it red. |
 | `task gpu:toggle-test` | GPU vendor toggle harness (`scripts/toggle-test.ts`); uses the same Kubernetes version and vendored schemas. |
 | `task ci:test` | Everything above that needs no cluster: the local equivalent of the `verify.yml` jobs. |
+| `task pr:refresh` | Bring a stale PR branch up to date with its base without hand-merging the files every PR touches. See [Bringing a stale PR up to date](#bringing-a-stale-pr-up-to-date). |
+
+## Bringing a stale PR up to date
+
+Most PR conflicts here are not disagreements. On 2026-10-02, 29 of 86 open PRs conflicted
+with their base, and the files behind it were this runbook (7 PRs), `readme.md` and
+`.github/homelab.svg` (6 each), `docs/project_notes/bugs.md`, `issues.md` and the golden
+snapshots (4 each): concurrent PRs appending at the same spot, or both moving a count
+`docs:check` computes anyway. `task pr:refresh` merges the base into the checked-out PR
+branch and resolves exactly those:
+
+| Conflict | Resolution |
+|---|---|
+| `bugs.md`, `issues.md`, this runbook | `.gitattributes` `merge=union` keeps both sides' lines. The merge runs with the **base** branch's attributes (`git --attr-source`), so a branch cut before `.gitattributes` existed gets them too. The run lists every file union resolved: two edits to the same line come out as two lines, not a conflict, so read them. |
+| `tests/snapshots/`, `tests/schemas/`, `values-localdev.yaml` | Take the base side, then regenerate (renovate-regen's steps). |
+| `readme.md`, `.github/homelab.svg`, `docs/applications.md`, `docs/networking.md` | A hunk whose sides differ only in numbers `docs:check` owns (or that sits in a `docs-check` region) takes the base side and `docs:check --fix` rewrites it. The SVG suite counter is not fixable, so a file still drifting is retried with the PR side; when neither is true (both sides added a suite) the run stops for a hand fix. |
+| Anything else | Left conflicted. Resolve, `git add`, then `task pr:refresh -- --continue`. |
+
+It then runs level 0 and commits the merge only when it passes (`--no-verify` when the
+failure predates the merge). A stacked PR merges its own base:
+`task pr:refresh -- --base origin/<base-branch>`; `--dry-run` classifies the conflicts and
+writes nothing; `--push` pushes after the commit. It refuses `renovate/*` branches: a merge
+commit there stops Renovate rebasing the branch for good, so tick the PR's rebase checkbox.
+
+GitHub's merge button and "Update branch" ignore `.gitattributes` merge drivers, so a PR
+can still show "conflicts" on github.com that `task pr:refresh` resolves locally.
 
 ## Tooling
 
