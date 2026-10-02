@@ -136,5 +136,8 @@ test("summary, sticky comment and artifact sinks use only report outputs", () =>
     "upgrade-report.md",
     "upgrade.json",
     "revalidate.json",
+    // The undeclared-values gate's report (#483): key paths read from the committed
+    // snapshots, never a value, so it carries nothing a Secret could leak through.
+    "values.json",
   ]);
 });
