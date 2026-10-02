@@ -608,9 +608,15 @@ characters long becomes a literal pattern); without it the guard still applies s
 
 Keys that legitimately carry public hosts (`repoUrl`, `server`, `providerURL`, `url`) are
 not checked. Example/template files are held to a closed placeholder allowlist
-(`192.168.1.0/24`, `REPLACEME` / `REPLACEME-*` labels, `example.com`, loopback, `.local`):
-any other value on a PII-shaped key fails. A new placeholder convention must be added to
-the allowlist in `internal/config/guard.go`. Widen or narrow the scope with `--paths`.
+(RFC 5737 `198.51.100.0/24` and `192.0.2.0/24`, `REPLACEME` / `REPLACEME-*` labels,
+`example.com`, loopback, `.local`): any other value on a PII-shaped key fails. A new placeholder
+convention must be added to the allowlist in `internal/config/guard.go`. Widen or narrow the
+scope with `--paths`.
+
+The allowlist is deliberately all documentation-reserved space. The `192.168.1.x` range was listed until
+MCAA-79 and is now excluded on purpose: it is the most common home LAN subnet, so for a forker
+running on it the guard could not tell their real `GATEWAY_IP` from the template's placeholder.
+Re-adding it would restore that collision for exactly the users the check protects.
 
 A documentation-reserved address (RFC 5737 `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`;
 RFC 3849 `2001:db8::/32`) outside a template file is still a finding — the guard cannot tell a
@@ -627,12 +633,3 @@ Write the configuration key in angle brackets, as
 [`tailscale-dns.md`](tailscale-dns.md) does with `<GATEWAY_IP>/32`. The reserved ranges are
 spent on the example ConfigSets: each `configuration/environments/*.yaml.example` owns one
 outright, which `go test ./internal/config/` enforces, so a runbook cannot borrow one.
-(RFC 5737 `198.51.100.0/24` and `192.0.2.0/24`, `REPLACEME` / `REPLACEME-*` labels,
-`example.com`, loopback, `.local`): any other value on a PII-shaped key fails. A new placeholder
-convention must be added to the allowlist in `internal/config/guard.go`. Widen or narrow the
-scope with `--paths`.
-
-The allowlist is deliberately all documentation-reserved space. The `192.168.1.x` range was listed until
-MCAA-79 and is now excluded on purpose: it is the most common home LAN subnet, so for a forker
-running on it the guard could not tell their real `GATEWAY_IP` from the template's placeholder.
-Re-adding it would restore that collision for exactly the users the check protects.
