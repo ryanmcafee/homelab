@@ -189,6 +189,7 @@ function allFailureMessages(results: ConftestResult[]): string[] {
 // tests/policy/*.rego (see tests/policy/README.md's rule table). A rule
 // with no negative fixture at all would mean nothing ever proves it fires.
 const ALL_RULE_IDS = [
+  "workflows-auth",
   "app-finalizer",
   "app-sync-wave",
   "app-ssa",

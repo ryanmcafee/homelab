@@ -93,6 +93,10 @@ talosconfig
 # Bun (script dependencies from bun.lock)
 node_modules/
 
+# Kind bus principal PUBLIC keys (scripts/localdev-kind.ts nats-seeds). Ephemeral per
+# cluster, and never a seed -- the private halves live only as Secrets in the Kind cluster.
+.nats/
+
 # Claude local config (contains PII like IP addresses)
 CLAUDE.local.md
 

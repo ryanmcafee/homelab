@@ -531,7 +531,6 @@ external-dns:
 
   # Cloudflare configuration
   cloudflare:
-    proxied: true  # Enable Cloudflare proxy
     # Handed to charts/external-dns-config through the config Application's
     # helm.valuesObject (EXTERNAL_DNS_1P_PATH).
     onePasswordItemPath: ""
@@ -974,7 +973,7 @@ argo-workflows:
   # Server configuration
   server:
     # Authentication mode: server (no auth), client (requires token), sso
-    authMode: server
+    authMode: client
 
     # HTTPRoute on the internal Gateway
     route:
@@ -1060,6 +1059,107 @@ argo-rollouts:
 
   dashboard:
     enabled: false
+# NATS + JetStream event bus, the NACK controller, and the stream set
+# (templates/nats.yaml, nack.yaml, nats-config.yaml; docs/event-backbone.md)
+# Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
+# ============================================================================
+
+nats:
+  enabled: false
+  namespace: nats
+  url: nats://nats.nats.svc.cluster.local:4222
+  replicas: 3
+
+  chart:
+    name: nats
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "2.15.0"
+
+  jetstream:
+    streamReplicas: 1
+    storage:
+      size: 10Gi
+      className: ""
+
+  # ADR-043's static backend. Identity is operator-supplied, permissions are contract:
+  # contracts/events/bus-principals.v1.yaml declares the grants and
+  # scripts/render-nats-accounts.ts expands them into files/nats-accounts.gen.yaml.
+  #
+  # The tenant token the account name is derived from. `local` is the reserved homelab tenant.
+  tenant: local
+  # PUBLIC user nkeys, as `<principal>=<public key>` pairs. Empty leaves the bus anonymous;
+  # one pair renders the accounts block and the server stops accepting an unauthenticated
+  # connection. Never a seed -- a public key is not a secret, a seed is.
+  principalNkeys: ""
+  # The break-glass `$SYS` user's PUBLIC nkey. No platform component holds it, NACK included.
+  systemAccountNkey: ""
+  # Principals nats-box gets a named context for. Each needs its private seed in
+  # `<credentialSecretPrefix><principal>` under key `nats.nk`.
+  natsBoxPrincipals: ""
+  credentialSecretPrefix: nats-principal-
+  # Where each principal's PRIVATE seed comes from. Exactly one source, or the accounts block
+  # does not render: a public key the server accepts is unusable until its seed reaches the
+  # client, so the two land together. Generate the pairs with
+  # `bun scripts/nats-principals-keygen.ts` (docs/runbooks/nats-credentials.md).
+  credentials:
+    # 1Password vault path the items live under, e.g. `vaults/Platform/items`. Each item is
+    # named `<credentialSecretPrefix><principal>` and carries the seed in a field labelled
+    # `nats.nk`. `$SYS` deliberately has no item here: no platform component holds the system
+    # account, so its custody is a separate restricted item plus an offline copy.
+    onePasswordVaultPath: ""
+    # Kind has no vault, so its bootstrap mints the seeds straight into Secrets. Mutually
+    # exclusive with the vault path: two sources for one principal can disagree.
+    bootstrapSeeded: false
+    # Namespaces beyond `nats` that need a principal's seed, as `<principal>: [namespace]`.
+    # Replication is explicit and per principal rather than a blanket copy.
+    extraNamespaces: {}
+  # The auth-callout backend. Unset: only the static backend ships. Setting it is refused,
+  # and `allowedAccounts` is bounds-checked first so the widest setting is named as such.
+  authCallout: {}
+  # Per-account JetStream limits are mandatory, not advisory (ADR-043 D8): without them one
+  # tenant's streams exhaust the shared file store and every account on the peer is refused
+  # with `insufficient resources (10047)`. Numbers carrying units use the chart's `<< >>`
+  # unquoting. Placeholder; configuration/templates/helm-addons.tmpl renders each surface's.
+  #
+  # Both store limits are checked against the SERVER's stores at startup, and a limit above
+  # what the server offers is fatal for every account, not just the greedy one. Measured on
+  # v2.15.0 against this chart's own rendered nats.conf:
+  #   max_memory above `max_memory_store` -> `insufficient memory resources (10028)`
+  #   max_store  above `max_file_store`   -> `insufficient storage resources (10047)`
+  # `max_memory: 0` is the declared limit for a file-store-only bus, not an omission: this
+  # chart never enables the memory store, so a memory-backed stream is refused by policy.
+  accountLimits:
+    max_memory: 0
+    max_store: << 6GB >>
+    max_streams: 16
+    max_consumers: 64
+
+  monitoring:
+    scrapeInterval: 30s
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+nack:
+  natsUrl: nats://nats.nats.svc.cluster.local:4222
+
+  chart:
+    name: nack
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "0.35.0"
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 
 # ============================================================================
 # Istio ambient mesh + Kiali (templates/istio.yaml, docs/service-mesh.md)

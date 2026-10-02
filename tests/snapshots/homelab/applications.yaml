@@ -1369,7 +1369,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1489,7 +1489,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1532,7 +1532,7 @@ spec:
                       cpu: 500m
                       memory: 288Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 192Mi
         persistence:
           books:
@@ -1950,7 +1950,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: home-automation
@@ -2033,9 +2033,6 @@ spec:
                 protocol: tcp
                 targetPort: 9001
             type: LoadBalancer
-        mosquitto:
-          auth:
-            enabled: true
         TZ: "America/New_York"
 
   destination:
@@ -2091,7 +2088,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2346,10 +2343,10 @@ spec:
         instances: 1
         resources:
           limits:
-            cpu: "1"
+            cpu: "2"
             memory: 1Gi
           requests:
-            cpu: 250m
+            cpu: 500m
             memory: 512Mi
         storageClass: democratic-csi-iscsi
         storageSize: 10Gi
@@ -2407,6 +2404,7 @@ spec:
         serviceMesh:
           ambient: true
         admin:
+          bootstrap: false
           email: admin@REPLACEME-domain.com
           name: Admin
         agentPolicy:
@@ -2480,7 +2478,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2580,7 +2578,7 @@ spec:
             mountPath: /dev/dri
         service:
           annotations:
-            io.cilium/lb-ipam-ips: 192.168.1.103
+            io.cilium/lb-ipam-ips: 198.51.100.103
             port-forwarding.replaceme-domain.com/enable: "true"
           externalTrafficPolicy: Local
           port: 32400
@@ -2663,7 +2661,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2798,7 +2796,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2849,7 +2847,7 @@ spec:
                       cpu: 1000m
                       memory: 960Mi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 640Mi
         persistence:
           config:
@@ -3047,7 +3045,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -3098,7 +3096,7 @@ spec:
                       cpu: 1000m
                       memory: 1536Mi
                     requests:
-                      cpu: 200m
+                      cpu: 75m
                       memory: 896Mi
         persistence:
           config:
@@ -3194,7 +3192,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -3237,7 +3235,7 @@ spec:
                       cpu: 500m
                       memory: 448Mi
                     requests:
-                      cpu: 100m
+                      cpu: 25m
                       memory: 288Mi
         persistence:
           config:

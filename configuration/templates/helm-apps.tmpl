@@ -297,7 +297,7 @@ sonarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: {{ if $localdev }}512Mi{{ else }}896Mi{{ end }}
               limits:
                 cpu: 1000m
@@ -404,7 +404,7 @@ radarr:
           main:
             resources:
               requests:
-                cpu: 200m
+                cpu: 75m
                 memory: {{ if $localdev }}512Mi{{ else }}640Mi{{ end }}
               limits:
                 cpu: 1000m
@@ -692,7 +692,7 @@ tautulli:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: {{ if $localdev }}256Mi{{ else }}288Mi{{ end }}
               limits:
                 cpu: 500m
@@ -767,7 +767,7 @@ lazylibrarian:
           main:
             resources:
               requests:
-                cpu: 100m
+                cpu: 25m
                 memory: {{ if $localdev }}256Mi{{ else }}192Mi{{ end }}
               limits:
                 cpu: 500m
@@ -1003,11 +1003,6 @@ mosquitto:
 {{- end }}
           protocol: tcp
 
-  # Authentication configuration
-  mosquitto:
-    auth:
-      enabled: true
-
   TZ: {{ .Values.TIMEZONE.Value }}
 
   # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
@@ -1177,12 +1172,13 @@ paperclip:
         memory: 512Mi
 {{- else }}
     storageSize: 10Gi
+    # Steady load is 0.4-0.9 cores; a 1-core limit throttled Postgres and slowed the paperclip route
     resources:
       requests:
-        cpu: 250m
+        cpu: 500m
         memory: 512Mi
       limits:
-        cpu: "1"
+        cpu: "2"
         memory: 1Gi
 {{- end }}
 
@@ -1192,9 +1188,13 @@ paperclip:
     image:
       repository: ghcr.io/paperclipai/paperclip
       tag: "{{ index .Versions.Images "paperclip" }}"
-    # Bootstrapped once by the operator's admin-seed Job; the password is the
-    # ADMIN_PASSWORD field of the paperclip-auth item.
+    # Seeded by the operator's admin-seed Job; the password is the ADMIN_PASSWORD
+    # field of the paperclip-auth item. Homelab's admin exists since 2026-09-15,
+    # so bootstrap is off there (operator 0.19.1 re-runs the Job while adminUser
+    # is rendered, bugs.md 2026-09-30); set it true for one sync on a fresh
+    # database. Kind starts from an empty database every time and keeps it on.
     admin:
+      bootstrap: {{ if $localdev }}true{{ else }}false{{ end }}
       email: {{ .Values.PAPERCLIP_ADMIN_EMAIL.Value }}
       name: Admin
     route:

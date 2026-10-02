@@ -905,12 +905,6 @@ mosquitto:
           enabled: true
           port: 9001
 
-  # Authentication configuration
-  mosquitto:
-    auth:
-      enabled: true
-      # Username and password from 1Password
-
   TZ: UTC
 
   # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster

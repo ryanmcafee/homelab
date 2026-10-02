@@ -13,6 +13,7 @@ route and hostname object in the GitOps repo. Evaluated by `internal/verify.Poli
 | `applicationset.rego` | `appset-finalizer`, `appset-ssa`, `appset-project`, `appset-automated` (the `spec.template` of an `ApplicationSet`). |
 | `workload.rego` | `image-latest`, `container-resources`, `cronjob-ttl`. |
 | `httproute.rego` | `httproute-parent`, `httproute-target`, `no-ingress`. |
+| `workflows-auth.rego` | `workflows-auth`: authentication on routed Argo Workflows Applications. |
 | `secret.rego` | `inline-secret`. |
 | `hostname.rego` | `hostname-domain`, plus the domain-missing safety net. |
 | `*_test.rego` | Rego unit tests (`conftest verify -p tests/policy`). |
@@ -37,6 +38,7 @@ route and hostname object in the GitOps repo. Evaluated by `internal/verify.Poli
 | `httproute-parent` | `HTTPRoute` `parentRefs`, and any `parentRefs` list in an `Application`'s inline helm values | Every parent is the `https` listener (`sectionName: https`) of `data.gateway_internal` or `data.gateway_external` in `data.gateway_namespace` (written into `_data.yaml` from `GATEWAY_*`). The `http` listener only redirects, so it accepts only redirect routes (no `backendRefs`). The Istio comparison gateways (`istio-internal`/`istio-external` in `istio-ingress`) accept only the route `echo`. Inline `parentRefs` must name their namespace. |
 | `httproute-target` | `HTTPRoute` annotations, and `annotations` under an `httpRoute`/`gatewayApi` key in an `Application`'s inline helm values | No `external-dns.alpha.kubernetes.io/target`. The `gateway-httproute` source ignores it on a route and takes targets from the Gateway (`dnsTarget` in `charts/envoy-gateway-config`). |
 | `no-ingress` | `networking.k8s.io` `Ingress`, and any `ingress...enabled: true` in an `Application`'s inline helm values (outside a `networkPolicy` key) | Absent. Envoy Gateway does not implement Ingress, so an Ingress applies cleanly and is never served; use an HTTPRoute (the chart's native route support). |
+| `workflows-auth` | `Application` sources with chart `argo-workflows` | Enabled `server.httproute` requires explicit `server.authMode: sso` or `client`. Missing/empty/unknown auth and `server` are denied. |
 | `inline-secret` | `Secret` | `data`/`stringData` keys are a subset of `name, url, type, enableOCI, project, insecure` (the ArgoCD repository-secret shape). Anything else is treated as inline secret material that should live in 1Password/SOPS instead. |
 | `hostname-domain` | `HTTPRoute` `hostnames`, `Gateway` listener `hostname`, cert-manager `Certificate` `dnsNames`, external-dns `DNSEndpoint` `dnsName`, **and** any hostname embedded in an `Application`'s inline `spec.source.helm.values`/`valuesObject` (a value under a `host`/`hostname`/`hosts[]`/`hostnames[]`/`dnsNames[]`/`commonName`/`externalHostname` key, or the host of an http(s) `url`, anywhere in the parsed tree) | Is `data.domain` itself or ends with `.` + `data.domain` (the environment's base domain). |
 
@@ -60,6 +62,63 @@ a fail-open bug. Two layers guard against it:
    `[hostname-domain] policy data missing domain` if `data.domain` is
    undefined, empty, or `null`. This is defense in depth for anyone running
    `conftest test` directly, bypassing layer 1.
+
+## Workflows authentication regression gate
+
+**Fail fast, fail loud:** this rule parses the rendered upstream Application
+Helm values, where the route key is `server.httproute.enabled`. The parent
+configuration uses `server.route.enabled`; checking that source key on a
+rendered Application would miss the exposure. Singular and multi-source
+Applications are matched by chart, including renamed Applications.
+
+Either inline YAML `values` or `valuesObject` is accepted. Supplying both is
+rejected, so the gate cannot assume the wrong effective-value precedence. Unparseable/non-object values and non-boolean route flags fail.
+An omitted route flag is treated as disabled; an enabled route requires an
+explicit authenticated mode. `client` authenticates requests but does **not**
+satisfy the platform OIDC acceptance criterion; that still requires SSO wiring
+and authorization verification. This static gate does not validate an IdP,
+credentials, RBAC, or the runtime login flow.
+
+External `valueFiles`, Helm `parameters`, and `fileParameters` are rejected
+for this chart because the inline policy cannot resolve their effective values.
+If that configuration style is needed, extend the renderer/policy and tests
+before introducing overrides. No cluster or secrets are required in a fork.
+
+**No generic exemption:** `workflows-auth` deliberately ignores policy-exempt
+annotations and boolean deferral flags. No deferral is currently authorized.
+Any future exception requires a separately recorded Architect-reviewed decision
+and a reviewed policy/test change scoped to that decision; a caller-supplied
+claim of approval is insufficient.
+
+**One obvious entrypoint:** `task test:policy` runs the regression suite.
+The preserved negative fixture `negative/workflows-auth.yaml` was captured
+from the homelab addons render at commit `0c748c1` using:
+
+`go run ./cmd/homelab verify render --env homelab --chart addons --skip-schema --skip-lint --out-dir <capture-dir>`
+
+Only its example domain was normalized to `example.com` for fixture policy
+data. It contains no credentials or operator identifiers. SSO and disabled-route
+controls derive from that capture; missing/empty auth variants preserve the
+route. Rego tests cover additional modes, malformed values, overrides,
+multi-source inputs, and attempted annotation exemptions.
+
+The client/routed control in `positive/workflows-auth-client.yaml` is captured
+from PR #459 at `620940d59fce248a9078a13593e82b477334f841`, using the same
+render command (with schema validation and lint enabled). Only the example
+domain is normalized; authentication and route values are unchanged.
+To verify that captured candidate passes (exit 0):
+
+`conftest test -p tests/policy --all-namespaces --data tests/policy/negative/_data.yaml tests/policy/positive/workflows-auth-client.yaml`
+
+To see the preserved unsafe state fail (exit 1):
+
+`conftest test -p tests/policy --all-namespaces --data tests/policy/negative/_data.yaml tests/policy/negative/workflows-auth.yaml`
+
+**Shift left:** `task verify:text` includes this rule in `policy/<env>` at
+level 0. Existing `.github/workflows/verify.yml` runs on every PR without a
+path filter. Its `level-0` job runs `task verify`; its `policy` job runs
+`conftest verify -p tests/policy` and `bun scripts/policy-test.ts`.
+No new CI job, token permissions, or external service is needed.
 
 ## Exemptions
 

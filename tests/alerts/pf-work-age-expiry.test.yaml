@@ -132,6 +132,8 @@ tests:
           - exp_labels:
               severity: critical
               stream_name: PF_WORK
+              namespace: nats
+              job: nats
             exp_annotations:
               summary: '2 PF_WORK messages left the stream without being acked'
               description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
@@ -168,6 +170,8 @@ tests:
           - exp_labels:
               severity: critical
               stream_name: PF_WORK
+              namespace: nats
+              job: nats
             exp_annotations:
               summary: '3 PF_WORK messages left the stream without being acked'
               description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
@@ -191,16 +195,90 @@ tests:
           - exp_labels:
               severity: warning
               stream_name: PF_WORK
+              namespace: nats
+              job: nats
             exp_annotations:
               summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
               description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
 
-  # 8. Production is clustered (NATS_SERVER_REPLICAS: 3) and the exporter reports
-  #    one series per server, so the recorded SLI has to collapse three views
-  #    into one. The two followers here are stale - frozen at an older sequence
-  #    while the leader's head advances - which is exactly why leadership is
-  #    preferred over an aggregate of every server. One firing alert, not three,
-  #    and no alert at all while the leader says work is being taken.
+  # 8. Two NATS installs scraped by one Prometheus - the homelab stream and a
+  #    test install in another namespace - each losing a different amount of
+  #    work. Aggregating on stream_name alone collapsed them into one series:
+  #    the two head sequences were max'd together, the single consumer in
+  #    nats-test suppressed the no-consumer fallback for both, and the one alert
+  #    that came out named neither install. Each loss is now reported against the
+  #    install it happened in.
+  - interval: 30s
+    name: two namespaces each report their own loss
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '1+0x10 4+0x20'  # three removed, no consumer in this namespace
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '3+0x10 0+0x20'
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true",namespace="nats-test",job="nats-test"}'
+        values: '10+0x10 12+0x20'  # two left the head, one of them acked
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true",namespace="nats-test",job="nats-test"}'
+        values: '2+0x10 0+0x20'
+      - series: 'nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="true",namespace="nats-test",job="nats-test"}'
+        values: '10+0x10 11+0x20'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: PFWorkMessagesExpiredUnacked
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: '3 PF_WORK messages left the stream without being acked'
+              description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+          - exp_labels:
+              severity: critical
+              stream_name: PF_WORK
+              namespace: nats-test
+              job: nats-test
+            exp_annotations:
+              summary: '1 PF_WORK messages left the stream without being acked'
+              description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+
+  # 9. One of the two installs goes blind while the other keeps reporting. A
+  #    global absent() over the stream selector could never see this: the
+  #    surviving install keeps the selector non-empty, so the blind one was
+  #    invisible and nothing watched its 24h budget.
+  - interval: 30s
+    name: one namespace goes blind while the other keeps reporting
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '1+0x120 _x120'  # reported for 1h, then gone for 1h
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+        values: '3+0x120 _x120'
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true",namespace="nats-test",job="nats-test"}'
+        values: '5+0x240'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true",namespace="nats-test",job="nats-test"}'
+        values: '3+0x240'
+    alert_rule_test:
+      - eval_time: 55m
+        alertname: PFWorkStreamMetricsAbsent
+        exp_alerts: []
+      - eval_time: 1h40m
+        alertname: PFWorkStreamMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
+              description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+
+  # 10. Production is clustered (NATS_SERVER_REPLICAS: 3) and the exporter reports
+  #     one series per server, so the recorded SLI has to collapse three views
+  #     into one. The two followers here are stale - frozen at an older sequence
+  #     while the leader's head advances - which is exactly why leadership is
+  #     preferred over an aggregate of every server. One firing alert, not three,
+  #     and no alert at all while the leader says work is being taken.
   - interval: 30s
     name: three replicas produce one alert from the leader's view
     input_series:
@@ -221,8 +299,8 @@ tests:
         alertname: PFWorkOldestUnackedAging
         exp_alerts: []
 
-  # 9. The same three-replica cluster with a genuinely frozen leader. Without
-  #    deduplication this pages three times for one stream.
+  # 11. The same three-replica cluster with a genuinely frozen leader. Without
+  #     deduplication this pages three times for one stream.
   - interval: 30s
     name: three replicas page once for one frozen stream
     input_series:

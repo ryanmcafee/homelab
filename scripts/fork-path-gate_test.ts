@@ -16,6 +16,9 @@ import {
   COLD_WORKFLOW_PATH,
   CONTRACT_PATH,
   DISCHARGE_LABEL,
+  README_BADGES_BEGIN,
+  README_BADGES_END,
+  README_COUNTERS,
   type RunFact,
   blobUrl,
   classify,
@@ -24,9 +27,12 @@ import {
   extractRunLinks,
   globToRegExp,
   hasDischargeLabel,
+  coldPathTaskClosure,
+  readmeChangedOutsideGenerated,
   renderComment,
-  taskfileDiffTouchesLocaldev,
+  taskfileChangeReachesColdPath,
 } from "./fork-path-gate.ts";
+import { expectedLiterals, regionRe } from "./docs-check.ts";
 
 const HEAD = "1111111111111111111111111111111111111111";
 const OTHER = "2222222222222222222222222222222222222222";
@@ -97,21 +103,19 @@ test("classify: Tier 2 warns and never lands in Tier 1", () => {
       "docs/secrets.md",
       "docs/secrets-management.md",
       "docs/contracts/fork-ability.md",
+      "terragrunt/env/main.hcl",
+      "talos/patches/cp.yaml",
+      "packer/talos.pkr.hcl",
     ],
   });
   assertEquals(tier1, []);
-  assertEquals(tier2.length, 10);
+  assertEquals(tier2.length, 13);
 });
 
 test("classify: the explicitly excluded surfaces stay excluded", () => {
-  // Real fork-ability surface, but check 3a executes none of it, so demanding
-  // a cold run for it would greenlight an unchecked change. Tracked separately.
   const { tier1, tier2 } = classify({
     files: [
-      "terragrunt/env/main.hcl",
-      "talos/patches/cp.yaml",
       "ansible/site.yml",
-      "packer/talos.pkr.hcl",
       "configuration/templates/a.tmpl",
       "configuration/schema/a.schema.yaml",
       "charts/addons/values.yaml",
@@ -126,60 +130,340 @@ test("classify: the explicitly excluded surfaces stay excluded", () => {
 
 // --- the Taskfile.yml narrowing (acceptance criterion 5) ------------------
 
-test("taskfileDiffTouchesLocaldev: a hunk with no localdev line is not Tier 1", () => {
-  // This is the shape of 15 of the last 20 commits that touched Taskfile.yml.
-  const diff = [
+const TASKFILE_TEXT = [
+  "version: '3'", //                                        1
+  "vars:", //                                               2
+  "  KIND_CLUSTER: homelab-localdev", //                    3
+  "tasks:", //                                              4
+  "  # Setup", //                                           5
+  "  validate:", //                                         6
+  "    deps: [bun:install]", //                             7
+  "    cmds:", //                                           8
+  "      - go run ./cmd/homelab validate", //               9
+  "  bun:install:", //                                     10
+  "    cmds:", //                                          11
+  "      - bun install", //                                12
+  "  localdev:up:", //                                     13
+  "    cmds:", //                                          14
+  "      - task: localdev:kind", //                        15
+  "  localdev:kind:", //                                   16
+  "    deps:", //                                          17
+  "      - kind:pull", //                                  18
+  "    cmds:", //                                          19
+  "      - bun scripts/localdev-kind.ts up", //            20
+  "  kind:pull:", //                                       21
+  "    cmds:", //                                          22
+  "      - docker pull kindest/node", //                   23
+  "  localdev:ci:", //                                     24
+  "    cmds:", //                                          25
+  "      - task: localdev:up", //                          26
+  "      - task: test:e2e", //                             27
+  "  test:alerts:", //                                     28
+  "    cmds:", //                                          29
+  "      - helm template charts/addons -f values-localdev.yaml", // 30
+  "  test:e2e:", //                                        31
+  "    cmds:", //                                          32
+  "      - chainsaw test", //                              33
+].join("\n");
+
+function hunk(oldStart: number, newStart: number, lines: string[]): string {
+  const removed = lines.filter((l) => l.startsWith("-")).length;
+  const added = lines.filter((l) => l.startsWith("+")).length;
+  return [
     "diff --git a/Taskfile.yml b/Taskfile.yml",
     "--- a/Taskfile.yml",
     "+++ b/Taskfile.yml",
-    "@@ -60,1 +60,2 @@",
-    "-      - bun run lint",
-    "+      - bun run lint",
-    "+      - bun run test",
+    `@@ -${oldStart},${removed} +${newStart},${added} @@`,
+    ...lines,
   ].join("\n");
-  assertEquals(taskfileDiffTouchesLocaldev(diff), false);
+}
+
+test("coldPathTaskClosure: the cold entry points plus everything they call", () => {
+  assertEquals([...coldPathTaskClosure(TASKFILE_TEXT)].sort(), [
+    "bun:install",
+    "kind:pull",
+    "localdev:kind",
+    "localdev:up",
+    "validate",
+  ]);
+});
+
+test("taskfileChangeReachesColdPath: a task the cold path never runs is not Tier 1, even when it says localdev", () => {
+  // homelab#501: test:alerts renders values-localdev.yaml, and the old
+  // substring rule read that as a change to the cold path.
+  const diff = hunk(30, 30, [
+    "-      - helm template charts/addons -f values-localdev.yaml",
+    "+      - helm template charts/addons -f values-localdev.yaml --strict",
+  ]);
+  const taskfile = { diff, baseText: TASKFILE_TEXT, headText: TASKFILE_TEXT };
+  assertEquals(taskfileChangeReachesColdPath(taskfile), false);
+  assertEquals(classify({ files: ["Taskfile.yml"], taskfile }).tier1, []);
+});
+
+test("taskfileChangeReachesColdPath: a task named localdev but off the cold path is not Tier 1", () => {
+  const diff = hunk(27, 27, [
+    "-      - task: test:e2e",
+    "+      - task: test:e2e -- --quiet",
+  ]);
   assertEquals(
-    classify({ files: ["Taskfile.yml"], taskfileDiff: diff }).tier1,
-    [
-      // no Tier 1 hit: a Taskfile change that cannot reach the cold path
-    ],
+    taskfileChangeReachesColdPath({
+      diff,
+      baseText: TASKFILE_TEXT,
+      headText: TASKFILE_TEXT,
+    }),
+    false,
   );
 });
 
-test("taskfileDiffTouchesLocaldev: a hunk touching a localdev line is Tier 1", () => {
+test("taskfileChangeReachesColdPath: a cold entry point is Tier 1", () => {
+  const diff = hunk(15, 15, [
+    "-      - task: localdev:kind",
+    "+      - task: localdev:kind -- --wait",
+  ]);
+  const taskfile = { diff, baseText: TASKFILE_TEXT, headText: TASKFILE_TEXT };
+  assertEquals(taskfileChangeReachesColdPath(taskfile), true);
+  assertEquals(classify({ files: ["Taskfile.yml"], taskfile }).tier1, [
+    "Taskfile.yml",
+  ]);
+});
+
+test("taskfileChangeReachesColdPath: a task reached only through deps is Tier 1, with no localdev in the line", () => {
+  // The old rule missed this: kind:pull runs inside localdev:up but never says
+  // localdev, and validate is a cold step whose body never says it either.
+  for (const [line, text] of [
+    [23, "      - docker pull kindest/node:v1.34"],
+    [9, "      - go run ./cmd/homelab validate --strict"],
+    [12, "      - bun install --frozen-lockfile"],
+  ] as const) {
+    const diff = hunk(line, line, [
+      `-${TASKFILE_TEXT.split("\n")[line - 1]}`,
+      `+${text}`,
+    ]);
+    assertEquals(
+      taskfileChangeReachesColdPath({
+        diff,
+        baseText: TASKFILE_TEXT,
+        headText: TASKFILE_TEXT,
+      }),
+      true,
+    );
+  }
+});
+
+test("taskfileChangeReachesColdPath: a line outside tasks: reaches every task", () => {
+  const diff = hunk(3, 3, [
+    "-  KIND_CLUSTER: homelab-localdev",
+    "+  KIND_CLUSTER: other",
+  ]);
+  assertEquals(
+    taskfileChangeReachesColdPath({
+      diff,
+      baseText: TASKFILE_TEXT,
+      headText: TASKFILE_TEXT,
+    }),
+    true,
+  );
+});
+
+test("taskfileChangeReachesColdPath: a deleted cold task is judged against the base", () => {
+  // Removing the wiring is exactly the regression class 3a catches; the head
+  // no longer has the task, so only the base can place the deleted lines.
+  const lines = TASKFILE_TEXT.split("\n");
+  const headText = [...lines.slice(0, 20), ...lines.slice(23)].join("\n");
+  const diff = hunk(21, 20, [
+    "-  kind:pull:",
+    "-    cmds:",
+    "-      - docker pull kindest/node",
+  ]);
+  assertEquals(
+    taskfileChangeReachesColdPath({ diff, baseText: TASKFILE_TEXT, headText }),
+    true,
+  );
+});
+
+test("taskfileChangeReachesColdPath: a new task wired into the cold path is judged against the head", () => {
+  const lines = TASKFILE_TEXT.split("\n");
+  const headText = [
+    ...lines.slice(0, 14),
+    "      - task: localdev:kind",
+    "      - task: localdev:fresh",
+    ...lines.slice(15, 33),
+    "  localdev:fresh:",
+    "    cmds:",
+    "      - echo fresh",
+  ].join("\n");
   const diff = [
     "--- a/Taskfile.yml",
     "+++ b/Taskfile.yml",
-    "@@ -10,1 +10,1 @@",
-    "-      - task localdev:up",
-    "+      - task localdev:up -- --wait",
+    "@@ -15,0 +16,1 @@",
+    "+      - task: localdev:fresh",
+    "@@ -33,0 +35,3 @@",
+    "+  localdev:fresh:",
+    "+    cmds:",
+    "+      - echo fresh",
   ].join("\n");
-  assertEquals(taskfileDiffTouchesLocaldev(diff), true);
   assertEquals(
-    classify({ files: ["Taskfile.yml"], taskfileDiff: diff }).tier1,
+    taskfileChangeReachesColdPath({ diff, baseText: TASKFILE_TEXT, headText }),
+    true,
+  );
+  // The new task's own body counts on its own, not only via the wiring line.
+  const bodyOnly = diff
+    .split("\n")
+    .filter((_, i) => i < 2 || i > 3)
+    .join("\n");
+  assertEquals(
+    taskfileChangeReachesColdPath({
+      diff: bodyOnly,
+      baseText: TASKFILE_TEXT,
+      headText,
+    }),
+    true,
+  );
+});
+
+test("taskfileChangeReachesColdPath: a section comment between tasks reaches nothing", () => {
+  // Line 10 follows validate's body, so it must not be read as part of it.
+  const lines = TASKFILE_TEXT.split("\n");
+  const text = [...lines.slice(0, 9), "  # Tooling", ...lines.slice(9)].join(
+    "\n",
+  );
+  const diff = hunk(10, 10, ["-  # Tooling", "+  # Tooling and installs"]);
+  assertEquals(
+    taskfileChangeReachesColdPath({ diff, baseText: text, headText: text }),
+    false,
+  );
+});
+
+test("classify: a Taskfile change with nothing to judge it by fails closed", () => {
+  assertEquals(classify({ files: ["Taskfile.yml"] }).tier1, ["Taskfile.yml"]);
+  assertEquals(
+    classify({
+      files: ["Taskfile.yml"],
+      taskfile: { diff: hunk(9, 9, ["+x"]), baseText: "", headText: "" },
+    }).tier1,
     ["Taskfile.yml"],
   );
 });
 
-test("taskfileDiffTouchesLocaldev: the file header is not content", () => {
-  // `+++ b/localdev/...` in some other file's diff must not make Taskfile.yml
-  // Tier 1, and the Taskfile's own headers never count.
-  const headersOnly = [
-    "--- a/Taskfile.yml",
-    "+++ b/Taskfile.yml",
-    "@@ -1,1 +1,1 @@",
-    "-version: '3'",
-    '+version: "3"',
-  ].join("\n");
-  assertEquals(taskfileDiffTouchesLocaldev(headersOnly), false);
+// --- the readme.md badges exception (MCAA-1046) ---------------------------
+
+const README_BEFORE = [
+  "<h1>homelab</h1>",
+  README_BADGES_BEGIN,
+  "[![Cilium](https://img.shields.io/badge/Cilium-1.19.5-F8C517)](https://cilium.io/)",
+  README_BADGES_END,
+  "",
+  "```bash",
+  "task localdev:up",
+  "```",
+].join("\n");
+
+test("classify: a readme diff only inside the badges region is not Tier 1", () => {
+  // The Renovate regeneration bot's commit after a charts.cilium bump.
+  const after = README_BEFORE.replace("Cilium-1.19.5", "Cilium-1.19.6");
+  assertEquals(readmeChangedOutsideGenerated(README_BEFORE, after), false);
+  assertEquals(
+    classify({
+      files: [
+        "configuration/versions.yaml",
+        "readme.md",
+        "docs/applications.md",
+        "tests/snapshots/homelab/addons.yaml",
+      ],
+      readme: { before: README_BEFORE, after },
+    }),
+    { tier1: [], tier2: [] },
+  );
 });
 
-test("taskfileDiffTouchesLocaldev: a deleted localdev line counts", () => {
-  // Removing the localdev wiring is exactly the regression class 3a catches.
+test("classify: a readme diff outside the badges region is Tier 1", () => {
+  const after = README_BEFORE.replace(
+    "task localdev:up",
+    "task localdev:up -- --wait",
+  ).replace("Cilium-1.19.5", "Cilium-1.19.6");
+  assertEquals(readmeChangedOutsideGenerated(README_BEFORE, after), true);
   assertEquals(
-    taskfileDiffTouchesLocaldev("--- a/Taskfile.yml\n-  localdev:down:"),
+    classify({ files: ["readme.md"], readme: { before: README_BEFORE, after } })
+      .tier1,
+    ["readme.md"],
+  );
+});
+
+test("classify: a readme diff only in docs-check counters is not Tier 1", () => {
+  // homelab#467 adding the 40th addon, as docs:check -- --fix rewrites it.
+  const before = `${README_BEFORE}\n39 addons and 16 applications, 91 ArgoCD Applications in all.`;
+  const after = `${README_BEFORE}\n40 addons and 17 applications, 93 ArgoCD Applications in all.`;
+  assertEquals(readmeChangedOutsideGenerated(before, after), false);
+  assertEquals(
+    classify({ files: ["readme.md"], readme: { before, after } }).tier1,
+    [],
+  );
+});
+
+test("readmeChangedOutsideGenerated: a counter's words still count", () => {
+  const before = `${README_BEFORE}\n39 addons in all.`;
+  assertEquals(
+    readmeChangedOutsideGenerated(
+      before,
+      `${README_BEFORE}\n39 add-ons in all.`,
+    ),
     true,
   );
+  assertEquals(
+    readmeChangedOutsideGenerated(
+      `${README_BEFORE}\nrun task 3 times`,
+      `${README_BEFORE}\nrun task 4 times`,
+    ),
+    true,
+  );
+});
+
+test("readmeChangedOutsideGenerated: moving a marker over prose counts", () => {
+  // Widening the region to swallow a command must not hide the command change.
+  const after = [
+    "<h1>homelab</h1>",
+    README_BADGES_BEGIN,
+    "[![Cilium](https://img.shields.io/badge/Cilium-1.19.5-F8C517)](https://cilium.io/)",
+    "",
+    "```bash",
+    "task localdev:ci",
+    "```",
+    README_BADGES_END,
+  ].join("\n");
+  assertEquals(readmeChangedOutsideGenerated(README_BEFORE, after), true);
+});
+
+test("readmeChangedOutsideGenerated: an added or deleted readme counts", () => {
+  assertEquals(readmeChangedOutsideGenerated(null, README_BEFORE), true);
+  assertEquals(readmeChangedOutsideGenerated(README_BEFORE, null), true);
+});
+
+test("classify: readme.md with no content supplied stays Tier 1", () => {
+  assertEquals(classify({ files: ["readme.md"] }).tier1, ["readme.md"]);
+});
+
+test("README_BADGES markers match the region docs-check.ts writes", () => {
+  const text = `${README_BADGES_BEGIN}\nbody\n${README_BADGES_END}`;
+  assertEquals(regionRe("badges").exec(text)?.[2], "body");
+});
+
+test("README_COUNTERS match the readme counters docs-check.ts rewrites", () => {
+  const readmeFixes = expectedLiterals({
+    versions: {},
+    addons: 1,
+    applications: 1,
+    argoApplications: 1,
+    localdevApplications: 1,
+    e2eSuites: [],
+    smokeJobs: [],
+    routes: [],
+    addonApps: [],
+    applicationApps: [],
+  })
+    .filter((l) => l.file === "readme.md" && l.fix)
+    .map((l) => l.fix?.[0].source)
+    .sort();
+  assertEquals(README_COUNTERS.map((r) => r.source).sort(), readmeFixes);
 });
 
 // --- discharge route 1: the linked run ------------------------------------
@@ -384,6 +668,45 @@ test("renderComment: Tier 2 only produces an advisory that cannot be read as a f
   assert((c as string).includes("advisory"));
   assert((c as string).includes("does not fail the check"));
   assert(!(c as string).includes("action required"));
+});
+
+test("renderComment: an infrastructure-tree hit names the classes no static check sees", () => {
+  const classification = { tier1: [], tier2: ["terragrunt/env/main.hcl"] };
+  const c = renderComment({
+    classification,
+    decision: decide({
+      classification,
+      headSha: HEAD,
+      labels: [],
+      body: "",
+      runs: [],
+    }),
+    headSha: HEAD,
+  }) as string;
+  assert(c.includes("does not fail the check"));
+  assert(c.includes("hardware prerequisites"));
+  assert(c.includes("topology"));
+  assert(c.includes("secret-store"));
+  assert(c.includes("identity"));
+  // Level 0 renders configuration/, not these trees; claiming it covers them is false.
+  assert(!c.includes("level 0's render"));
+});
+
+test("renderComment: a configuration-only hit carries no infrastructure note", () => {
+  const classification = { tier1: [], tier2: ["charts/secrets/values.yaml"] };
+  const c = renderComment({
+    classification,
+    decision: decide({
+      classification,
+      headSha: HEAD,
+      labels: [],
+      body: "",
+      runs: [],
+    }),
+    headSha: HEAD,
+  }) as string;
+  assert(c.includes("level 0's render"));
+  assert(!c.includes("hardware prerequisites"));
 });
 
 test("renderComment: a Tier 1 failure always carries both discharge routes", () => {

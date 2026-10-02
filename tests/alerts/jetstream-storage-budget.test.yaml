@@ -290,3 +290,74 @@ tests:
       - eval_time: 120m
         alertname: PFAuditRefusingWrites
         exp_alerts: []
+
+  # 9. PF_AUDIT exists once per tenant account (ADR-043), and the exporter
+  #    labels every stream series with `account`. tenant-a is full and frozen
+  #    with nothing waiting; tenant-b has a backlog but room to spare. Neither
+  #    is refusing, so a source-lag join that drops `account` would page
+  #    tenant-a on tenant-b's lag.
+  - interval: 1m
+    name: one account's source lag does not page another account's full PF_AUDIT
+    input_series:
+      - series: 'nats_stream_limit_bytes{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_last_seq{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1290+0x120'
+      - series: 'nats_stream_source_lag{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '0+0x120'
+      - series: 'nats_stream_limit_bytes{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '2147483648+0x120'
+      - series: 'nats_stream_last_seq{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1000+10x120'
+      - series: 'nats_stream_source_lag{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '5+0x120'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+      - eval_time: 120m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+
+  # 10. The positive half of case 9, so it cannot pass with the alert broken:
+  #     tenant-a is full, frozen and lagging, and pages under its own account.
+  #     tenant-b is full and frozen with no lag, so it must stay silent rather
+  #     than borrow tenant-a's lag.
+  - interval: 1m
+    name: a refusing PF_AUDIT pages under its own account only
+    input_series:
+      - series: 'nats_stream_limit_bytes{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_last_seq{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1290+0x120'
+      - series: 'nats_stream_source_lag{account="tenant-a",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '5+1x120'
+      - series: 'nats_stream_limit_bytes{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_last_seq{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '2000+0x120'
+      - series: 'nats_stream_source_lag{account="tenant-b",stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '0+0x120'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: PFAuditRefusingWrites
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              account: tenant-a
+              stream_name: PF_AUDIT
+              is_stream_leader: 'true'
+              namespace: nats
+              job: nats
+              server_name: nats-0
+            exp_annotations:
+              summary: 'PF_AUDIT is at its max_bytes ceiling and is refusing audit events sourced from PF_EVENTS'
+              description: 'PF_AUDIT is discard: new, so at the ceiling it refuses its own writes rather than stopping the bus (ADR-042). Refused events wait in PF_EVENTS and are lost from the audit trail once PF_EVENTS ages them out. docs/runbooks/jetstream-storage-budget.md.'
