@@ -13,6 +13,10 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-10-02 - Stop the same five files conflicting across most open PRs
+- **Status**: PR pending (branch `fix/pr-conflict-hotspots`); after merge, `task pr:refresh` each conflicting PR (stacked ones against their own base first)
+- **Description**: 29/86 open PRs conflicted, mostly in verification.md, readme.md/homelab.svg, bugs.md/issues.md and snapshots. `.gitattributes` unions the logs and the runbook; `task pr:refresh` (`scripts/pr-refresh.ts`) merges with the base's attributes, resolves generated and count-only conflicts, regenerates, runs level 0 and commits. Also fixes a glued heading in bugs.md and ignores `.serena/project.local.yml`.
+
 ### 2026-10-01 - KubeCPUOvercommit: size media and NATS CPU requests from measured usage
 - **Status**: PR pending (branch `triage/kubecpuovercommit-2f0d9038`); after merge confirm the overcommit expression drops below 0 and the alert resolves
 - **Description**: CPU requests sonarr/radarr 200m -> 75m, tautulli/lazylibrarian 100m -> 25m, homelab NATS 100m -> 25m (x3); limits unchanged, ~0.6 CPU freed. bugs.md 2026-10-01

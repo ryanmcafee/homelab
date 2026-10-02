@@ -1,0 +1,10 @@
+# Append-only logs and the verification check tables: concurrent PRs each add an
+# entry at the same spot, which is a textual conflict but never a real one. A
+# union merge keeps both sides' lines. GitHub's own merge and "Update branch"
+# ignore merge drivers, so this takes effect in local merges -- in particular
+# `task pr:refresh`, which merges with the base branch's attributes and flags
+# every file union resolved so a reviewer can check both sides survived intact
+# (two edits to the same row come out as two rows, not a conflict).
+docs/project_notes/bugs.md merge=union
+docs/project_notes/issues.md merge=union
+docs/runbooks/verification.md merge=union
