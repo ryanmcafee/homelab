@@ -1,0 +1,60 @@
+{{- if .Values.nats.enabled }}
+{{- $nkeys := fromYaml (include "addons.natsPrincipalNkeys" .) }}
+{{- $contract := .Files.Get "files/nats-accounts.gen.yaml" | fromYaml }}
+# NATS Config: the platform stream set and its dead-letter path, declared as
+# jetstream.nats.io resources so the streams are GitOps state.
+# Sync Wave: 12 (after nack at 11, which installs the CRDs these resources use)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nats-config
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/nats-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # Stream replica count, the bus URL and the file store the stream budget is
+      # checked against come from this parent so a single-node fork changes one
+      # configuration value, not a committed chart.
+      valuesObject:
+        natsUrl: {{ .Values.nats.url | quote }}
+        replicas: {{ .Values.nats.jetstream.streamReplicas }}
+        fileStoreSize: {{ .Values.nats.jetstream.storage.size | quote }}
+        {{- if $nkeys }}
+        # The tenant account, from the same values that render the server's accounts block,
+        # so the account NACK writes into and the account the server enforces cannot drift.
+        # NACK's own credential is the `nack` principal's seed and never `$SYS`.
+        account:
+          name: tenant-{{ .Values.nats.tenant | lower }}
+          natsName: {{ include "addons.natsAccountName" (dict "tenant" .Values.nats.tenant "contract" $contract) }}
+          credentialSecret: {{ .Values.nats.credentialSecretPrefix }}nack
+        {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.nats.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      # Safe to prune because every Stream and Consumer sets preventDelete: true,
+      # so removing the resource leaves the stream and its messages in NATS.
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+{{- end }}

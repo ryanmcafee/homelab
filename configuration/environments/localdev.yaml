@@ -27,7 +27,10 @@ CLUSTER_NAME: homelab-local
 # Kind, not Proxmox — no hypervisor node exists, but the key is required.
 PROXMOX_NODE: none
 # localdev's ArgoCD reconciles the working tree (`argocd app sync --local`), so
-# this URL is only what the bootstrap Application records.
+# this URL is only what the bootstrap Application records. Deliberately the
+# upstream repository: localdev is a committed test set every fork shares, not
+# a value a fork fills in. A fork's own remote goes in its homelab.yaml and
+# reaches the templates through the resolver's derived .GitOps field.
 GITOPS_REPO_URL: https://github.com/ryanmcafee/homelab
 NFS_BASE_PATH: /tmp/storage
 NFS_MAPALL_USER: localdev
@@ -58,3 +61,7 @@ STORAGE_CLASS_NFS: local-path
 STORAGE_CLASS_ISCSI: local-path
 STORAGE_CLASS_SSD: local-path
 STORAGE_CLASS_ISCSI_SSD: local-path
+# Kind is one node, and JetStream refuses a stream asking for more replicas than
+# there are servers.
+NATS_SERVER_REPLICAS: "1"
+NATS_STREAM_REPLICAS: "1"

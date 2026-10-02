@@ -1,0 +1,799 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: nats
+spec:
+  description: >-
+    The event backbone works end to end: NACK reconciles the four platform streams and their
+    durable consumers onto the NATS server, a CloudEvent published to a .ev subject comes back
+    out of PF_EVENTS through verify-workload-v1 with its correlationid intact, an unacked
+    message is redelivered until maxDeliver and then abandoned without stalling the consumer,
+    and a dead letter carrying the full original envelope is read back from PF_DLQ. Every nats
+    command runs in the nats-box pod the chart already ships and uses only the consumers the
+    contract declares, so the test adds no consumer. The last step proves nats-server-ingress:
+    Prometheus scrapes 8222 and 7777, and an untrusted pod (the pinned curl image) cannot.
+  steps:
+    - name: applications-healthy
+      description: nats, nack and nats-config are Healthy and Succeeded.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: nats
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: nack
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: nats-config
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: nats-config
+            namespace: argocd
+        - podLogs:
+            namespace: nats
+            selector: app=nack
+            tail: 50
+
+    # ArgoCD reports a Stream Healthy from its condition (the health Lua in
+    # charts/bootstrap/files/health). Asserting the condition here too keeps the proof
+    # independent of that script: these are the resources whose reconcile can fail on a
+    # real server while the manifests render perfectly.
+    - name: streams-ready
+      description: NACK reports Ready=True on all four platform streams.
+      timeouts:
+        assert: 5m
+      try:
+        - assert:
+            resource:
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Stream
+              metadata:
+                name: pf-events
+                namespace: nats
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
+        # PF_AUDIT is the one that cannot be proven by rendering: it sources PF_EVENTS
+        # through two subjectTransforms instead of declaring subjects, because two streams
+        # in one account may not overlap (10065). Ready=True is the server accepting both.
+        - assert:
+            resource:
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Stream
+              metadata:
+                name: pf-audit
+                namespace: nats
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
+        - assert:
+            resource:
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Stream
+              metadata:
+                name: pf-work
+                namespace: nats
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
+        - assert:
+            resource:
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Stream
+              metadata:
+                name: pf-dlq
+                namespace: nats
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              kubectl get streams.jetstream.nats.io -n nats -o wide || true
+              kubectl get streams.jetstream.nats.io -n nats \
+                -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.conditions[*].message}{"\n"}{end}' || true
+        - podLogs:
+            namespace: nats
+            selector: app=nack
+            tail: 100
+
+    - name: consumers-ready
+      description: NACK reports Ready=True on the durable consumers the contract declares.
+      timeouts:
+        assert: 5m
+      try:
+        - assert:
+            resource:
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Consumer
+              metadata:
+                name: verify-workload-v1
+                namespace: nats
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
+        - assert:
+            resource:
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Consumer
+              metadata:
+                name: dlq-reporter-observability-v1
+                namespace: nats
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
+        - assert:
+            resource:
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Consumer
+              metadata:
+                name: workload-operator-deployment-promote-v1
+                namespace: nats
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              kubectl get consumers.jetstream.nats.io -n nats \
+                -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.conditions[*].message}{"\n"}{end}' || true
+        - podLogs:
+            namespace: nats
+            selector: app=nack
+            tail: 100
+
+    # The trace. One publish, one fetch through the durable consumer, and the correlationid
+    # the publisher set has to come back byte for byte -- an event an engineer cannot follow
+    # across the hop is the defect this step exists to catch.
+    - name: publish-and-consume-ev
+      description: >-
+        A CloudEvent on pf.local.workload.deployment.deployed.v1.ev is stored by PF_EVENTS and
+        fetched back through verify-workload-v1 with its correlationid intact.
+      timeouts:
+        exec: 5m
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}')
+              echo "nats-box: $box"
+
+              subject=pf.local.workload.deployment.deployed.v1.ev
+              corr="e2e-ev-$(date +%s)"
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              echo "correlationid: $corr"
+
+              # Structured CloudEvents JSON: every required attribute from
+              # contracts/events/envelope.v1.schema.json, plus the correlationid we trace.
+              schema=https://github.com/ryanmcafee/homelab/contracts/events/data/workload.deployed.v1.schema.json
+              envelope='{"specversion":"1.0","id":"'"$corr"'","source":"//workload/e2e-nats"'
+              envelope="$envelope"',"type":"com.mcafeeconsulting.platform.workload.deployment.deployed.v1"'
+              envelope="$envelope"',"time":"'"$now"'","datacontenttype":"application/json"'
+              envelope="$envelope"',"dataschema":"'"$schema"'","subject":"Deployment/nats/e2e"'
+              envelope="$envelope"',"tenant":"local","correlationid":"'"$corr"'"'
+              envelope="$envelope"',"data":{"namespace":"nats","name":"e2e","revision":"e2e","observedGeneration":1}}'
+
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$subject" "$envelope"
+              echo "published to $subject"
+
+              # Fetch through the durable consumer the contract declares, not an ad-hoc
+              # subscription: this is the path a real consumer takes.
+              out=$(kubectl exec -n nats "$box" -- \
+                nats consumer next PF_EVENTS verify-workload-v1 --count 1 --timeout 60s --raw)
+
+              echo "--- consumed ---"
+              echo "$out"
+              echo "----------------"
+
+              case "$out" in
+                *"\"correlationid\":\"$corr\""*)
+                  echo "OK: correlationid $corr survived publish -> PF_EVENTS -> verify-workload-v1" ;;
+                *)
+                  echo "FAIL: correlationid $corr did not survive the hop"; exit 1 ;;
+              esac
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
+              kubectl exec -n nats "$box" -- nats stream report || true
+              kubectl exec -n nats "$box" -- nats consumer info PF_EVENTS verify-workload-v1 || true
+
+    # At-least-once, exercised rather than read off the config: a message taken without an
+    # ack must come back. Uses verify-workload-v1 (ackWait 30s, maxDeliver 5) so the proof
+    # runs against a consumer the contract actually declares.
+    - name: redelivery-on-missing-ack
+      description: A message fetched without acking is redelivered with a rising delivery count.
+      timeouts:
+        exec: 5m
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}')
+
+              subject=pf.local.workload.deployment.deployed.v1.ev
+              corr="e2e-retry-$(date +%s)"
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              schema=https://github.com/ryanmcafee/homelab/contracts/events/data/workload.deployed.v1.schema.json
+              envelope='{"specversion":"1.0","id":"'"$corr"'","source":"//workload/e2e-nats"'
+              envelope="$envelope"',"type":"com.mcafeeconsulting.platform.workload.deployment.deployed.v1"'
+              envelope="$envelope"',"time":"'"$now"'","datacontenttype":"application/json"'
+              envelope="$envelope"',"dataschema":"'"$schema"'","subject":"Deployment/nats/e2e"'
+              envelope="$envelope"',"tenant":"local","correlationid":"'"$corr"'"'
+              envelope="$envelope"',"data":{"namespace":"nats","name":"e2e","revision":"e2e","observedGeneration":1}}'
+
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$subject" "$envelope"
+              echo "published $corr, taking it without an ack"
+
+              # First delivery, deliberately unacked. Naming it here keeps a stray
+              # pending message from being reported later as a lost redelivery.
+              first=$(kubectl exec -n nats "$box" -- \
+                nats consumer next PF_EVENTS verify-workload-v1 --count 1 --timeout 60s --no-ack --raw)
+
+              case "$first" in
+                *"\"correlationid\":\"$corr\""*)
+                  echo "took $corr on its first delivery, leaving it unacked" ;;
+                *)
+                  echo "FAIL: first delivery was not $corr; verify-workload-v1 had other pending work"
+                  exit 1 ;;
+              esac
+
+              # ackWait is 30s; past it the server must hand the same message back.
+              sleep 35
+
+              out=$(kubectl exec -n nats "$box" -- \
+                nats consumer next PF_EVENTS verify-workload-v1 --count 1 --timeout 60s --raw)
+
+              echo "--- redelivered ---"
+              echo "$out"
+              echo "-------------------"
+
+              case "$out" in
+                *"\"correlationid\":\"$corr\""*)
+                  echo "OK: $corr was redelivered after ackWait -- at-least-once holds" ;;
+                *)
+                  echo "FAIL: $corr was not redelivered; an unacked message was lost"; exit 1 ;;
+              esac
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
+              kubectl exec -n nats "$box" -- nats consumer info PF_EVENTS verify-workload-v1 || true
+
+    # Redelivery that never terminates is its own silent loss: the message is neither
+    # processed nor abandoned visibly. This drives one envelope through all five deliveries
+    # of verify-workload-v1, proves the sixth never comes, and proves a LATER message still
+    # flows -- one poison payload must not stall the consumer. It also captures the
+    # MAX_DELIVERIES advisory, which is the only signal an operator gets at exhaustion and
+    # the reason PF_DLQ carries the whole envelope rather than the advisory.
+    - name: max-deliveries-exhaustion
+      description: >-
+        An unacked envelope is delivered exactly maxDeliver times and then abandoned, the
+        exhaustion advisory fires, and the next envelope is still delivered.
+      timeouts:
+        exec: 8m
+      try:
+        - script:
+            timeout: 8m
+            content: |
+              set -eu
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}')
+
+              subject=pf.local.workload.deployment.deployed.v1.ev
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              schema=https://github.com/ryanmcafee/homelab/contracts/events/data/workload.deployed.v1.schema.json
+
+              # Single-quoted so the shell does not expand $JS before nats sees it.
+              adv='$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.PF_EVENTS.verify-workload-v1'
+
+              # Read off the deployed Consumer rather than restated, so raising maxDeliver in
+              # charts/nats-config cannot leave this step asserting a stale delivery count.
+              max_deliver=$(kubectl get consumer.jetstream.nats.io -n nats verify-workload-v1 \
+                -o jsonpath='{.spec.maxDeliver}')
+              ack_wait=$(kubectl get consumer.jetstream.nats.io -n nats verify-workload-v1 \
+                -o jsonpath='{.spec.ackWait}')
+              ack_wait=${ack_wait%s}
+
+              case "$max_deliver$ack_wait" in
+                ''|*[!0-9]*)
+                  echo "FAIL: could not read maxDeliver/ackWait off verify-workload-v1"
+                  echo "      maxDeliver='$max_deliver' ackWait='$ack_wait'"
+                  exit 1 ;;
+              esac
+              echo "verify-workload-v1: maxDeliver=$max_deliver ackWait=${ack_wait}s"
+
+              envelope_for() {
+                printf '%s' '{"specversion":"1.0","id":"'"$1"'","source":"//workload/e2e-nats"'
+                printf '%s' ',"type":"com.mcafeeconsulting.platform.workload.deployment.deployed.v1"'
+                printf '%s' ',"time":"'"$now"'","datacontenttype":"application/json"'
+                printf '%s' ',"dataschema":"'"$schema"'","subject":"Deployment/nats/e2e"'
+                printf '%s' ',"tenant":"local","correlationid":"'"$1"'"'
+                printf '%s' ',"data":{"namespace":"nats","name":"e2e","revision":"e2e","observedGeneration":1}}'
+              }
+
+              poison="e2e-poison-$(date +%s)"
+              followup="e2e-after-poison-$(date +%s)"
+
+              # Advisories are core NATS and are never stored, so the subscriber has to be
+              # listening before the message is abandoned. Backgrounded on the runner, which
+              # keeps the exec open, rather than inside the pod where it would die with it.
+              adv_out=$(mktemp)
+              kubectl exec -n nats "$box" -- \
+                nats sub "$adv" --count 1 --timeout 4m >"$adv_out" 2>&1 &
+              adv_pid=$!
+              sleep 5
+
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$subject" "$(envelope_for "$poison")"
+              echo "published poison envelope $poison"
+
+              # Every delivery is taken and deliberately not acked. ackWait has to lapse
+              # between them, which is what makes the server hand the same message back.
+              d=1
+              while [ "$d" -le "$max_deliver" ]; do
+                out=$(kubectl exec -n nats "$box" -- \
+                  nats consumer next PF_EVENTS verify-workload-v1 \
+                    --count 1 --timeout 60s --no-ack --raw 2>&1) || true
+                case "$out" in
+                  *"\"correlationid\":\"$poison\""*)
+                    echo "delivery $d of $max_deliver: $poison, left unacked" ;;
+                  *)
+                    echo "--- unexpected delivery $d ---"
+                    echo "$out"
+                    echo "------------------------------"
+                    kill "$adv_pid" 2>/dev/null || true
+                    echo "FAIL: delivery $d was not $poison; verify-workload-v1 had other pending work"
+                    exit 1 ;;
+                esac
+                d=$((d + 1))
+                [ "$d" -le "$max_deliver" ] && sleep $((ack_wait + 5))
+              done
+
+              # Past the final ackWait the server gives up on the message and emits the
+              # advisory. Nothing may be delivered after that.
+              sleep $((ack_wait + 10))
+
+              exhausted=$(kubectl exec -n nats "$box" -- \
+                nats consumer next PF_EVENTS verify-workload-v1 \
+                  --count 1 --timeout 30s --no-ack --raw 2>&1) || true
+
+              case "$exhausted" in
+                *"\"correlationid\":\"$poison\""*)
+                  kill "$adv_pid" 2>/dev/null || true
+                  echo "FAIL: $poison was delivered a ${max_deliver}+1 th time; maxDeliver is not enforced"
+                  exit 1 ;;
+              esac
+              echo "OK: $poison stopped after exactly $max_deliver deliveries"
+
+              # The advisory. Absence is reported rather than asserted away, because the
+              # capture depends on the subscription winning a race; a captured advisory that
+              # DOES name the work would contradict the contract and fails hard.
+              wait "$adv_pid" 2>/dev/null || true
+              echo "--- MAX_DELIVERIES advisory ---"
+              cat "$adv_out"
+              echo "-------------------------------"
+              # Matched on the advisory's own fields, not on its schema type string, so the
+              # assertion does not turn on how a server version spells the type.
+              if grep -q '"deliveries"' "$adv_out" && grep -q 'verify-workload-v1' "$adv_out"; then
+                if grep -q "$poison" "$adv_out"; then
+                  echo "FAIL: the advisory names $poison, so PF_DLQ need not carry the envelope"
+                  exit 1
+                fi
+                echo "OK: advisory fired and does NOT identify the work -- PF_DLQ must hold the envelope"
+              else
+                echo "NOTE: no advisory captured; this step does not prove the advisory shape"
+              fi
+
+              # Poison-message containment: the abandoned envelope must not have stalled the
+              # consumer. This one is acked, leaving verify-workload-v1 clean for later steps.
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$subject" "$(envelope_for "$followup")"
+              after=$(kubectl exec -n nats "$box" -- \
+                nats consumer next PF_EVENTS verify-workload-v1 --count 1 --timeout 60s --raw 2>&1) || true
+
+              case "$after" in
+                *"\"correlationid\":\"$followup\""*)
+                  echo "OK: $followup was delivered after the poison exhausted -- consumer not stalled" ;;
+                *)
+                  echo "--- delivery after exhaustion ---"
+                  echo "$after"
+                  echo "---------------------------------"
+                  echo "FAIL: $followup was not delivered; one poison payload stalled the consumer"
+                  exit 1 ;;
+              esac
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
+              kubectl exec -n nats "$box" -- nats consumer info PF_EVENTS verify-workload-v1 || true
+              kubectl exec -n nats "$box" -- nats stream info PF_EVENTS || true
+
+    # The dead-letter record. The advisory a consumer gets on exhaustion carries no body, no
+    # subject and no correlationid, so PF_DLQ holds the FULL original envelope instead. The
+    # republish is done here because no platform consumer ships yet; the DLQ subject, its
+    # retention and its durable reader are what this proves.
+    - name: dead-letter-record
+      description: >-
+        A .wq envelope republished onto its .dl subject is stored by PF_DLQ and read back
+        through dlq-reporter-observability-v1 with the original correlationid.
+      timeouts:
+        exec: 5m
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}')
+
+              wq=pf.local.workload.deployment.promote.v1.wq
+              dl=pf.local.workload.deployment.promote.v1.dl
+              corr="e2e-dlq-$(date +%s)"
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              schema=https://github.com/ryanmcafee/homelab/contracts/events/data/workload.promote.v1.schema.json
+              envelope='{"specversion":"1.0","id":"'"$corr"'","source":"//workload/e2e-nats"'
+              envelope="$envelope"',"type":"com.mcafeeconsulting.platform.workload.deployment.promote.v1"'
+              envelope="$envelope"',"time":"'"$now"'","datacontenttype":"application/json"'
+              envelope="$envelope"',"dataschema":"'"$schema"'","subject":"Deployment/nats/e2e"'
+              envelope="$envelope"',"tenant":"local","correlationid":"'"$corr"'"'
+              envelope="$envelope"',"data":{"namespace":"nats","name":"e2e","toRevision":"e2e-next"}}'
+
+              # The work item itself must be accepted by PF_WORK first: a .dl with no .wq
+              # behind it would prove the dead-letter path over a subject nothing can reach.
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$wq" "$envelope"
+              echo "published work item to $wq"
+
+              # The derived .dl subject: same seven tokens, suffix swapped.
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$dl" "$envelope"
+              echo "dead-lettered to $dl"
+
+              out=$(kubectl exec -n nats "$box" -- \
+                nats consumer next PF_DLQ dlq-reporter-observability-v1 --count 1 --timeout 60s --raw)
+
+              echo "--- dead letter ---"
+              echo "$out"
+              echo "-------------------"
+
+              case "$out" in
+                *"\"correlationid\":\"$corr\""*)
+                  echo "OK: $corr readable from PF_DLQ via dlq-reporter-observability-v1" ;;
+                *)
+                  echo "FAIL: dead letter did not carry correlationid $corr"; exit 1 ;;
+              esac
+
+              kubectl exec -n nats "$box" -- nats stream report || true
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
+              kubectl exec -n nats "$box" -- nats stream info PF_WORK || true
+              kubectl exec -n nats "$box" -- nats stream info PF_DLQ || true
+
+    # PF_AUDIT's two sources being accepted says nothing about what they SELECT. The
+    # assertion that separates the contract's filter set from a wider one is the negative
+    # one, so this step makes both halves: an identity event has to arrive, and the
+    # workload event that is already in PF_EVENTS has to stay out. (ADR-038 condition C3)
+    - name: audit-source-filters
+      description: >-
+        PF_AUDIT admits pf.*.identity.*.*.*.ev and excludes the workload event PF_EVENTS
+        already holds, so the source filters are the contract's and not wider.
+      timeouts:
+        exec: 5m
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}')
+
+              identity=pf.local.identity.principal.issued.v1.ev
+              workload=pf.local.workload.deployment.deployed.v1.ev
+              corr="e2e-audit-$(date +%s)"
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              schema=https://github.com/ryanmcafee/homelab/contracts/events/data/identity.principal.issued.v1.schema.json
+
+              # An audit record carries the FACT of issuance and never the credential, so
+              # credentialRef is omitted rather than filled with a placeholder secret path.
+              envelope='{"specversion":"1.0","id":"'"$corr"'","source":"//identity/e2e-nats"'
+              envelope="$envelope"',"type":"com.mcafeeconsulting.platform.identity.principal.issued.v1"'
+              envelope="$envelope"',"time":"'"$now"'","datacontenttype":"application/json"'
+              envelope="$envelope"',"dataschema":"'"$schema"'","subject":"principal/e2e"'
+              envelope="$envelope"',"tenant":"local","correlationid":"'"$corr"'"'
+              envelope="$envelope"',"data":{"principalId":"e2e-principal","principalType":"ai-agent"'
+              envelope="$envelope"',"issuer":"https://issuer.invalid/e2e"}}'
+
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$identity" "$envelope"
+              echo "published $corr to $identity"
+
+              # Sourcing is asynchronous, so the positive half polls rather than asserting
+              # once. --last-for reads the stream directly and consumes nothing.
+              found=""
+              i=0
+              while [ "$i" -lt 30 ]; do
+                if out=$(kubectl exec -n nats "$box" -- \
+                     nats stream get PF_AUDIT --last-for "$identity" 2>&1); then
+                  case "$out" in
+                    *"\"correlationid\":\"$corr\""*) found=yes; break ;;
+                  esac
+                fi
+                i=$((i + 1))
+                sleep 2
+              done
+
+              if [ -z "$found" ]; then
+                echo "--- last PF_AUDIT read ---"
+                echo "${out:-<no successful read>}"
+                echo "--------------------------"
+                echo "FAIL: $corr never reached PF_AUDIT; the identity source filter does not match"
+                exit 1
+              fi
+              echo "OK: $corr reached PF_AUDIT via the pf.*.identity.*.*.*.ev source filter"
+
+              # Anti-vacuity guard. "Absent from PF_AUDIT" only means something once the
+              # same subject is shown present in the origin stream -- otherwise the
+              # negative below passes on an empty bus and reads as coverage.
+              if ! origin=$(kubectl exec -n nats "$box" -- \
+                   nats stream get PF_EVENTS --last-for "$workload" 2>&1); then
+                echo "$origin"
+                echo "FAIL: $workload is not in PF_EVENTS, so the exclusion below would prove nothing"
+                exit 1
+              fi
+              echo "OK: $workload is present in PF_EVENTS"
+
+              # The negative half. A wider filter -- pf.*.*.*.*.*.ev, or a second source
+              # someone adds later -- fails exactly here and nowhere else.
+              #
+              # Matched on the body rather than on the exit status: a read that failed for
+              # an unrelated reason would otherwise LOOK like an empty subject and pass.
+              # The positive half above already ran this exact command successfully, so a
+              # broken invocation aborts the step before it can be read as an exclusion.
+              excluded=$(kubectl exec -n nats "$box" -- \
+                nats stream get PF_AUDIT --last-for "$workload" 2>&1) || true
+
+              echo "--- PF_AUDIT read for $workload ---"
+              echo "$excluded"
+              echo "-----------------------------------"
+
+              # Absence has to be SIGNALLED, not inferred. Any other error is also a body
+              # with no correlationid in it, so only 10037 no-message-found counts as empty.
+              case "$excluded" in
+                *'"correlationid"'*)
+                  echo "FAIL: $workload is in PF_AUDIT; the source filters are wider than the contract"
+                  exit 1 ;;
+                *"no message found"*|*"10037"*)
+                  echo "OK: $workload is absent from PF_AUDIT -- filters match the contract" ;;
+                *)
+                  echo "FAIL: PF_AUDIT read for $workload neither returned a message nor reported"
+                  echo "      10037 no-message-found, so the exclusion proves nothing"
+                  exit 1 ;;
+              esac
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
+              kubectl exec -n nats "$box" -- nats stream info PF_AUDIT || true
+              kubectl exec -n nats "$box" -- nats stream info PF_EVENTS || true
+
+    # Evidence for the PF_WORK silent-loss alerts, which select on is_stream_leader and
+    # dedupe with `max by (stream_name, namespace, job)`. Whether those labels exist, and
+    # what they hold on a non-clustered server, is a property of the deployed exporter that
+    # no render can answer. The raw series are printed unnormalised so the label set is
+    # readable; the step asserts only that the series exist at all.
+    - name: exporter-label-set
+      description: >-
+        The prom-exporter publishes nats_stream_* series for the platform streams, and the
+        run records their full label set for the alert rules that select on it.
+      timeouts:
+        exec: 3m
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -eu
+              pod=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats \
+                -o jsonpath='{.items[0].metadata.name}')
+              port=$(kubectl get pod -n nats "$pod" -o \
+                jsonpath='{.spec.containers[?(@.name=="prom-exporter")].ports[?(@.name=="prom-metrics")].containerPort}')
+
+              if [ -z "$port" ]; then
+                echo "FAIL: $pod has no prom-exporter prom-metrics port; promExporter.enabled is not taking effect"
+                exit 1
+              fi
+              echo "exporter: $pod:$port"
+
+              # Over the pod's loopback, which nats-server-ingress does not police.
+              if ! metrics=$(kubectl exec -n nats "$pod" -c nats -- \
+                wget -q -T 10 -O - "http://localhost:$port/metrics" 2>&1); then
+                echo "FAIL: the exporter scrape did not return 200, so EVERY nats_* series is absent:"
+                echo "$metrics"
+                echo "A 'collected before with the same name and label values' error means two"
+                echo "stream sources share one origin; the exporter labels them by source_name"
+                echo "alone. Put the extra filters in subjectTransforms on a single source."
+                exit 1
+              fi
+
+              echo "--- raw nats_stream_* / nats_consumer_* series, labels intact ---"
+              echo "$metrics" | grep -E '^nats_(stream_first_seq|stream_total_messages|stream_source_lag|consumer_ack_floor_stream_seq)' || true
+              echo "----------------------------------------------------------------"
+
+              # -jsz=all is what produces these. No series means the JetStream metrics the
+              # silent-loss alerts read are absent, and those alerts would never fire.
+              if ! echo "$metrics" | grep -q '^nats_stream_first_seq'; then
+                echo "FAIL: no nats_stream_first_seq series; the -jsz=all metrics the PF_WORK alerts read are absent"
+                exit 1
+              fi
+
+              for stream in PF_EVENTS PF_AUDIT PF_WORK PF_DLQ; do
+                if echo "$metrics" | grep -q "^nats_stream_first_seq{.*stream_name=\"$stream\""; then
+                  echo "OK: nats_stream_first_seq present for $stream"
+                else
+                  echo "FAIL: no nats_stream_first_seq series for $stream"; exit 1
+                fi
+              done
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              kubectl get pods -n nats --show-labels || true
+              kubectl get podmonitors -n nats -o yaml || true
+    # bus-principals.v1.yaml conformance.level_2 `monitoring_network_policy`. The denial half
+    # runs from a pod in the chainsaw namespace, which no rule admits to 8222 or 7777; its 4222
+    # control proves the pod has a network, so a timeout is the policy and not a dead probe.
+    - name: monitoring-network-policy
+      description: >-
+        The Prometheus pod reaches 8222 and 7777 on a NATS pod and holds the PF_WORK leader
+        series its alerts read, while an untrusted pod times out on both ports yet reaches 4222.
+      timeouts:
+        exec: 5m
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              kubectl get networkpolicy -n nats nats-server-ingress -o name
+              ip=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats \
+                -o jsonpath='{.items[0].status.podIP}')
+              prom=$(kubectl get pod -n monitoring -l app.kubernetes.io/name=prometheus \
+                -o jsonpath='{.items[0].metadata.name}')
+              echo "nats pod ip: $ip | authorized peer: monitoring/$prom"
+
+              # The Prometheus image ships promtool but no HTTP client. Any HTTP answer, even an
+              # error status, proves the TCP path; a dropped connection hangs until the timeout.
+              for port in 8222 7777; do
+                out=$(timeout 20 kubectl exec -n monitoring "$prom" -c prometheus -- \
+                  promtool query instant "http://$ip:$port" up 2>&1) && rc=0 || rc=$?
+                echo "promtool from monitoring/$prom to :$port (rc=$rc): $out"
+                if [ "$rc" = 124 ] || echo "$out" | grep -qiE 'timeout|deadline exceeded|refused|no route|unreachable'; then
+                  echo "FAIL: Prometheus could not reach :$port; the policy denies the monitoring path"
+                  exit 1
+                fi
+                echo "OK: authorized peer reached :$port"
+              done
+
+              promql() {
+                kubectl exec -n monitoring "$prom" -c prometheus -- \
+                  promtool query instant http://localhost:9090 "$1" \
+                  | sed -n 's/.* => \([0-9.e+-]*\) @.*/\1/p'
+              }
+              series=""
+              for i in $(seq 1 12); do
+                up=$(promql 'min(up{namespace="nats"})')
+                series=$(promql 'count(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"})')
+                echo "attempt $i/12: min(up{namespace=\"nats\"}) = ${up:-<no series>}" \
+                  "| PF_WORK leader first_seq series = ${series:-<none>}"
+                [ "${series:-0}" -gt 0 ] && break
+                sleep 10
+              done
+              if [ "${series:-0}" -le 0 ]; then
+                echo "FAIL: Prometheus has no PF_WORK nats_stream_first_seq{is_stream_leader=\"true\"} series;"
+                echo "the PF_WORK silent-loss alerts are blind, so the PodMonitor path is broken"
+                exit 1
+              fi
+
+              kubectl apply -n "$NAMESPACE" -f - <<JOB
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: monitor-untrusted
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 120
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            probe() { curl -s -o /dev/null --max-time 5 "\$1"; echo \$?; }
+                            client=\$(probe "http://$ip:4222/")
+                            monitor=\$(probe "http://$ip:8222/jsz?accounts=true")
+                            exporter=\$(probe "http://$ip:7777/metrics")
+                            echo "curl exit codes: 4222=\$client 8222=\$monitor 7777=\$exporter (28 = timed out)"
+                            [ "\$client" != 28 ] && [ "\$client" != 7 ] || { echo "FAIL: control 4222 unreachable"; exit 1; }
+                            [ "\$monitor" = 28 ] || { echo "FAIL: untrusted pod reached 8222"; exit 1; }
+                            [ "\$exporter" = 28 ] || { echo "FAIL: untrusted pod reached 7777"; exit 1; }
+              JOB
+              kubectl wait -n "$NAMESPACE" job/monitor-untrusted \
+                --for=condition=Complete --timeout=150s \
+                || { kubectl logs -n "$NAMESPACE" job/monitor-untrusted || true; exit 1; }
+              kubectl logs -n "$NAMESPACE" job/monitor-untrusted
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              kubectl get networkpolicy -n nats -o yaml || true
+              kubectl get pods -n nats --show-labels || true
+              kubectl logs -n "$NAMESPACE" job/monitor-untrusted || true

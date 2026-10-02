@@ -1,6 +1,10 @@
 # port-forwarding-controller-config homelab values
+#
+# unifi.onePasswordItemPath is NOT set here: the addons
+# port-forwarding-controller-config Application passes it through
+# helm.valuesObject from UNIFI_PORT_FORWARD_1P_PATH, so a fork's key is what
+# reaches the OnePasswordItem.
 
 unifi:
   enabled: true
   namespace: port-forwarding
-  onePasswordItemPath: "vaults/homelab/items/unifi"
