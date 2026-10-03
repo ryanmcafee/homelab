@@ -1,7 +1,7 @@
 #!/usr/bin/env -S bun test
 /**
  * Consistency tests for contracts/observability/metrics.v1.yaml -- the RED metric
- * contract for first-party control-plane services (ADR-041).
+ * contract for first-party control-plane services.
  *
  * This file is the contract's own gate, in the shape ADR-030 requires: the rule set is
  * checked against the checked-in contract, and the checker is tested rather than
