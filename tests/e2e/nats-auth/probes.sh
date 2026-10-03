@@ -286,6 +286,80 @@ phase_rq() {
     "Permissions Violation for Publish to \"_INBOX.platform-api." "$(cat "$scratch/late.out")"
 }
 
+measured() { printf 'MEASURED %s: %s\n' "$1" "$2"; }
+
+MOVE_STREAM=${MOVE_STREAM:-NACK_MOVE_PROBE}
+
+# where_is ACCOUNT -- present, absent or unreadable, from the account's stream name list.
+# tenant and move are accounts on the keyed server; shared is the cluster bus the rendered
+# NACK's global -s points at.
+where_is() {
+  case $1 in
+  tenant) out=$(as nack stream ls --names) rc=$? ;;
+  move) out=$(nats --server "$NATS_URL" --nkey "$SEEDS/nack-move.nk" --inbox-prefix _INBOX.nack \
+    --timeout 3s stream ls --names 2>&1) rc=$? ;;
+  shared) out=$(nats --server "${SHARED_URL:?}" --timeout 3s stream ls --names 2>&1) rc=$? ;;
+  esac
+  case $rc:$out in
+  0:*error* | 0:*Violation* | [!0]*) echo unreadable ;;
+  *) printf '%s\n' "$out" | grep -qx "$MOVE_STREAM" && echo present || echo absent ;;
+  esac
+}
+
+# placement -- "tenant=<state> move=<state> shared=<state>".
+placement() {
+  line=""
+  for account in tenant move shared; do
+    line="${line:+$line }$account=$(where_is $account)"
+  done
+  echo "$line"
+}
+
+# readable DESC PLACEMENT -- a reading with an unreadable account is a FAIL, not an answer.
+readable() {
+  case $2 in
+  *unreadable*) fail nack_account_on_stream_move "every account is readable $1" "$2" ;;
+  esac
+}
+
+phase_move_placed() {
+  id=nack_account_on_stream_move
+  for _ in $(seq 30); do
+    [ "$(where_is tenant)" = present ] && break
+    sleep 2
+  done
+  succeeded $id "the control-loop NACK creates $MOVE_STREAM in its Stream's account" \
+    "\"name\": \"$MOVE_STREAM\"" "$(as nack stream info "$MOVE_STREAM" --json)"
+  now=$(placement)
+  readable "before the move" "$now"
+  measured $id "before the move: $now"
+}
+
+# The same controller on nack's own declared key; its inbox is _INBOX.<nuid>, outside _INBOX.nack.>.
+phase_declared_placed() {
+  id=nack_account_on_stream_move
+  for _ in $(seq 15); do
+    [ "$(where_is tenant)" = present ] && break
+    sleep 2
+  done
+  now=$(placement)
+  readable "with nack's declared key" "$now"
+  measured $id "$MOVE_STREAM on nack's declared key, within 30s: $now"
+}
+
+# Records every placement seen in the 60s after spec.account moved, so the timeline is the answer.
+phase_move_moved() {
+  id=nack_account_on_stream_move
+  last=""
+  for second in $(seq 0 2 60); do
+    now=$(placement)
+    readable "${second}s after the move" "$now"
+    [ "$now" != "$last" ] && measured $id "${second}s after spec.account moved to NACK_MOVE: $now"
+    last=$now
+    sleep 2
+  done
+}
+
 for phase in "$@"; do
   "phase_$phase"
 done
