@@ -211,6 +211,8 @@ spec:
             homelab.tmpl: |-
               {{`{{ define "homelab.grafanaURL" }}`}}https://{{ $grafanaRoute.hostname }}{{`{{ end }}`}}
 
+              {{`{{ define "homelab.githubPullsURL" }}https://github.com/pulls{{ end }}`}}
+
               {{`{{ define "homelab.alertmanagerURL" -}}
               {{ $filter := printf "alertname=%q" .CommonLabels.alertname -}}
               {{ if .CommonLabels.namespace }}{{ $filter = printf "%s,namespace=%q" $filter .CommonLabels.namespace }}{{ end -}}
@@ -278,12 +280,15 @@ spec:
                   continue: true
                 {{- end }}
                 {{- if and $notify.enabled $githubPR.enabled }}
-                # One notification per pull request, repeated while it still
-                # needs review; merging or closing it sends nothing.
+                # One digest of every pull request that still needs review,
+                # repeated while any does; merging or closing one sends nothing.
+                # One group, not one per PR: PRs found in the same scrape repeat
+                # together, and N parallel Pushover requests draw 4xx replies.
                 - receiver: pushover-github-pr
                   matchers:
                     - alertname = "GitHubPullRequestNeedsReview"
-                  group_by: [alertname, repo, number]
+                  group_by: [alertname]
+                  group_interval: 5m
                   repeat_interval: {{ $githubPR.repeatInterval }}
                 {{- end }}
                 {{- if $notify.enabled }}
@@ -348,10 +353,13 @@ spec:
                     user_key_file: {{ $secretDir }}/pushover_user_key
                     send_resolved: false
                     priority: "0"
-                    title: 'PR needs review: {{`{{ .CommonLabels.repo }}`}}#{{`{{ .CommonLabels.number }}`}}'
-                    message: '{{`{{ .CommonAnnotations.title }}`}} (by {{`{{ .CommonAnnotations.author }}`}})'
-                    url: '{{`{{ .CommonAnnotations.url }}`}}'
-                    url_title: 'Open pull request'
+                    title: 'PR needs review: {{`{{ .Alerts.Firing | len }}`}}'
+                    url: '{{`{{ template "homelab.githubPullsURL" }}`}}'
+                    url_title: Open pull requests
+                    html: true
+                    message: |-
+                      {{`{{ range .Alerts.Firing }}`}}<a href="{{`{{ .Annotations.url }}`}}">{{`{{ .Labels.repo }}`}}#{{`{{ .Labels.number }}`}}</a> {{`{{ .Annotations.title | html }}`}}
+                      {{`{{ end }}`}}
               {{- end }}
           {{- end }}
 
