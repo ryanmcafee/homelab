@@ -7,6 +7,8 @@
 #                     is a control plane ($FAKE_STATE/is_cp_<ip>) — rejoins
 #                     etcd under a NEW member ID. That pair (same IP, new
 #                     identity) is the exact shape of homelab #39.
+#                     With $FAKE_STATE/keep_stale_node the old K8s node entry
+#                     stays behind NotReady, as it does on a real cluster.
 export PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd):$PATH"
 set -euo pipefail
 
@@ -31,7 +33,11 @@ ip=$(awk -F'\t' -v k="$key" '$1==k{print $2}' "$S/vmips")
 [[ -z "$ip" ]] && { echo "fake terragrunt: no VM for key '$key'" >&2; exit 1; }
 
 newname="talos-$(printf %04x $((RANDOM)))-$(printf %04x $((RANDOM)))"
-awk -F'\t' -v ip="$ip" '$2 != ip' "$S/k8snodes" > "$S/k8snodes.new"
+if [[ -f "$S/keep_stale_node" ]]; then
+  awk -F'\t' -v OFS='\t' -v ip="$ip" '$2 == ip {$3 = "Unknown"} {print}' "$S/k8snodes" > "$S/k8snodes.new"
+else
+  awk -F'\t' -v ip="$ip" '$2 != ip' "$S/k8snodes" > "$S/k8snodes.new"
+fi
 mv "$S/k8snodes.new" "$S/k8snodes"
 printf '%s\t%s\n' "$newname" "$ip" >> "$S/k8snodes"
 

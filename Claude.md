@@ -274,7 +274,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/berriai/litellm/chart/litellm
   litellm: "1.102.1"
 images:
-  homelab-cmp: "0.1.54"
+  homelab-cmp: "0.1.55"
   # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);
   # bump it with every change under triage-agent/ so main publishes a new tag.
   triage-agent: "0.1.1"

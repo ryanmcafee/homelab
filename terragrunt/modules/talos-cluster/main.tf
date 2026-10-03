@@ -384,7 +384,7 @@ resource "proxmox_virtual_environment_vm" "controlplane" {
   description = "Talos controlplane node"
   node_name   = each.value.host_node
   pool_id     = var.pool_id
-  tags        = distinct(concat(["talos", "kubernetes", "controlplane", each.key], var.tags))
+  tags        = sort(distinct(concat(["talos", "kubernetes", "controlplane", each.key], var.tags)))
 
   started = var.started
   on_boot = var.on_boot
@@ -502,7 +502,7 @@ resource "proxmox_virtual_environment_vm" "worker" {
   description = "Talos worker node"
   node_name   = each.value.host_node
   pool_id     = var.pool_id
-  tags        = distinct(concat(["talos", "kubernetes", "worker", each.key], var.tags))
+  tags        = sort(distinct(concat(["talos", "kubernetes", "worker", each.key], var.tags)))
 
   started = var.started
   on_boot = var.on_boot

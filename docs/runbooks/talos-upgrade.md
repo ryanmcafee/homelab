@@ -229,10 +229,10 @@ join (`ryanmcafee/homelab#39`).
 | Step | What it does |
 | --- | --- |
 | 1 | **etcd preflight**: refuse before anything is touched if the cluster is not safe to start from |
-| 2–4 | Resolve the K8s node by InternalIP, cordon, drain |
+| 2–4 | Resolve the K8s node by InternalIP, cordon, drain (`SKIP_DRAIN=true` on the task skips the drain) |
 | 5 | **etcd**: member lookup, quorum gate, snapshot, removal, removal verified |
 | 6–7 | Resolve the VM resource address, `terragrunt apply -replace=` |
-| 8–9 | Wait for a new Ready node at the same IP, uncordon, delete the stale node entry |
+| 8–9 | Wait for a new Ready node at the same IP, uncordon, delete every stale node entry at that IP |
 | 10 | Wait for etcd to be whole again |
 
 Steps 1 and 5 are the ones to understand before you run it:
