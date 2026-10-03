@@ -1181,6 +1181,14 @@ paperclip:
         cpu: "2"
         memory: 1Gi
 {{- end }}
+    # Daily pg_dump and the ad hoc restore as Argo Workflows; they need the
+    # argo-workflows addon, which Kind does not run (docs/runbooks/paperclip-db-restore.md).
+    backup:
+      enabled: {{ not $localdev }}
+      timezone: {{ .Values.TIMEZONE.Value }}
+      storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
+      artifacts:
+        itemPath: "{{ if $onepassword }}{{ .Values.ARGO_WORKFLOWS_ARTIFACTS_1P_PATH.Value }}{{ end }}"
 
   # charts/paperclip: the paperclip.inc Instance (external database mode,
   # authenticated, private exposure behind the internal Gateway).

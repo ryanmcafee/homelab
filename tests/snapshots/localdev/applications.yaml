@@ -1262,6 +1262,12 @@ spec:
       valuesObject:
         namespace: paperclip
         ambientOptOut: true
+        backup:
+          artifacts:
+            itemPath: ""
+          enabled: false
+          storageClass: local-path
+          timezone: America/New_York
         imageName: ghcr.io/cloudnative-pg/postgresql:17.11
         instances: 1
         resources:

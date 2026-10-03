@@ -1085,6 +1085,9 @@ paperclip:
       limits:
         cpu: "1"
         memory: 1Gi
+    # charts/paperclip-database backup.* (daily pg_dump + restore workflows).
+    backup:
+      enabled: false
 
   # charts/paperclip: the paperclip.inc Instance. image.tag is pinned from
   # configuration/versions.yaml images.paperclip (the operator refuses an
