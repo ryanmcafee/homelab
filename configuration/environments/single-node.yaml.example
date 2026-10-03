@@ -17,8 +17,8 @@
 # snapshot-restore, not a removal. See docs/runbooks/talos-upgrade.md.
 #
 # Addresses are RFC 5737 TEST-NET-1 (192.0.2.0/24), reserved for documentation
-# and distinct from the RFC 1918 range in homelab.yaml.example so the
-# fork-ability grep can still tell a leaked real value from a placeholder
+# and distinct from the range homelab.yaml.example uses so the fork-ability
+# grep can still tell a leaked real value from a placeholder
 # (docs/contracts/fork-ability.md). Copy it, then replace every value.
 
 DOMAIN: REPLACEME-domain.com
