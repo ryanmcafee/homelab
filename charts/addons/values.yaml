@@ -1191,6 +1191,35 @@ github-pr-exporter:
   secretName: github-pr-alerts
   onePasswordItemPath: ""
 
+# Ecowitt weather and soil sensors (templates/ecowitt-exporter.yaml). Placeholder; the CMP template renders the real block.
+ecowitt-exporter:
+  enabled: false
+  namespace: monitoring
+  scrapeInterval: 60s
+  expectedSensors: ""
+  rules:
+    enabled: false
+  route:
+    enabled: false
+    host: ""
+    gateway:
+      name: envoy-internal
+      namespace: envoy-gateway-system
+      sectionName: https
+  units:
+    temperature: c
+    pressure: hpa
+    wind: kmh
+    rain: mm
+    irradiance: wm2
+    distance: km
+    aqiStandard: uk
+  thresholds:
+    gatewayStaleSeconds: 900
+    sensorStaleSeconds: 1800
+    batteryVoltageMin: 1.2
+    soilMoistureMinPercent: 20
+
 # Alert triage agent (templates/triage-agent.yaml, charts/triage-agent). Placeholder; the CMP template renders the real block.
 triage-agent:
   enabled: false
