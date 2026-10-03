@@ -24,7 +24,7 @@ introducing a parallel system.
 ## 2. Contract tests
 
 **Every boundary has a test that fails when the contract changes, and it lives with the
-contract, not with the implementation.** The event gate is the worked example, and since ADR-048
+contract, not with the implementation.** The event gate is the worked example, and
 the other contracts are not merely expected to follow it — the same four parts are applied to every
 directory under `contracts/` by the same command, and a contract with no frozen baseline fails the
 gate rather than sitting outside it:

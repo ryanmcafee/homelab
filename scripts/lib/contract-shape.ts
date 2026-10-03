@@ -11,7 +11,7 @@
  * exists in `contracts/cluster/topology.v1.yaml`, in a Prometheus metric
  * contract, or in an OpenAPI document, so those files sat outside the gate and
  * were held by review. ADR-030's rule is that a boundary contract is gated, not
- * reviewed, and ADR-048 records the decision to gate them structurally: a
+ * reviewed, so they are gated structurally: a
  * contract is a tree of fields, and the four ways a tree breaks a consumer —
  * a field disappears, a field is renamed, a field changes type, a declared set
  * is narrowed — are the same whatever the document means.
@@ -68,7 +68,7 @@
  * Every one of those is *pinned*, so the document stops matching its baseline
  * and the in-sync test fails until someone regenerates it and a reviewer reads
  * the diff. That is unmissable, which is weaker than decided, and the difference
- * is deliberate rather than overlooked. ADR-048 names the follow-up: a
+ * is deliberate rather than overlooked. The follow-up is a
  * per-contract `compatibility:` block layered over this structural default,
  * declaring which sets are obligations and which numbers are derived, never
  * replacing it. `scripts/topology-contract_test.ts` holds both of these for

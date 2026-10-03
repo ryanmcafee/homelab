@@ -4,8 +4,8 @@
  * contract-check.ts
  *
  * The compatibility gate for everything under contracts/. ADR-026 fixes the
- * subject taxonomy, ADR-030 makes this check a boundary quality gate and ADR-048
- * extends it past contracts/events/ to every contract directory; this script is
+ * subject taxonomy, ADR-030 makes this check a boundary quality gate,
+ * extended past contracts/events/ to every contract directory; this script is
  * the half a machine can enforce.
  *
  * It has two legs, and they know different amounts about what they are reading.
@@ -14,7 +14,7 @@
  * in lib/contract-shape.ts understands fields, and applies to every directory
  * including that one: a contract is a tree, and a field disappearing, being
  * renamed, changing type or losing a declared value breaks a consumer whatever
- * the document means. Before ADR-048 the second leg did not exist and three
+ * the document means. Before MCAA-431 the second leg did not exist and three
  * contracts outside events/ were held by review.
  *
  * Two things are checked on the event leg, and they fail for different reasons:
@@ -1676,7 +1676,7 @@ export function renderViolations(violations: Violation[]): string {
 }
 
 // ============================================================================
-// Every other contract directory (ADR-048)
+// Every other contract directory
 // ============================================================================
 
 export const CONTRACTS_ROOT = "contracts";

@@ -12,7 +12,7 @@ both build against, and it is checked in CI rather than agreed in prose.
 | `events/registry.v1.baseline.json` | The frozen compatibility baseline the checker diffs against |
 | `cluster/topology.v1.yaml` | The control-plane member count, the etcd quorum formula, the `whole` and `survivable` health predicates and the gate each one belongs at — shared by the Go CLI and `scripts/cp-storage-migrate.ts` so the rule exists once (ADR-035) |
 | `status/status-page.v1.yaml` | The status page's back end -> UI HTTP surface: the polled document, the component taxonomy, how state and uptime are derived, and which upstream each derived field depends on — checked by `scripts/status-contract_test.ts` (ADR-051) |
-| `*/shape.baseline.json` | The frozen structural baseline of every document in that directory — one per directory, generated, never hand-edited (ADR-048) |
+| `*/shape.baseline.json` | The frozen structural baseline of every document in that directory — one per directory, generated, never hand-edited |
 
 Checked by `bun scripts/contract-check.ts` (`task contracts:check`), which fails on an invalid
 subject, an unregistered guarantee, or a **breaking** change to a registered type that did not
@@ -25,7 +25,7 @@ The **event leg** applies to `events/` alone and speaks that domain's vocabulary
 delivery guarantee, stream filter, envelope attribute, payload property. `registry.v1.baseline.json`
 is its frozen artifact.
 
-The **structural leg** (ADR-048) applies to **every** directory here, that one included. It reads
+The **structural leg** applies to **every** directory here, that one included. It reads
 any contract document — bespoke YAML, JSON Schema, OpenAPI — as a tree of fields and rejects the
 differences that break a consumer whatever the document means. It is why `cluster/` and `status/`
 no longer sit outside the gate and why a directory added next cannot: a contract directory with no
@@ -73,7 +73,7 @@ Also undecided: a changed scalar value (`quorum.formula` rewritten,
 Every one of those **is pinned**, so the baseline stops matching, the in-sync test in
 `scripts/contract-check_test.ts` fails, and the change cannot land without someone regenerating the
 baseline and a reviewer reading the diff. Unmissable is weaker than decided, and the difference is
-deliberate. These are the named residual of MCAA-431; ADR-048 names the follow-up, a per-contract
+deliberate. These are the named residual of MCAA-431; the follow-up is a per-contract
 `compatibility:` block layered over the structural default. `scripts/topology-contract_test.ts`
 holds both inverted shapes for `cluster/` in the meantime.
 

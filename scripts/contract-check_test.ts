@@ -1672,7 +1672,7 @@ test("the baseline file is in sync with the registry, streams, envelope and payl
 });
 
 // ============================================================================
-// The structural rules (ADR-048) — every contract directory, not just events/
+// The structural rules — every contract directory, not just events/
 // ============================================================================
 
 type Doc = Record<string, unknown>;
