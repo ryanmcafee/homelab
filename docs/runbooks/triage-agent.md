@@ -55,10 +55,12 @@ The fix loops are bounded by `next` (`loopDecision` in `triage-agent/src/stages/
 3 implement/verify rounds (`workflow.fixAttempts`), 2 CI rounds (`workflow.ciAttempts`).
 `retryStrategy` (2 retries, backoff 30 s x2) only covers a step that crashed or errored; a failed
 check is an output, not an error, and goes through the loop instead. Every step has an
-`activeDeadlineSeconds` (`workflow.deadlines`), the workflow 5 h. A semaphore
-(`triage-agent-sync`, `workflow.maxConcurrent: 1`) runs one workflow at a time and a mutex per
-alertname keeps two runs of the same alert apart. Pods of successful steps are deleted at once,
-failed ones stay until the workflow's TTL (1 day success, 3 days failure).
+`activeDeadlineSeconds` (`workflow.deadlines`), the workflow 5 h; the onExit `notify` and
+`cleanup` steps get `workflow.deadlines.exit` (30 min), so a slow volume attach does not drop the
+notification. A semaphore (`triage-agent-sync`, `workflow.maxConcurrent: 1`) runs one workflow at a
+time and a mutex per alertname keeps two runs of the same alert apart. Step pods are deleted 1 h
+after they complete, succeeded or failed (`workflow.podGC`); their logs stay in the Argo log
+archive, and the workflow object stays for its TTL (1 day success, 3 days failure).
 
 The intake skips `Watchdog`, `InfoInhibitor`, `GitHubPullRequestNeedsReview` and its own `TriageAgent*` alerts, does not submit
 while a workflow for the same group is still running, and resubmits a group within 24 h only for
