@@ -108,7 +108,7 @@ tasks:
       - bun test {{.CLI_ARGS | default "tests"}}
 
   contracts:check:
-    desc: Validate every contract under contracts/ and diff each against its frozen compatibility baseline (ADR-026, ADR-030, ADR-048)
+    desc: Validate every contract under contracts/ and diff each against its frozen compatibility baseline (ADR-026, ADR-030)
     deps: [bun:install]
     cmds:
       - bun scripts/contract-check.ts check
