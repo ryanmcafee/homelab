@@ -34,6 +34,8 @@ variable "worker_nodes" {
     memory    = number
     disk_size = number
     gpu       = optional(bool, false)
+    # key => "value:Effect", applied with the admin kubeconfig since NodeRestriction blocks self-tainting.
+    node_taints = optional(map(string), {})
   }))
 }
 

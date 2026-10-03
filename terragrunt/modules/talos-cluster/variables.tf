@@ -49,6 +49,7 @@ variable "worker_nodes" {
     disk_size   = number
     gpu         = optional(bool, false)
     node_labels = optional(map(string), {})
+    node_taints = optional(map(string), {})
   }))
 }
 

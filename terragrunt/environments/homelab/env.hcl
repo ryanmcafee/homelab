@@ -218,12 +218,13 @@ locals {
 
   worker_nodes = {
     "worker-1" = {
-      ip        = local.config.WORKER1_IP
-      host_node = local.config.PROXMOX_NODE
-      cores     = 8
-      memory    = 51200 # 50GB
-      disk_size = 100
-      gpu       = true # GPU worker: Intel Arc (gpu_vendor); the NVIDIA Quadro P2200 is installed but unused
+      ip          = local.config.WORKER1_IP
+      host_node   = local.config.PROXMOX_NODE
+      cores       = 8
+      memory      = 51200 # 50GB
+      disk_size   = 100
+      gpu         = true # GPU worker: Intel Arc (gpu_vendor); the NVIDIA Quadro P2200 is installed but unused
+      node_taints = { "intel.com/gpu" = "true:PreferNoSchedule" }
     }
     "worker-2" = {
       ip        = local.config.WORKER2_IP
