@@ -182,7 +182,7 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-github | `GitHubPullRequestNeedsReview` | info (own route) | an open pull request matched a review query for 5 m ([below](#github-pull-requests-that-need-review)) |
 | homelab-github | `GitHubPullRequestExporterFailing` | warning | a GitHub search query failed (bad token, rate limit) or is not scraped for 15 m |
 | homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |
-| homelab-service-mesh | `HomelabMeshNodeAgentNotReady` | warning | `ztunnel` or `istio-cni-node` is not ready on every node for 15 m |
+| homelab-service-mesh | `HomelabMeshNodeAgentNotReady` | warning | no Ready `ztunnel` or `istio-cni-node` pod on at least one scheduled node for 15 m (Failed pods left by a node reboot do not count) |
 | homelab-service-mesh | `HomelabIstioXdsRejects` | warning | ztunnel or a waypoint rejects istiod's configuration for 15 m |
 
 The `homelab-logging` rules follow the opentelemetry-collector chart's default rules and
