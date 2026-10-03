@@ -19,65 +19,14 @@ Tool routing is mandatory, not advisory. Grep/Glob/Read are fallback tools. Ever
 | Persist agent learnings | `write_memory` | N/A |
 | Reasoning checkpoints | `think_about_*` tools | N/A |
 
-### Memory System Coexistence (three tiers)
+### Memory System Coexistence (two tiers)
 
 | Tier | Location | Audience | Write when | Read when |
 |------|----------|----------|------------|-----------|
 | Auto-memory ("claudemem") | `~/.claude/projects/<dash-encoded-clone-path>/memory/` (Claude Code derives the slug from each user's absolute clone path) | Claude (cross-session) | User states a preference, corrects you, or reveals a fact you'll need next session | SessionStart (automatic from system prompt) |
 | Serena memories | `.serena/memories/` | Subagents (in-session + cross-session) | You discover a technical pattern, gotcha, or command sequence during a task | Before any exploration: `list_memories` then `read_memory` |
-| Project notes | `docs/project_notes/` | Humans | Bugs with fixes, ADRs, PR/issue work logs, durable config facts | When the user asks "what did we decide about X" |
 
-**Rule of thumb:** A human will read it → `docs/project_notes/`. Only Claude reads it and it's task-scoped → Serena. User preference or cross-session profile fact → auto-memory.
-
-## Subagent Routing
-
-The table below names the specialist roles to delegate to. Their definitions are not committed (`.claude/agents/` is gitignored and holds no project agents); when a named agent is not installed, delegate to a general-purpose subagent with the same brief. **Always delegate specialized work** instead of doing it inline. See `AGENTS.md` for coordination rules.
-
-### When to use which subagent
-
-| Task | Subagent(s) | Notes |
-|------|-------------|-------|
-| **Kubernetes/ArgoCD** | `kubernetes-specialist` | Cluster design, workloads, sync issues, health checks |
-| **Terraform modules** | `terraform-engineer` | Module authoring, state management, plan/apply |
-| **Terragrunt orchestration** | `terragrunt-expert` | Multi-env configs, DRY patterns, dependencies |
-| **CI/CD & pipelines** | `deployment-engineer` | ArgoCD sync waves, deployment strategies |
-| **Helm chart changes** | `kubernetes-specialist` + `deployment-engineer` | Template + deploy concerns |
-| **Networking/BGP/Cilium** | `network-engineer` | Cilium config, BGP peering, LB IPAM, DNS |
-| **Storage/NFS/CSI** | `kubernetes-specialist` | Democratic-CSI, PVC, TrueNAS integration |
-| **PostgreSQL/CloudNativePG** | `postgres-pro` | Operator config, HA, backups, query tuning |
-| **Database general** | `database-administrator` | Multi-engine, migrations, replication |
-| **Secrets/SOPS/1Password** | `security-engineer` | Key management, vault paths, sync wave ordering |
-| **Security audits** | `security-engineer` + `code-reviewer` | DevSecOps, vulnerability scanning |
-| **Go code** | `golang-pro` | Concurrency, testing, microservices |
-| **TypeScript scripts (Bun)** | `typescript-pro` | Bun runtime, scripting patterns |
-| **Code reviews** | `code-reviewer` | Quality, security, project rule enforcement |
-| **Architecture decisions** | `architect-reviewer` | Design patterns, scalability, trade-offs |
-| **Performance issues** | `performance-engineer` | Profiling, load testing, optimization |
-| **Debugging** | `debugger` | Root cause analysis, systematic debugging |
-| **Incident response** | `devops-incident-responder` | Triage, emergency procedures, postmortems |
-| **Reliability/SLOs** | `sre-engineer` | SLI/SLO, error budgets, toil reduction |
-| **Resilience testing** | `chaos-engineer` | Failure injection, game days |
-| **DevOps general** | `devops-engineer` | IaC, containers, monitoring, observability |
-| **Documentation** | `documentation-engineer` | API docs, doc systems |
-| **Git workflow** | `git-workflow-manager` | Branching, hooks, release automation |
-| **Refactoring** | `refactoring-specialist` | Code smells, safe restructuring |
-| **MCP servers** | `mcp-developer` | MCP protocol, tool/resource development |
-| **Build systems** | `build-engineer` | Build optimization, caching, bundling |
-| **Dependencies** | `dependency-manager` | Security scanning, version conflicts, licenses |
-| **Technical docs** | `technical-writer` | User guides, API references |
-
-### Parallel subagent patterns
-
-For multi-concern tasks, launch multiple subagents simultaneously:
-
-```
-Helm chart update:     kubernetes-specialist + deployment-engineer + code-reviewer
-Security audit:        security-engineer + code-reviewer + network-engineer
-New application:       kubernetes-specialist + deployment-engineer + typescript-pro + documentation-engineer
-Infrastructure change: terraform-engineer + terragrunt-expert + kubernetes-specialist + sre-engineer
-Bug investigation:     debugger + kubernetes-specialist + sre-engineer
-Performance issue:     performance-engineer + postgres-pro + network-engineer
-```
+**Rule of thumb:** Only Claude reads it and it's task-scoped → Serena. User preference or cross-session profile fact → auto-memory.
 
 ## If your toolchain looks missing, it isn't
 
@@ -150,7 +99,7 @@ Learned while landing #261 Section A (PR #264). Each one cost real time once.
 
 ## Local Configuration
 
-For environment-specific settings (IP addresses, hostnames, credentials), see `CLAUDE.local.md`.
+For environment-specific settings (IP addresses, hostnames, credentials), see `CLAUDE.local.md`; project constants (ports, URLs) are in `docs/project_notes/key_facts.md`.
 Copy from `CLAUDE.local.md.example` and customize for your environment.
 
 ## Configuration System
@@ -548,42 +497,6 @@ Conventions:
 - Use `--dry-run` for non-destructive preview
 - Log with colors: cyan=INFO, green=OK, red=ERROR
 - Exit 0 on success, 1 on failure
-
-## Project Memory System
-
-This project maintains institutional knowledge in `docs/project_notes/` for consistency across sessions.
-
-### Memory Files
-
-- **bugs.md** - Bug log with dates, solutions, and prevention notes
-- **decisions.md** - Architectural Decision Records (ADRs) with context and trade-offs
-- **key_facts.md** - Project configuration, ports, important URLs (no secrets)
-- **issues.md** - Work log with PR/issue IDs, descriptions, and URLs
-
-### Memory-Aware Protocols
-
-**Before proposing architectural changes:**
-- Check `docs/project_notes/decisions.md` for existing decisions
-- Verify the proposed approach doesn't conflict with past choices
-- If it does conflict, acknowledge the existing decision and explain why a change is warranted
-
-**When encountering errors or bugs:**
-- Search `docs/project_notes/bugs.md` for similar issues
-- Apply known solutions if found
-- Document new bugs and solutions when resolved
-
-**When looking up project configuration:**
-- Check `docs/project_notes/key_facts.md` for configuration, ports, URLs
-- Reference `CLAUDE.local.md` for environment-specific values (IPs, hostnames)
-- Prefer documented facts over assumptions
-
-**When completing work on tickets/PRs:**
-- Log completed work in `docs/project_notes/issues.md`
-- Include PR/issue ID, date, brief description, and URL
-
-**When user requests memory updates:**
-- Update the appropriate memory file (bugs, decisions, key_facts, or issues)
-- Follow the established format and style (bullet lists, dates, concise entries)
 
 ## IMPORTANT
 

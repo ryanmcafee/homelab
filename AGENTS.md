@@ -141,8 +141,8 @@ Agents may mutate only Kind clusters (ADR-009). Production is verified through m
 ## Specialist Subagents
 
 The repository ships **no** specialist agent definitions: `.claude/agents/` is untracked and
-holds no project agents, and `~/.claude/agents/` is per-user. The specialties below are
-the ones CLAUDE.md's routing table names; they come from [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
+holds no project agents, and `~/.claude/agents/` is per-user. The specialties below
+come from [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
 and are optional. When a named agent is not installed, dispatch a `general-purpose` subagent
 and put the specialty, the project context from the customization table below and the file
 scope in the prompt; never skip delegation because the agent name is missing.
