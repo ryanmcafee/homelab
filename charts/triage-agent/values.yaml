@@ -122,6 +122,8 @@ workflow:
     verify: 2400
     ciWatch: 4200
     step: 600
+    # onExit notify and cleanup; leaves room for a slow volume attach.
+    exit: 1800
   # Infrastructure retries of a failed step (pod lost, API error, model crash);
   # check failures are outputs, not errors, and loop instead.
   retry:
@@ -130,6 +132,10 @@ workflow:
       duration: 30s
       factor: 2
       maxDuration: 10m
+  # Step pods, failed ones too, are deleted 1 h after they finish; logs are archived.
+  podGC:
+    strategy: OnPodCompletion
+    deleteDelayDuration: 1h
   ttl:
     secondsAfterSuccess: 86400
     secondsAfterFailure: 259200
