@@ -432,6 +432,7 @@ Each decision should include:
 - `proxmox-zfs-pool` now has a `count`-gated resource pool and a `moved` block; the existing homelab state migrates to `[0]` without recreating the pool
 - The migration is not zero-downtime: each control plane stops while its disk moves. Done one at a time with etcd verified between nodes, the API stays up through the VIP
 - etcd metrics exist from now on, which is how the next occurrence gets diagnosed in minutes rather than months. `EtcdMetricsAbsent` fires if that regresses
+- (2026-10-03) The chart's `etcdHighNumberOfFailedGRPCRequests` is disabled and re-stated in `homelab-control-plane` without `MemberPromote`: Talos learner-promotion retries are answered with `FailedPrecondition` on every control-plane join, which the per-method ratio read as 100 % failed and paged as critical during the control-plane rebuild
 - Unrelated findings recorded in the runbook rather than fixed here: the Proxmox root filesystem is 100 % full from an unmanaged failing `vzdump` job, and the unused Cilium LB pool `control-plane-vip` would let a labelled Service announce the API VIP from a worker
 
 ### ADR-017: Alert notifications are routed by severity to Pushover from one 1Password item (2026-09-19)
