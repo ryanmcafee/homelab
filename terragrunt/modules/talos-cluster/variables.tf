@@ -42,12 +42,13 @@ variable "control_plane_nodes" {
 variable "worker_nodes" {
   description = "Worker node configurations"
   type = map(object({
-    ip        = string
-    host_node = string
-    cores     = number
-    memory    = number
-    disk_size = number
-    gpu       = optional(bool, false)
+    ip          = string
+    host_node   = string
+    cores       = number
+    memory      = number
+    disk_size   = number
+    gpu         = optional(bool, false)
+    node_labels = optional(map(string), {})
   }))
 }
 

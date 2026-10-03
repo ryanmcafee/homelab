@@ -232,6 +232,8 @@ locals {
       memory    = 51200 # 50GB
       disk_size = 100
       gpu       = false
+      # Paperclip server and its bootstrap Job share one RWO volume, so both pin to this node.
+      node_labels = { "paperclip.homelab/pin" = "true" }
     }
     "worker-3" = {
       ip        = local.config.WORKER3_IP
