@@ -1678,9 +1678,6 @@ spec:
       name: paperclip-auth
       key: BETTER_AUTH_SECRET
     disableSignUp: false
-  availability:
-    nodeSelector:
-      paperclip.homelab/pin: "true"
   storage:
     persistence:
       enabled: true

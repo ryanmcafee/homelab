@@ -205,7 +205,7 @@ trusting a prose table.
 | UniFi credentials | `op://homelab/unifi-admin/credential` |
 | Paperclip auth secret | `op://homelab/paperclip-auth/BETTER_AUTH_SECRET` |
 | Paperclip admin password | `op://homelab/paperclip-auth/ADMIN_PASSWORD` |
-| Paperclip node pin | one node labelled `paperclip.homelab/pin=true` (server + operator bootstrap Job share the RWO iSCSI volume; `docs/apps/paperclip.md` "Node pin") |
+| Paperclip node pin | none: homelab skips the admin bootstrap Job, so the server schedules on any node; set `availability.nodeSelector` only for a one-off `admin.bootstrap: true` on iSCSI (`docs/apps/paperclip.md` "Node pin") |
 | Paperclip agent credentials | `op://homelab/paperclip-api-keys`: `CLAUDE_CODE_OAUTH_TOKEN` (Claude subscription token from `claude setup-token`; the default). `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` (API billing) reach the pod only with `charts/paperclip` `adapters.apiKeys.anthropic.enabled` / `adapters.apiKeys.openai.enabled`, each independently (chart `spec.env`, never the operator's all-or-nothing `apiKeysSecretRef`; an API key wins for Claude). Codex reads `/paperclip/.codex/auth.json` (`codex login --with-api-key` or `--device-auth` in the pod), never the host env |
 | ClickHouse log writer (collectors) | `op://homelab/clickhouse-otel/password` (`CLICKHOUSE_OTEL_1P_PATH`) |
 | ClickHouse log reader (Grafana datasource) | `op://homelab/clickhouse-grafana/password` (`CLICKHOUSE_GRAFANA_1P_PATH`) |
