@@ -303,7 +303,6 @@ The `proxmox-storcli` role includes comprehensive HBA firmware management capabi
 ### Additional Resources
 For detailed firmware update procedures, troubleshooting, and rollback instructions, see:
 - `docs/runbooks/hba-firmware-update.md` - Complete firmware management runbook
-- `docs/backport-notes-2026-01-19.md` - Implementation details and security notes
 
 ## Variables
 
@@ -465,7 +464,6 @@ run the individual playbook instead of `site.yml`.
 
 ### Project Documentation
 - `docs/runbooks/hba-firmware-update.md` - HBA firmware update procedures
-- `docs/backport-notes-2026-01-19.md` - StorCLI and firmware backport implementation notes
 - `docs/reference-configs/` - Reference configurations extracted from deployed host
 
 ## Support

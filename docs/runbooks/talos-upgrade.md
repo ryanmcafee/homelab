@@ -51,8 +51,7 @@ Kubernetes versions each Talos release supports.
 Level 0's `versions/pins` check fails when the two disagree unless the lag is registered with
 a reason under `pins:` in `tests/gitops/version-drift.yaml` (file, key, the running revision).
 The entry fails again the moment `env.hcl` moves, so each upgrade step updates `env.hcl` and
-the registered revision together, and the last step deletes the entry. The current plan is
-`docs/plans/2026-09-17-talos-kubernetes-upgrade.md`.
+the registered revision together, and the last step deletes the entry.
 
 ```bash
 task verify:text | rg versions/pins

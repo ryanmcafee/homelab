@@ -28,7 +28,7 @@ pins:
     revision: v1.12.2
     reason: >-
       the cluster runs v1.12.2; the upgrade to versions.yaml's target is staged one minor at a
-      time by the owner (docs/plans/2026-09-17-talos-kubernetes-upgrade.md), each step moving
+      time by the owner, each step moving
       env.hcl and this revision together
   - file: terragrunt/environments/homelab/env.hcl
     key: tools.kubernetes

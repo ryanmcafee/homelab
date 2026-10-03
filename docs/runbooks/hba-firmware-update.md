@@ -361,7 +361,6 @@ storcli64 /c1 download file=/path/to/firmware.bin
 
 ## Related Documentation
 
-- **Backport Notes**: See `docs/backport-notes-2026-01-19.md` for implementation details
 - **Ansible README**: See `ansible/README.md` for role configuration
 - **Broadcom Documentation**: Included in firmware package under `Documentation/` directory
 - **Release Notes**: `firmware/hba_9400-8i/.../Documentation/*.pdf`
@@ -376,6 +375,5 @@ storcli64 /c1 download file=/path/to/firmware.bin
 
 For issues or questions:
 1. Review this runbook
-2. Check `docs/backport-notes-2026-01-19.md`
-3. Consult Broadcom documentation in firmware package
-4. Contact Broadcom support for controller-specific issues
+2. Consult Broadcom documentation in firmware package
+3. Contact Broadcom support for controller-specific issues
