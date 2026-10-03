@@ -12,42 +12,103 @@ both build against, and it is checked in CI rather than agreed in prose.
 | `events/registry.v1.baseline.json` | The frozen compatibility baseline the checker diffs against |
 | `cluster/topology.v1.yaml` | The control-plane member count, the etcd quorum formula, the `whole` and `survivable` health predicates and the gate each one belongs at — shared by the Go CLI and `scripts/cp-storage-migrate.ts` so the rule exists once (ADR-035) |
 | `status/status-page.v1.yaml` | The status page's back end -> UI HTTP surface: the polled document, the component taxonomy, how state and uptime are derived, and which upstream each derived field depends on — checked by `scripts/status-contract_test.ts` (ADR-051) |
+| `*/shape.baseline.json` | The frozen structural baseline of every document in that directory — one per directory, generated, never hand-edited |
 
 Checked by `bun scripts/contract-check.ts` (`task contracts:check`), which fails on an invalid
 subject, an unregistered guarantee, or a **breaking** change to a registered type that did not
 take a new major version. See `docs/contracts/event-contract.md` for the reasoning and
 `docs/project_notes/decisions.md` ADR-026 for the decision record.
 
-`cluster/topology.v1.yaml` is checked by `scripts/topology-contract_test.ts` (runs in
-`task test:scripts`), which asserts the contract is internally consistent — the worked quorum
-table matches the stated formula, every permitted topology has a row, every condition is reached
-by a predicate, `survivable` relaxes `whole` in exactly one way, and both declared consumers
-exist. Each consumer additionally carries its own conformance test asserting that its
-implementation computes the numbers this file pins; that is what keeps a Go implementation and a
-TypeScript one from drifting into two different safety rules.
+The gate has two legs and they know different amounts about what they read.
 
-**`cluster/` and `status/` have no compatibility gate, and the section below does not apply to
-them yet.** `scripts/contract-check.ts` hard-codes `CONTRACTS_DIR = "contracts/events"` (L485), so
-the frozen baseline, the breaking-change rule set and the `…v2` enforcement described under
-*Changing something in here* cover `events/` **only**. Nothing machine-checks a rename, a removal
-or a narrowed field in `cluster/topology.v1.yaml` or `status/status-page.v1.yaml`;
-`topology-contract_test.ts` and `status-contract_test.ts` check that each file is internally
-consistent, which is a different property — a contract can be perfectly self-consistent and still
-have silently dropped a key a consumer reads. Until the baseline mechanism is extended, the rule
-for both is **by review**: neither has a baseline, and once one has its first shipped consumer, any
-rename or removal of a field takes `…v2.yaml` and is called out explicitly in the pull request.
-Extending `CONTRACTS_DIR` to cover every subdirectory under `contracts/` is the durable fix and is
-the preferred one; this paragraph is what stands in for it in the meantime, and it should be deleted
-in the same change that lands the gate.
+The **event leg** applies to `events/` alone and speaks that domain's vocabulary: subject grammar,
+delivery guarantee, stream filter, envelope attribute, payload property. `registry.v1.baseline.json`
+is its frozen artifact.
+
+The **structural leg** applies to **every** directory here, that one included. It reads
+any contract document — bespoke YAML, JSON Schema, OpenAPI — as a tree of fields and rejects the
+differences that break a consumer whatever the document means. It is why `cluster/` and `status/`
+no longer sit outside the gate and why a directory added next cannot: a contract directory with no
+`shape.baseline.json`, or a document that baseline does not pin, is itself a violation, so the scope
+extends by failing rather than by someone remembering to widen a constant.
+
+| Rule | Fires when |
+|---|---|
+| `contract-field-removed` | a pinned path is gone. A rename is this rule plus an unremarked addition |
+| `contract-entry-removed` | an entry of a list is gone, named by the `id`/`name`/`key`/`type` a consumer selects on |
+| `contract-field-retyped` | the kind at a pinned path changed, a scalar list becoming a list of objects included |
+| `contract-list-member-removed` | a declared set lost a member, so a value it used to permit no longer is |
+| `contract-required-added` | a `required` list grew: every producer that validated now fails |
+| `contract-required-removed` | a `required` list shrank: every consumer that relied on the field being present now fails |
+| `contract-bound-tightened` | a `min…` rose or a `max…` fell, rejecting a value that used to validate |
+| `contract-baseline-missing` | a contract directory has no `shape.baseline.json`, so no rule ran against it |
+| `contract-document-unpinned` | a document is not in its directory's baseline, so no rule ran against it |
+| `contract-document-removed` | a published contract document was withdrawn rather than superseded |
+| `contract-document-at-root` | a document sits directly under `contracts/`, so it belongs to no directory's baseline |
+
+Directories are discovered recursively, so `events/data/` and anything nested later is gated like
+any other. A numeric leaf below a list entry that has no `id`/`name`/`key`/`type` is addressed by
+index, and an index is not a stable address for a bound, so those are pinned by value and left
+unclassified — otherwise reordering `quorum.table` reads as a tightened bound and the gate rejects
+correct work.
+
+### What the structural leg does not decide
+
+The rules assume a contract constrains what a producer may send, so **wider is safer**: a set that
+gains a member permits more, a `max` that rises rejects less. Two shapes in `cluster/topology.v1.yaml`
+invert that, and for both of them the widening is the breaking direction.
+
+- An **obligation set**. `health.predicates[].conditions` lists what a consumer must evaluate, so
+  adding one makes every conformant consumer non-conformant. `contract-required-added` is the rule
+  for this and it is bound to the literal key `required`, so an obligation set under any other name
+  is checked in the removal direction only.
+- A **derived worked value**. `quorum.table[].maxUnavailable` is an output of `count - quorum`, not
+  a ceiling on an input, so raising it from 1 to 2 asserts that a 3-member control plane survives
+  losing 2.
+
+Also undecided: a changed scalar value (`quorum.formula` rewritten,
+`evaluation.onIndeterminate` flipping from `unsafe` to `safe`), and a duration written as a string
+(`max_age: 168h`), which is not direction-classified at all.
+
+Every one of those **is pinned**, so the baseline stops matching, the in-sync test in
+`scripts/contract-check_test.ts` fails, and the change cannot land without someone regenerating the
+baseline and a reviewer reading the diff. Unmissable is weaker than decided, and the difference is
+deliberate. These are the named residual of MCAA-431; the follow-up is a per-contract
+`compatibility:` block layered over the structural default. `scripts/topology-contract_test.ts`
+holds both inverted shapes for `cluster/` in the meantime.
+
+An internal-consistency test and the compatibility gate check different properties, and every
+contract here needs both. `cluster/topology.v1.yaml` is additionally checked by
+`scripts/topology-contract_test.ts` (runs in `task test:scripts`), which asserts that the contract
+agrees with itself — the worked quorum table matches the stated formula, every permitted topology has
+a row, every condition is reached by a predicate, `survivable` relaxes `whole` in exactly one way,
+and both declared consumers exist. Each consumer additionally carries its own conformance test
+asserting that its implementation computes the numbers this file pins; that is what keeps a Go
+implementation and a TypeScript one from drifting into two different safety rules.
+`status/status-page.v1.yaml` is checked the same way by `scripts/status-contract_test.ts`: every
+`$ref` resolves, the taxonomy and the schema share one vocabulary, every state has exactly one
+derivation rule, and every fixture in `tests/status/` satisfies the schema and the honesty
+invariants (ADR-051). A contract can satisfy all of that and still have silently dropped a key a
+consumer reads, which is the gate's job and not the test's.
 
 ## Changing something in here
 
-1. Additive change (new type, new optional attribute, new subject under an existing stream):
-   edit the YAML, run `task contracts:check`, refresh the baseline with
+1. Additive change (new type, new optional attribute, new subject under an existing stream, a new
+   field on any contract): edit the document, run `task contracts:check`, refresh the baselines with
    `bun scripts/contract-check.ts baseline --write`, commit both.
 2. Breaking change (removing a type, removing/renaming a required attribute, narrowing a type,
-   weakening a delivery guarantee): you must introduce `…​.v2` alongside `…​.v1` and keep v1
-   published for at least one minor release of the platform. The checker enforces this; it does
-   not ask whether you meant it.
+   weakening a delivery guarantee, and every rule in the table above): you must introduce `…​.v2`
+   alongside `…​.v1` and keep v1 published for at least one minor release of the platform. The
+   checker enforces this; it does not ask whether you meant it. Regenerating the baseline does not
+   clear these — that is what separates them from an additive change.
 
 There is no third option. A consumer you cannot see and cannot redeploy is assumed to exist.
+
+## Adding a contract
+
+Create `contracts/<area>/<name>.v1.yaml`, run `bun scripts/contract-check.ts baseline --write` to
+freeze its shape, and commit the generated `shape.baseline.json` beside it. Add the
+internal-consistency test the contract needs, add a row to the table at the top of this file, and
+record the decision as an ADR. Until the baseline exists the gate fails with
+`contract-baseline-missing`, which is deliberate: a contract nobody froze is a contract nothing is
+checking.
