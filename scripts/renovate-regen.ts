@@ -219,6 +219,47 @@ export function committerIsRead(
   return (renovateMajor ?? 0) >= COMMITTER_READ_FROM_MAJOR;
 }
 
+export interface CommitterRegime {
+  /** Enforce the committer as Renovate 44 does. */
+  committerIsRead: boolean;
+  /** The deployed major when something read it, else null. */
+  measuredMajor: number | null;
+}
+
+/** A pin is evidence only when the entire value is a positive major number. */
+export function parseRenovateMajor(value: string | undefined): number | null {
+  if (value === undefined || value === "") return null;
+  if (!/^[1-9][0-9]*$/.test(value)) {
+    throw new Error(
+      "renovate-regen/deployed-major: RENOVATE_MAJOR must be a positive whole-number major (for example, 43).",
+    );
+  }
+  const major = Number(value);
+  if (!Number.isSafeInteger(major)) {
+    throw new Error(
+      "renovate-regen/deployed-major: RENOVATE_MAJOR exceeds the supported integer range.",
+    );
+  }
+  return major;
+}
+
+/**
+ * Resolve the regime the run will report under. `--committer-strict` enforces
+ * the 44 behaviour without claiming to have measured it, so it leaves
+ * `measuredMajor` null.
+ */
+export function resolveCommitterRegime(
+  args: string[],
+  env: Record<string, string | undefined>,
+): CommitterRegime {
+  const measuredMajor = parseRenovateMajor(env.RENOVATE_MAJOR);
+  return {
+    committerIsRead:
+      args.includes("--committer-strict") || committerIsRead(measuredMajor),
+    measuredMajor,
+  };
+}
+
 export interface CommitIdentityFindings {
   /** Orphans the branch on every Renovate version. Fails the command. */
   error: string | null;
@@ -404,14 +445,18 @@ export function deployedMajorFindings(
  * deployed 43.x the commit is genuinely Renovate-managed and failing it would
  * reject the tool's own correct output. On this runner the committer is *always*
  * wrong — the credential wrapper strips and re-sets `GIT_COMMITTER_EMAIL`, and
- * measurement says `--author` lands while every committer form does not — so
- * erroring on it would make `renovate:regen` unrunnable by its intended actor.
+ * measurement says `--author` lands while every committer form does not. A
+ * measured 43.x run can therefore continue; an unmeasured run cannot assume 43.
+ *
+ * `measuredMajor` is that deployed major when something actually read it
+ * (`RENOVATE_MAJOR`). Without a measurement, a mismatched committer is an
+ * error: the deployment may already have crossed the 44 boundary.
  */
 export function commitIdentityFindings(
   identity: RegenIdentity,
   authorEmail: string,
   committerEmail: string,
-  options: { committerIsRead: boolean },
+  options: CommitterRegime,
 ): CommitIdentityFindings {
   const remedy = [
     "  On an ordinary machine amend it:",
@@ -424,28 +469,35 @@ export function commitIdentityFindings(
   ];
   const authorWrong = authorEmail !== identity.email;
   const committerWrong = committerEmail !== identity.email;
+  const unknownMajor = options.measuredMajor == null;
   const wrong: string[] = [];
   if (authorWrong) wrong.push(`  author: ${authorEmail}`);
   const error =
-    authorWrong || (committerWrong && options.committerIsRead)
+    authorWrong || (committerWrong && (options.committerIsRead || unknownMajor))
       ? [
           "renovate-regen/commit-identity: the commit does not carry the regeneration identity.",
           ...wrong,
-          ...(committerWrong && options.committerIsRead
-            ? [`  committer: ${committerEmail}`]
-            : []),
+          ...(committerWrong ? [`  committer: ${committerEmail}`] : []),
           `  (expected ${identity.email})`,
-          `  Renovate reads the author${options.committerIsRead ? " AND the committer" : ""} of every commit ahead of`,
-          "  the base branch, so this commit takes the branch out of Renovate's hands.",
+          ...(committerWrong && unknownMajor
+            ? [
+                "  The deployed Renovate major was NOT read this run. Measure it with",
+                "  `task renovate:deployed-major`; a 44+ deployment reads the committer too.",
+              ]
+            : [
+                `  Renovate reads the author${options.committerIsRead ? " AND the committer" : ""} of every commit ahead of`,
+                "  the base branch, so this commit takes the branch out of Renovate's hands.",
+              ]),
           ...remedy,
         ].join("\n")
       : null;
+  const measured = options.measuredMajor ?? null;
   const warning =
-    committerWrong && !options.committerIsRead
+    committerWrong && !options.committerIsRead && !unknownMajor
       ? [
           `renovate-regen/commit-identity: committer is ${committerEmail}, not ${identity.email}.`,
-          `  Harmless on the deployed Renovate 43.x, which reads only the author. From Renovate`,
-          `  ${COMMITTER_READ_FROM_MAJOR} this orphans the branch, so fix it before that upgrade lands.`,
+          `  Harmless on the measured Renovate ${measured}.x, which reads only the author. From`,
+          `  Renovate ${COMMITTER_READ_FROM_MAJOR} this orphans the branch, so fix it before that upgrade lands.`,
           ...remedy,
         ].join("\n")
       : null;
@@ -528,9 +580,9 @@ async function deployedMajorCommand(args: string[]): Promise<void> {
     ? await Promise.all(paths.map((p) => readFile(p, "utf8")))
     : [await Bun.stdin.text()];
   const read = readDeployedRenovate(bodies);
+  const measuredMajor = parseRenovateMajor(Bun.env.RENOVATE_MAJOR);
   const committerRead =
-    args.includes("--committer-strict") ||
-    committerIsRead(Number.parseInt(Bun.env.RENOVATE_MAJOR ?? "", 10) || null);
+    args.includes("--committer-strict") || committerIsRead(measuredMajor);
   const { error, warning } = deployedMajorFindings(read, {
     committerIsRead: committerRead,
   });
@@ -557,9 +609,7 @@ async function main(): Promise<void> {
   const anyBranch = args.includes("--any-branch");
   // `RENOVATE_MAJOR` is the honest input (read it out of a PR's renovate-debug
   // blob); `--committer-strict` is the manual override for a dry run.
-  const committerRead =
-    args.includes("--committer-strict") ||
-    committerIsRead(Number.parseInt(Bun.env.RENOVATE_MAJOR ?? "", 10) || null);
+  const regime = resolveCommitterRegime(args, Bun.env);
 
   const [workflowYaml, renovateConfig] = await Promise.all([
     readFile(WORKFLOW_PATH, "utf8"),
@@ -627,17 +677,41 @@ async function main(): Promise<void> {
     return;
   }
 
+  const gitIdentityArgs = [
+    "git",
+    "-c",
+    `user.name=${identity.name}`,
+    "-c",
+    `user.email=${identity.email}`,
+  ];
+  // Ask the same Git entrypoint that will commit. A managed wrapper can pin
+  // GIT_COMMITTER_EMAIL after stripping caller overrides; fail before staging.
+  const committerIdent = await capture([
+    ...gitIdentityArgs,
+    "var",
+    "GIT_COMMITTER_IDENT",
+  ]);
+  const committerEmail = /<([^<>]+)>/.exec(committerIdent)?.[1] ?? "";
+  const preflight = commitIdentityFindings(
+    identity,
+    identity.email,
+    committerEmail,
+    regime,
+  );
+  if (preflight.error) {
+    console.error(
+      red(`${preflight.error}\n  Stopped before staging or committing.`),
+    );
+    process.exit(1);
+  }
+
   await run(["git", "add", "--", ...changed]);
   // Both forms, deliberately. `-c user.*` is what sets the *committer*, which
   // Renovate reads as well as the author; `--author` is the only form that
   // survives a wrapper pinning GIT_AUTHOR_EMAIL. Neither alone is sufficient,
   // and where the committer is pinned too, commitIdentityError() says so.
   await run([
-    "git",
-    "-c",
-    `user.name=${identity.name}`,
-    "-c",
-    `user.email=${identity.email}`,
+    ...gitIdentityArgs,
     "commit",
     "--author",
     `${identity.name} <${identity.email}>`,
@@ -650,9 +724,7 @@ async function main(): Promise<void> {
     await capture(["git", "log", "-1", "--format=%ae%n%ce"])
   ).split("\n");
   const { error: identityError, warning: identityWarning } =
-    commitIdentityFindings(identity, authored ?? "", committed ?? "", {
-      committerIsRead: committerRead,
-    });
+    commitIdentityFindings(identity, authored ?? "", committed ?? "", regime);
   if (identityError) {
     console.error(red(identityError));
     process.exit(1);
