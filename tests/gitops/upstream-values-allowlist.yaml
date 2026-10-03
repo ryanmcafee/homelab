@@ -11,7 +11,8 @@
 # default of `{}` or null declares everything below it.
 #
 # Everything here is a key those rules cannot settle. Each entry matches one
-# chart, one path and everything under it, and needs a reason: an entry is a
+# pinned chart identity (repoURL, chart, targetRevision), one path and
+# everything under it, and needs a reason: an entry is a
 # place the gate cannot see, so it has to justify itself. An entry that stops
 # matching anything fails the gate, so a key upstream has since declared cannot
 # sit here forever.
@@ -19,8 +20,8 @@
 # An entry is NOT the place to park a key the chart does not read. That is the
 # defect this gate exists to find; fix or delete the key instead.
 #
-# Fields: chart (required, the chart name as spec.source.chart spells it),
-# path (required, dotted), reason (required).
+# Fields: repoURL, chart, targetRevision (required, as spec.source spells them),
+# path (required, dotted), reason (required). Review entries on every chart bump.
 ---
 allow:
   # --------------------------------------------------------------------------
@@ -29,6 +30,8 @@ allow:
   # chart's. values.yaml can only ship an example.
   # --------------------------------------------------------------------------
   - chart: argo-cd
+    repoURL: https://argoproj.github.io/argo-helm
+    targetRevision: 9.7.1
     path: configs.cm
     reason: >-
       templates/_helpers.tpl omits two keys and ranges the rest of
@@ -36,12 +39,16 @@ allow:
       (templates/argocd-configs/argocd-cm.yaml). Every child is an argocd-cm
       setting, and they are literal dotted keys ("accounts.agent"), not nesting.
   - chart: argo-cd
+    repoURL: https://argoproj.github.io/argo-helm
+    targetRevision: 9.7.1
     path: configs.params
     reason: >-
       Same construction for argocd-cmd-params-cm: _helpers.tpl ranges
       .Values.configs.params wholesale. A few are also read by name, e.g.
       "server.insecure" in templates/argocd-server/ingress.yaml.
   - chart: opentelemetry-collector
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    targetRevision: 0.173.1
     path: config
     reason: >-
       templates/_config.tpl deep-copies .Values.config and writes it out as the
@@ -49,17 +56,23 @@ allow:
       connector names are an OpenTelemetry convention (type/name), so no chart
       schema can enumerate them.
   - chart: opentelemetry-collector
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    targetRevision: 0.173.1
     path: ports
     reason: >-
       _config.tpl ranges .Values.ports by key to build both the Service ports
       and the container ports; the map key becomes the port name. values.yaml
       ships only the built-in ports.
   - chart: prometheus-blackbox-exporter
+    repoURL: https://prometheus-community.github.io/helm-charts
+    targetRevision: 11.18.0
     path: config.modules
     reason: >-
       templates/configmap.yaml toYamls .Values.config into blackbox.yaml, where
       modules is a user-named map. values.yaml ships the http_2xx example only.
   - chart: kiali-server
+    repoURL: https://kiali.org/helm-charts
+    targetRevision: 2.32.0
     path: external_services
     reason: >-
       templates/configmap.yaml renders the entire .Values tree minus two keys as
@@ -67,6 +80,8 @@ allow:
       external_services.prometheus.enabled and custom_dashboards.enabled are
       seeded as defaults.
   - chart: kiali-server
+    repoURL: https://kiali.org/helm-charts
+    targetRevision: 2.32.0
     path: server
     reason: >-
       Same config.yaml passthrough; web_fqdn, web_schema and web_port are also
@@ -76,6 +91,8 @@ allow:
   # Name-keyed maps: the key is chosen here, so the chart cannot declare it.
   # --------------------------------------------------------------------------
   - chart: flaresolverr
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 16.18.2
     path: persistence
     reason: >-
       The TrueCharts common library spawns a PVC, volume and mount per key of
@@ -84,34 +101,50 @@ allow:
       global.fallbackDefaults. Both the volume name and those fields are
       undeclarable upstream.
   - chart: lazylibrarian
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 21.18.2
     path: persistence
     reason: >-
       Same TrueCharts common library volume spawner; see the flaresolverr entry.
   - chart: mosquitto
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 17.17.2
     path: persistence
     reason: >-
       Same TrueCharts common library volume spawner; see the flaresolverr entry.
   - chart: nzbget
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 29.4.2
     path: persistence
     reason: >-
       Same TrueCharts common library volume spawner; see the flaresolverr entry.
   - chart: prowlarr
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 21.7.3
     path: persistence
     reason: >-
       Same TrueCharts common library volume spawner; see the flaresolverr entry.
   - chart: radarr
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 26.7.2
     path: persistence
     reason: >-
       Same TrueCharts common library volume spawner; see the flaresolverr entry.
   - chart: sonarr
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 25.6.3
     path: persistence
     reason: >-
       Same TrueCharts common library volume spawner; see the flaresolverr entry.
   - chart: tautulli
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 21.18.2
     path: persistence
     reason: >-
       Same TrueCharts common library volume spawner; see the flaresolverr entry.
   - chart: flaresolverr
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 16.18.2
     path: workload.main.podSpec
     reason: >-
       The TrueCharts common library ranges podSpec.containers by name
@@ -120,42 +153,58 @@ allow:
       (lib/pod/_nodeSelector.tpl) as overrides of the chart-wide blocks, which
       are the only forms common/values.yaml declares.
   - chart: lazylibrarian
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 21.18.2
     path: workload
     reason: >-
       Same TrueCharts common library workload spawner; see the flaresolverr
       entry. This chart's own values.yaml declares no workload block at all, so
       the override sits one level higher.
   - chart: mosquitto
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 17.17.2
     path: workload.main.podSpec
     reason: >-
       Same TrueCharts common library workload spawner; see the flaresolverr
       entry.
   - chart: nzbget
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 29.4.2
     path: workload.main.podSpec
     reason: >-
       Same TrueCharts common library workload spawner; see the flaresolverr
       entry.
   - chart: prowlarr
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 21.7.3
     path: workload.main.podSpec
     reason: >-
       Same TrueCharts common library workload spawner; see the flaresolverr
       entry.
   - chart: radarr
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 26.7.2
     path: workload.main.podSpec
     reason: >-
       Same TrueCharts common library workload spawner; see the flaresolverr
       entry.
   - chart: sonarr
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 25.6.3
     path: workload.main.podSpec
     reason: >-
       Same TrueCharts common library workload spawner; see the flaresolverr
       entry.
   - chart: tautulli
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 21.18.2
     path: workload.main.podSpec
     reason: >-
       Same TrueCharts common library workload spawner; see the flaresolverr
       entry.
   - chart: mosquitto
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 17.17.2
     path: service.main
     reason: >-
       The TrueCharts common library reads type per service and nodePort and
@@ -164,6 +213,8 @@ allow:
       global.fallbackDefaults.serviceType default. A NodePort service with no
       nodePort is a hard fail in lib/service/_ports.tpl.
   - chart: mosquitto
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 17.17.2
     path: service.websockets
     reason: >-
       A second service this repository defines, so the TrueCharts common library
@@ -174,42 +225,58 @@ allow:
   # and the rest render just as well.
   # --------------------------------------------------------------------------
   - chart: spegel
+    repoURL: ghcr.io/spegel-org/helm-charts
+    targetRevision: 0.6.0
     path: resources
     reason: >-
       templates/daemonset.yaml toYamls .Values.resources; values.yaml seeds
       memory under both requests and limits but no cpu.
   - chart: metrics-server
+    repoURL: https://kubernetes-sigs.github.io/metrics-server/
+    targetRevision: 3.14.0
     path: resources.limits
     reason: >-
       templates/deployment.yaml toYamls .Values.resources; values.yaml declares
       requests only and carries limits as a commented-out example.
   - chart: ztunnel
+    repoURL: https://blob.istio.io/istio-release/charts
+    targetRevision: 1.31.1
     path: resources.limits
     reason: >-
       _helpers.tpl ztunnel.resources explicitly ranges "limits" and "requests",
       and daemonset.yaml reads (.Values.resources.limits).cpu; values.yaml ships
       requests only.
   - chart: node-feature-discovery
+    repoURL: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+    targetRevision: 0.18.3
     path: master.resources
     reason: >-
       templates/master.yaml toYamls .Values.master.resources; values.yaml seeds
       limits.memory and both requests but not limits.cpu.
   - chart: node-feature-discovery
+    repoURL: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+    targetRevision: 0.18.3
     path: worker.resources
     reason: >-
       templates/worker.yaml toYamls .Values.worker.resources; values.yaml omits
       limits.cpu the same way.
   - chart: kiali-server
+    repoURL: https://kiali.org/helm-charts
+    targetRevision: 2.32.0
     path: deployment.resources
     reason: >-
       templates/deployment.yaml toYamls .Values.deployment.resources;
       values.yaml seeds both requests and limits.memory but not limits.cpu.
   - chart: gateway-helm
+    repoURL: docker.io/envoyproxy
+    targetRevision: v1.9.1
     path: deployment.envoyGateway.resources
     reason: >-
       templates/envoy-gateway-deployment.yaml toYamls the block; values.yaml
       declares limits.memory only.
   - chart: gateway-helm
+    repoURL: docker.io/envoyproxy
+    targetRevision: v1.9.1
     path: deployment.pod.annotations
     reason: >-
       templates/envoy-gateway-deployment.yaml toYamls the annotations map, whose
@@ -221,49 +288,67 @@ allow:
   # upstream ships them commented out.
   # --------------------------------------------------------------------------
   - chart: cilium
+    repoURL: https://helm.cilium.io/
+    targetRevision: 1.19.5
     path: socketLB.hostNamespaceOnly
     reason: >-
       templates/cilium-configmap.yaml gates on hasKey, so absent means "emit no
       bpf-lb-sock-hostns-only at all"; values.yaml keeps the key commented out
       for exactly that reason.
   - chart: kiali-server
+    repoURL: https://kiali.org/helm-charts
+    targetRevision: 2.32.0
     path: deployment.ingress.enabled
     reason: >-
       _helpers.tpl branches on hasKey to tell unset (default on by platform)
       from an explicit false, so values.yaml leaves it commented out.
   - chart: kube-prometheus-stack
+    repoURL: https://prometheus-community.github.io/helm-charts
+    targetRevision: 87.1.0
     path: grafana.adminPassword
     reason: >-
       Read by charts/grafana/templates/_config.tpl; commented out in
       charts/grafana/values.yaml because there is no safe default password.
   - chart: kube-prometheus-stack
+    repoURL: https://prometheus-community.github.io/helm-charts
+    targetRevision: 87.1.0
     path: grafana.persistence.existingClaim
     reason: >-
       Read by charts/grafana/templates/_pod.tpl and guarded in pvc.yaml and
       statefulset.yaml; commented out upstream because an empty default would
       change the truthiness those guards depend on.
   - chart: kube-prometheus-stack
+    repoURL: https://prometheus-community.github.io/helm-charts
+    targetRevision: 87.1.0
     path: grafana.persistence.storageClassName
     reason: >-
       Read by charts/grafana/templates/pvc.yaml; commented out upstream because
       absent means "use the cluster default StorageClass", which an explicit
       empty string does not.
   - chart: plex-media-server
+    repoURL: https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
+    targetRevision: 1.6.0
     path: service.externalTrafficPolicy
     reason: >-
       Read by templates/service.yaml; commented out in values.yaml so that
       unset leaves Kubernetes to default the policy to Cluster.
   - chart: opentelemetry-collector
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    targetRevision: 0.173.1
     path: service.loadBalancerSourceRanges
     reason: >-
       Read by templates/service.yaml when service.type is LoadBalancer, which
       the gateway collector sets; values.yaml carries it commented out.
   - chart: istiod
+    repoURL: https://blob.istio.io/istio-release/charts
+    targetRevision: 1.31.1
     path: base.validationFailurePolicy
     reason: >-
       Read by templates/validatingwebhookconfiguration.yaml; commented out in
       values.yaml because unset means "start at Ignore and let istiod flip it".
   - chart: base
+    repoURL: https://blob.istio.io/istio-release/charts
+    targetRevision: 1.31.1
     path: base.validationFailurePolicy
     reason: >-
       The same opt-in key in the istio base chart, read by
@@ -274,30 +359,42 @@ allow:
   # absent from the _internal_defaults_do_not_set block the gate unwraps.
   # --------------------------------------------------------------------------
   - chart: istiod
+    repoURL: https://blob.istio.io/istio-release/charts
+    targetRevision: 1.31.1
     path: profile
     reason: >-
       templates/zzz_profile.yaml coalesces .Values.profile to pick
       files/profile-<name>.yaml, before the defaults are merged in.
   - chart: cni
+    repoURL: https://blob.istio.io/istio-release/charts
+    targetRevision: 1.31.1
     path: profile
     reason: >-
       Same zzz_profile.yaml mechanism in the istio cni chart.
   - chart: ztunnel
+    repoURL: https://blob.istio.io/istio-release/charts
+    targetRevision: 1.31.1
     path: profile
     reason: >-
       Same zzz_profile.yaml mechanism in the istio ztunnel chart.
   - chart: istiod
+    repoURL: https://blob.istio.io/istio-release/charts
+    targetRevision: 1.31.1
     path: pilot
     reason: >-
       templates/zzy_descope_legacy.yaml merges everything under the legacy
       "pilot" prefix onto the chart root, so the prefix is deliberately not a
       declared key.
   - chart: cni
+    repoURL: https://blob.istio.io/istio-release/charts
+    targetRevision: 1.31.1
     path: cni
     reason: >-
       The same legacy-prefix alias in the istio cni chart, merged onto the root
       by templates/zzy_descope_legacy.yaml.
   - chart: istiod
+    repoURL: https://blob.istio.io/istio-release/charts
+    targetRevision: 1.31.1
     path: meshConfig
     reason: >-
       templates/configmap.yaml mergeOverwrites the whole .Values.meshConfig map
