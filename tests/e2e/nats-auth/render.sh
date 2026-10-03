@@ -23,7 +23,7 @@ fi
 : "${OUT:?OUT must name the output directory}"
 mkdir -p "$OUT"
 
-PAIRS="$PAIRS" yq -n '.nats.principalNkeys = strenv(PAIRS)' >"$OUT/keys.yaml"
+PAIRS="$PAIRS" yq -n '.nats.principalNkeys = strenv(PAIRS) | .nats.testOnlyAuthWithoutNackInbox = true' >"$OUT/keys.yaml"
 helm template addons "$root/charts/addons" \
   -f "$root/charts/addons/values.yaml" \
   -f "$root/charts/addons/values-localdev.yaml" \
