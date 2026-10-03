@@ -20,7 +20,7 @@ func schemaFieldsCheck(t *testing.T, root string) Check {
 	return checks[0]
 }
 
-// This is the compatibility test ADR-053 turns on, and the two assertions are
+// This is the compatibility test the strict/lenient split turns on, and the two assertions are
 // deliberately opposite. One fixture file carrying an unknown field must fail
 // the level-0 gate AND still load through the resolver, because those are the
 // two halves of the decision: strict where binary and schema share a commit,

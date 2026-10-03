@@ -110,7 +110,7 @@ func validateKeyPattern(pattern string, kp SchemaKeyPattern) error {
 // mean the file names only fields this build understands.
 //
 // This is deliberately NOT what LoadSchemaFile does, and the asymmetry is the
-// decision (ADR-053). A plain yaml.Unmarshal drops an unknown field in silence,
+// decision. A plain yaml.Unmarshal drops an unknown field in silence,
 // so `requred: true` yields a key that is simply not required and every check
 // that would have fired stops firing. Strictness closes that, but only where
 // binary and schema files come from one commit: the level-0 gate. The resolver
