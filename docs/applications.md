@@ -152,6 +152,15 @@ Notes:
   → `paperclip` (the `Instance`).
 - `mosquitto` has no HTTP endpoint, so it opts out of the smoke Job (`smoke.enabled: false`);
   its chainsaw suite does a TCP connect instead.
+- `mosquitto` accepts unauthenticated connections, deliberately. The chart's only auth switch
+  is top-level `auth.enabled`, and at 17.17.2 it changes one line of the generated
+  `mosquitto.conf` -- `allow_anonymous true` to `false` -- while rendering no `password_file`,
+  no Secret and no user, so turning it on locks every client out rather than authenticating
+  them. The chart's only credential path is hand-written files on the `mosquitto-configinc`
+  PVC that `include_dir /mosquitto/configinc` reads, and every MQTT client is outside this
+  repo (`homeassistant` is disabled here), so nothing in Git can roll credentials to them.
+  The broker is LAN-only: a `LoadBalancer` Service with no ingress and no `external-dns`
+  record. Real authentication needs a credential store and a client rollout, not a values key.
 - The `*-config` and `*-dependencies` children carry no ingress and are covered by their
   parent's suite; they render nothing for the tables' last three columns by design.
 
