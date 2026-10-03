@@ -403,6 +403,11 @@ type Verdict struct {
 	// the operator "your 2-member cluster is too small to touch" and telling
 	// them which member an earlier run left out.
 	Unrepresented []string
+	// UnrepresentedUndeclared are the unrepresented addresses this operation
+	// did not declare. This is the set membership-accounts-for-expected
+	// refuses on, and the only sense of "missing" no other condition can see
+	// on the resumed shape.
+	UnrepresentedUndeclared []string
 }
 
 // Evaluate is the fail-closed gate: it applies exactly the conditions the
@@ -428,6 +433,9 @@ func Evaluate(c *topology.Contract, p topology.Predicate, obs Observation) Verdi
 	for _, ip := range obs.Expected {
 		if !containsString(membership, ip) {
 			v.Unrepresented = append(v.Unrepresented, ip)
+			if !containsString(obs.Declared, ip) {
+				v.UnrepresentedUndeclared = append(v.UnrepresentedUndeclared, ip)
+			}
 		}
 	}
 	for _, ip := range membership {
@@ -470,6 +478,16 @@ func Evaluate(c *topology.Contract, p topology.Predicate, obs Observation) Verdi
 			if len(v.Absent) > 0 {
 				v.Problems = append(v.Problems, fmt.Sprintf(
 					"%d of %d member(s) did not answer: %s", len(v.Absent), len(membership), strings.Join(v.Absent, ", ")))
+				// The contract's dead-target row, and the ordinary reason anyone
+				// runs a recreate: the declared target is still a member and did
+				// not answer, so the membership is complete and only this clause
+				// fails. Refusing the common case with arithmetic alone is what
+				// sends an operator looking for a flag to bypass the guard, so the
+				// procedure rides with the refusal rather than being logged
+				// separately by whichever caller remembers to.
+				if g := c.DeadDeclaredTargetGuidance; g != "" && intersects(v.Absent, obs.Declared) {
+					v.Problems = append(v.Problems, g)
+				}
 			}
 		case topology.QuorumPresent:
 			if q := c.Quorum(count); v.Answered < q {
@@ -488,6 +506,26 @@ func Evaluate(c *topology.Contract, p topology.Predicate, obs Observation) Verdi
 					"member(s) %s are absent and are not a declared target of this operation (declared: %s) — "+
 						"this cluster is degraded, not mid-procedure",
 					strings.Join(v.Undeclared, ", "), declaredList(obs.Declared)))
+			}
+		case topology.MembershipAccountsForExpected:
+			// The backstop exclusive entry took out of member-count's reach. An
+			// address with no member at all is not an expected member, so
+			// absences-are-declared cannot see it, and on the resumed shape
+			// nothing evaluates member-count before the destructive step.
+			if len(v.UnrepresentedUndeclared) > 0 {
+				v.Problems = append(v.Problems, fmt.Sprintf(
+					"control-plane address(es) %s have no member in etcd's membership at all and are not a declared "+
+						"target of this operation (declared: %s) — the membership was already short before this run, "+
+						"which no absence check can see",
+					strings.Join(v.UnrepresentedUndeclared, ", "), declaredList(obs.Declared)))
+			}
+			if len(membership)+len(v.Unrepresented) != count {
+				v.Problems = append(v.Problems, fmt.Sprintf(
+					"etcd has %d member(s) (%s) and %d configured address(es) unrepresented, which does not account "+
+						"for the %d control-plane address(es) configured (%s): etcd reports a member that is not a "+
+						"configured control-plane address",
+					len(membership), strings.Join(membership, ", "), len(v.Unrepresented),
+					count, strings.Join(obs.Expected, ", ")))
 			}
 		default:
 			v.Problems = append(v.Problems, conditionProblems(cond, obs.Statuses, c.RaftIndexTolerance)...)
@@ -680,6 +718,16 @@ func urlHost(raw string) string {
 		return h
 	}
 	return raw
+}
+
+// intersects reports whether the two address lists share a member.
+func intersects(a, b []string) bool {
+	for _, ip := range a {
+		if containsString(b, ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // MemberIPs returns the peer IPs of the given members, in order, skipping any

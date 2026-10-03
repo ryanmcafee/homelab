@@ -972,8 +972,17 @@ func TestConformsToExclusiveEntry(t *testing.T) {
 	// contract lists as an entry.
 	t.Run("the selected point is one the contract permits entering at", func(t *testing.T) {
 		c := contractForTest(t)
+		// This was a t.Skip while evaluation.entryPoints was unmerged, which
+		// meant every assertion below reported PASS without running.
+		//
+		// The branch is reachable, and this is the only Go-side thing that
+		// catches it (MCAA-483). parseEntryRule guards the "entry without
+		// entryPoints" error on c.Entry != "", to keep the clause additive to
+		// v1, so deleting `entryPoints` alone refuses to load but deleting both
+		// `entry` and `entryPoints` loads cleanly — and SelectEntry still
+		// returns `resume` with nothing constraining it.
 		if !c.EntryPointsAreDeclared() {
-			t.Skip("this contract revision does not state evaluation.entryPoints yet (ryanmcafee/homelab#463)")
+			t.Fatal("the contract states no evaluation.entryPoints, so nothing constrains the entry point: `onIndeterminate: unsafe` does not tolerate a gate that disables itself when a key goes missing")
 		}
 		for _, members := range [][]Member{membersAt(cp3...), membersAt(cp3[0], cp3[2])} {
 			entry, err := SelectEntry(c, members, target)
@@ -985,4 +994,210 @@ func TestConformsToExclusiveEntry(t *testing.T) {
 			}
 		}
 	})
+}
+
+var cp5 = []string{"10.10.0.11", "10.10.0.12", "10.10.0.13", "10.10.0.14", "10.10.0.15"}
+
+// TestResumeRefusesASecondUnrepresentedAddress is the conformance test for the
+// condition the second-reviewer pass on MCAA-407 added to the contract:
+// `membership-accounts-for-expected`.
+//
+// It covers the one case exclusive entry cost. "Expected member" means a member
+// of etcd's own membership, so a configured address already removed from that
+// membership is not an absence — `absences-are-declared` is blind to it, and
+// `member-count` is the only condition that compares membership size against the
+// derived count. Under the sequential reading `whole` ran first and caught it by
+// accident on every run; the resumed shape never reaches `whole` before the
+// destructive work. So on 5 and 7 members the quorum arithmetic has room for one
+// undiagnosed removal and the guard consented to wiping a node on a control plane
+// that was never whole, reporting it only at `completion` — after the node was
+// destroyed.
+func TestResumeRefusesASecondUnrepresentedAddress(t *testing.T) {
+	c := contractForTest(t)
+	target := cp5[4]
+	// cp5[4] removed by a crashed run and declared; cp5[3] removed by an earlier
+	// abandoned run and declared by nobody. Every surviving member answers.
+	surviving := cp5[:3]
+
+	entry, err := SelectEntry(c, membersAt(surviving...), target)
+	if err != nil {
+		t.Fatalf("selecting the entry point: %v", err)
+	}
+	if entry.Point != topology.Resume {
+		t.Fatalf("entered at %q, want %q", entry.Point, topology.Resume)
+	}
+	p, err := c.PredicateAt(entry.Point)
+	if err != nil {
+		t.Fatalf("predicate at %s: %v", entry.Point, err)
+	}
+	v := Evaluate(c, p, Observation{
+		Expected: cp5, Members: membersAt(surviving...), Statuses: statusAt(surviving...),
+		Declared: []string{target}, ObservedAt: time.Now(),
+	})
+
+	// The conditions that let this through, asserted so the test fails loudly if
+	// a future change closes the hole by accident somewhere else and leaves this
+	// case proving nothing.
+	if q := c.Quorum(len(cp5)); v.Answered < q {
+		t.Fatalf("%d answered against quorum %d: quorum arithmetic already refuses, so this case no longer isolates the condition", v.Answered, q)
+	}
+	if len(v.Undeclared) != 0 {
+		t.Fatalf("Undeclared = %v, want empty: `absences-are-declared` must be blind here for this to be the condition under test", v.Undeclared)
+	}
+
+	if v.OK {
+		t.Fatal("the resume path consented to destroying a node on a control plane already short an undeclared member")
+	}
+	if !containsString(v.UnrepresentedUndeclared, cp5[3]) {
+		t.Errorf("UnrepresentedUndeclared = %v, want it to name %s", v.UnrepresentedUndeclared, cp5[3])
+	}
+	if !strings.Contains(v.Reason(), cp5[3]) {
+		t.Errorf("reason does not name the address that has no member at all: %q", v.Reason())
+	}
+
+	// And the other direction: the legitimate resume on the same topology must
+	// still proceed, or the condition has just reinstated `whole` at `resume`
+	// under a different name.
+	if ok := Evaluate(c, p, Observation{
+		Expected: cp5, Members: membersAt(cp5[:4]...), Statuses: statusAt(cp5[:4]...),
+		Declared: []string{target}, ObservedAt: time.Now(),
+	}); !ok.OK {
+		t.Fatalf("a legitimate resume was refused, so the new condition is `member-count` in disguise: %v", ok.Problems)
+	}
+}
+
+// TestDeadDeclaredTargetRefusesAtPreflight covers the row the contract's entry
+// table omitted while claiming to be total (MCAA-483), and it is the ordinary
+// reason anyone runs a recreate: the node is dead.
+//
+// The target is still a member, so the observation selects `preflight` and the
+// run is fresh. `member-count` fails on the answering clause, not the size one,
+// and the guard refuses — correctly, because the cluster is short before anyone
+// touches it. What the contract now also requires is that the refusal names the
+// route to the resumed shape instead of emitting bare arithmetic.
+func TestDeadDeclaredTargetRefusesAtPreflight(t *testing.T) {
+	c := contractForTest(t)
+	target := cp3[2]
+
+	entry, err := SelectEntry(c, membersAt(cp3...), target)
+	if err != nil {
+		t.Fatalf("selecting the entry point: %v", err)
+	}
+	// The distinguishing fact: this is NOT a resume. The member is still there.
+	if !entry.TargetIsMember {
+		t.Fatal("a target that is still a member must not be read as unrepresented")
+	}
+	if entry.Point != topology.Preflight {
+		t.Fatalf("entered at %q, want %q", entry.Point, topology.Preflight)
+	}
+
+	p, err := c.PredicateAt(entry.Point)
+	if err != nil {
+		t.Fatalf("predicate at %s: %v", entry.Point, err)
+	}
+	// Everything answers except the target itself.
+	v := Evaluate(c, p, Observation{
+		Expected: cp3, Members: membersAt(cp3...), Statuses: statusAt(cp3[0], cp3[1]),
+		Declared: []string{target}, ObservedAt: time.Now(),
+	})
+	if v.OK {
+		t.Fatal("`whole` was satisfied by a control plane whose target node is not answering")
+	}
+	if !containsString(v.Absent, target) {
+		t.Errorf("Absent = %v, want it to name %s: a member that did not answer is `absent`, not `unrepresented`", v.Absent, target)
+	}
+	if len(v.Unrepresented) != 0 {
+		t.Errorf("Unrepresented = %v, want empty: the member is still in the membership, so this is the other sense", v.Unrepresented)
+	}
+
+	if c.DeadDeclaredTarget != topology.DeadTargetRefuse {
+		t.Errorf("deadDeclaredTarget = %q, want %q", c.DeadDeclaredTarget, topology.DeadTargetRefuse)
+	}
+	if !strings.Contains(c.DeadDeclaredTargetGuidance, "remove-member") {
+		t.Errorf("the guidance does not name the step that makes the target unrepresented: %q", c.DeadDeclaredTargetGuidance)
+	}
+	// The refusal must carry the procedure, not just the arithmetic. It rides on
+	// the verdict rather than being logged by whichever caller remembers to,
+	// because a separate warning is a call site no test can reach without a
+	// cluster (MCAA-483).
+	if !strings.Contains(v.Reason(), c.DeadDeclaredTargetGuidance) {
+		t.Errorf("the refusal states the member-count arithmetic and stops, so the operator is left looking for a way around it: %q", v.Reason())
+	}
+
+	// And it must stay off every other refusal. A guard that prints "remove the
+	// dead member" when the fault is somewhere else is worse than one that says
+	// nothing: the target here answered, and a different member did not.
+	other := Evaluate(c, p, Observation{
+		Expected: cp3, Members: membersAt(cp3...), Statuses: statusAt(cp3[1], cp3[2]),
+		Declared: []string{target}, ObservedAt: time.Now(),
+	})
+	if strings.Contains(other.Reason(), c.DeadDeclaredTargetGuidance) {
+		t.Errorf("the dead-target procedure was offered for an absence that is not the declared target: %q", other.Reason())
+	}
+}
+
+// TestResumeRefusesAStrangerMember covers the SECOND branch of
+// `membership-accounts-for-expected`, which had no test at all: deleting the
+// arithmetic left every Go package green (MCAA-483).
+//
+// The condition refuses on two different observations and the two cancel each
+// other in the arithmetic. A stranger — a member etcd reports at an address the
+// ConfigSet does not list — makes the membership one larger, and an undeclared
+// unrepresented address makes it one smaller. Count them together and a cluster
+// carrying both faults sums to exactly the derived count. That is why the
+// contract states the arithmetic over ALL unrepresented addresses and states
+// "every unrepresented address is declared" separately: one clause over the
+// declared targets alone consents here.
+func TestResumeRefusesAStrangerMember(t *testing.T) {
+	c := contractForTest(t)
+	target := cp5[4]
+	stranger := "10.10.0.99"
+	// The declared target is legitimately gone, and etcd additionally reports a
+	// member at an address no CP*_IP key names.
+	members := membersAt(cp5[0], cp5[1], cp5[2], cp5[3], stranger)
+
+	entry, err := SelectEntry(c, members, target)
+	if err != nil {
+		t.Fatalf("selecting the entry point: %v", err)
+	}
+	if entry.Point != topology.Resume {
+		t.Fatalf("entered at %q, want %q", entry.Point, topology.Resume)
+	}
+	p, err := c.PredicateAt(entry.Point)
+	if err != nil {
+		t.Fatalf("predicate at %s: %v", entry.Point, err)
+	}
+	v := Evaluate(c, p, Observation{
+		Expected: cp5, Members: members, Statuses: statusAt(cp5[0], cp5[1], cp5[2], cp5[3], stranger),
+		Declared: []string{target}, ObservedAt: time.Now(),
+	})
+
+	// Isolate the branch: every other condition must be satisfied, or this case
+	// proves something else refused and the arithmetic could still be deleted.
+	if len(v.UnrepresentedUndeclared) != 0 {
+		t.Fatalf("UnrepresentedUndeclared = %v, want empty: the declared-target clause must be blind here for the arithmetic to be the branch under test", v.UnrepresentedUndeclared)
+	}
+	if len(v.Undeclared) != 0 {
+		t.Fatalf("Undeclared = %v, want empty", v.Undeclared)
+	}
+	if q := c.Quorum(len(cp5)); v.Answered < q {
+		t.Fatalf("%d answered against quorum %d: quorum arithmetic already refuses, so this case no longer isolates the branch", v.Answered, q)
+	}
+
+	if v.OK {
+		t.Fatal("the resume path consented on a control plane whose membership holds an address no ConfigSet key names")
+	}
+	if !strings.Contains(v.Reason(), stranger) {
+		t.Errorf("reason does not name the member that is not a configured control plane: %q", v.Reason())
+	}
+
+	// Both faults at once — the case the one-clause arithmetic sums to the right
+	// number. cp5[3] unrepresented and undeclared, plus the stranger.
+	both := membersAt(cp5[0], cp5[1], cp5[2], stranger)
+	if v := Evaluate(c, p, Observation{
+		Expected: cp5, Members: both, Statuses: statusAt(cp5[0], cp5[1], cp5[2], stranger),
+		Declared: []string{target}, ObservedAt: time.Now(),
+	}); v.OK {
+		t.Fatal("a stranger member cancelled an undeclared unrepresented address in the arithmetic and the guard consented")
+	}
 }
