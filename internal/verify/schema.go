@@ -16,7 +16,7 @@ import (
 // and `const:` fields are every value-level check the resolver runs.
 const ConfigSchemaPath = "configuration/schema"
 
-// SchemaFields is the level-0 gate on schema field NAMES (ADR-053).
+// SchemaFields is the level-0 gate on schema field NAMES.
 //
 // It exists because the failure it catches is silent and subtractive. The
 // resolver decodes a schema file with a lenient yaml.Unmarshal, so a misspelled
