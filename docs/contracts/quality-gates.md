@@ -59,7 +59,7 @@ Requiring it would make failures block merges, but its result can become stale w
 change and the separate freshness decision.
 
 The configuration schema is gated the same way, and it shows what point 4 looks like when the
-gate must be strict in one position and lenient in another (ADR-053). `config/schema-fields` at
+gate must be strict in one position and lenient in another. `config/schema-fields` at
 level 0 strict-decodes every `configuration/schema/*.schema.yaml`, so a misspelled `requred:`
 fails; `LoadSchemaDir` at runtime keeps ignoring an unknown field, so a fork whose binary
 predates its schema files still resolves. `TestSchemaFieldsRejectsWhatTheResolverAccepts` is
