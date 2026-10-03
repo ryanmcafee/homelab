@@ -526,14 +526,14 @@ kubectl -n argocd logs -l app.kubernetes.io/name=argocd-application-controller
 | Secrets | Fake/disabled | 1Password + SOPS |
 | GPU | None | NVIDIA GPU (see CLAUDE.local.md for model) |
 
-## Code Comments
+## Code Comments and Commit Messages
 
-Applies to every language in the repository (Go, TypeScript, YAML, templates):
+Comments apply to every language in the repository (Go, TypeScript, YAML, templates):
 
 - Use comments sparingly; prefer self-documenting code (clear names, small functions, tests that state the behaviour).
 - When a comment is needed, keep it succinct: one sentence at most.
-- Do not reference ADRs or internal project issues in comments; that context belongs in the commit message or PR description.
-- Public GitHub issues may be referenced when needed (for example, the upstream bug a workaround exists for).
+- Neither comments nor commit messages reference ADRs or internal project issues.
+- Public GitHub issues may be referenced in either when needed (for example, the upstream bug a workaround exists for).
 
 ## TypeScript Scripting Patterns
 
