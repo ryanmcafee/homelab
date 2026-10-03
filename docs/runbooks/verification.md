@@ -42,7 +42,7 @@ Two status checks are **required** on `main`: `Verification claim matches level 
 `Level 0 (render, schema, gitops, snapshot, policy)` (`verify.yml` on the merge
 result, run for every PR). A level-0 failure visible only in the merge result,
 including an ADR-number collision or snapshot drift, blocks a non-admin merge.
-`Golden snapshots` reports the diff and remains advisory (ADR-041).
+`Golden snapshots` reports the diff and remains advisory.
 Keep the documented list in `docs/contracts/required-status-checks.yaml` in sync
 with live branch protection; `verify/required-contexts` fails level 0 if a
 required workflow is path-filtered or its required job gains a skip condition.
