@@ -10,11 +10,15 @@ import { afterAll, beforeAll, test } from "bun:test";
 import {
   collect,
   type ExporterConfig,
+  heartbeatStale,
+  isStrandedByWake,
   parseAgents,
   parseCompanies,
+  parseIssues,
   parseLiveRuns,
   parseRecovery,
   parseRuns,
+  parseWakeEvents,
   readConfig,
   renderMetrics,
   startServer,
@@ -51,15 +55,70 @@ const RUNS = [
   run("cancelled", "2026-09-25T03:05:00Z", "cancelled"),
   run("running", null, null, "a1"),
   run("failed", "2026-09-25T02:30:00Z", "acpx_turn_failed"),
+  // Live, and deliberately absent from LIVE_RUNS: /live-runs is capped at 50
+  // server-side, so on a busy company a real run is missing from it.
+  {
+    id: "run-past-the-cap",
+    agentId: "a9",
+    status: "running",
+    finishedAt: null,
+  },
 ];
+
+const FRESH_HEARTBEAT = "2026-09-25T03:58:00Z";
+const PHANTOM_STALE = 1800;
 
 const AGENTS = [
-  { id: "a1", status: "running" },
-  { id: "a2", status: "running" },
-  { id: "a3", status: "idle" },
+  { id: "a1", status: "running", lastHeartbeatAt: FRESH_HEARTBEAT },
+  { id: "a2", status: "running", lastHeartbeatAt: FRESH_HEARTBEAT },
+  { id: "a3", status: "idle", lastHeartbeatAt: FRESH_HEARTBEAT },
 ];
 
-const LIVE_RUNS = [{ id: "r1", agentId: "a1", status: "running" }];
+const LIVE_RUNS = [{ id: "live-run-1", agentId: "a1", status: "running" }];
+
+const OPEN_ISSUES = [
+  { id: "i-clean", identifier: "ACME-1" },
+  { id: "i-stranded", identifier: "ACME-2" },
+  { id: "i-live", identifier: "ACME-3" },
+];
+
+function wake(
+  status: string,
+  runId: string | null,
+  claimedAt: string | null,
+  finishedAt: string | null,
+) {
+  return {
+    kind: "wake_request",
+    reason: "issue_assigned",
+    status,
+    runId,
+    claimedAt,
+    finishedAt,
+  };
+}
+
+// i-clean: every claim finished. i-stranded: claimed 20h ago by a run that is
+// gone. i-live: claimed 20h ago by a run that is still live but only visible in
+// heartbeat-runs, so reading the capped /live-runs alone would call it stranded.
+const WAKES: Record<string, { events: unknown[] }> = {
+  "i-clean": {
+    events: [
+      wake(
+        "finished",
+        "dead-run",
+        "2026-09-24T08:00:00Z",
+        "2026-09-24T08:05:00Z",
+      ),
+    ],
+  },
+  "i-stranded": {
+    events: [wake("claimed", "dead-run", "2026-09-24T08:00:00Z", null)],
+  },
+  "i-live": {
+    events: [wake("claimed", "run-past-the-cap", "2026-09-24T08:00:00Z", null)],
+  },
+};
 
 const RECOVERY = {
   thresholdPercent: 2,
@@ -98,7 +157,17 @@ beforeAll(() => {
         [`/api/companies/${ACTIVE}/agents`]: AGENTS,
         [`/api/companies/${ACTIVE}/live-runs`]: LIVE_RUNS,
         [`/api/companies/${ACTIVE}/recovery-observability`]: RECOVERY,
+        [`/api/companies/${ACTIVE}/issues`]: OPEN_ISSUES,
       };
+      const wakeMatch = url.pathname.match(
+        /^\/api\/issues\/([^/]+)\/diagnostics\/wakes$/,
+      );
+      if (wakeMatch) {
+        const found = WAKES[wakeMatch[1] as string];
+        return found === undefined
+          ? Response.json({ error: "not found" }, { status: 404 })
+          : Response.json(found);
+      }
       const body = routes[url.pathname];
       return body === undefined
         ? Response.json({ error: "not found" }, { status: 404 })
@@ -119,6 +188,10 @@ function config(overrides: Partial<ExporterConfig> = {}): ExporterConfig {
     runLimit: 500,
     requestTimeoutMs: 2000,
     port: 0,
+    staleWakeMinutes: 30,
+    staleWakeIntervalSeconds: 300,
+    staleWakeMaxIssues: 200,
+    phantomStaleSeconds: PHANTOM_STALE,
     ...overrides,
   };
 }
@@ -165,6 +238,7 @@ test("summarize counts runs finished inside the window by status and error code"
     },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(summary.finishedByStatus, {
     succeeded: 2,
@@ -189,6 +263,7 @@ test("summarize counts agents by status and running agents without a live run as
     },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(summary.agentsByStatus, { running: 2, idle: 1 });
   assertEquals(summary.liveRuns, 1);
@@ -214,27 +289,10 @@ test("summarize does not count a running agent as phantom when its live run is o
     },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(summary.phantomRunning, 0);
-  assertEquals(summary.liveRuns, 50);
-});
-
-test("summarize reports the larger live count of live-runs and heartbeat-runs", () => {
-  const summary = summarize(
-    {
-      runs: parseRuns([
-        run("running", null, null, "a1"),
-        run("queued", null, null, "a2"),
-        run("scheduled_retry", null, null, "a2"),
-      ]),
-      agents: parseAgents(AGENTS),
-      liveRuns: parseLiveRuns(LIVE_RUNS),
-    },
-    NOW,
-    HOUR,
-  );
-  assertEquals(summary.liveRuns, 3);
-  assertEquals(summary.phantomRunning, 0);
+  assertEquals(summary.liveRuns, 52);
 });
 
 test("summarize ignores heartbeat-runs without an agentId when looking for live runs", () => {
@@ -244,8 +302,148 @@ test("summarize ignores heartbeat-runs without an agentId when looking for live 
     { runs, agents: parseAgents(AGENTS), liveRuns: parseLiveRuns(LIVE_RUNS) },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(summary.phantomRunning, 1);
+});
+
+// /live-runs is capped at 50 by the server and takes no limit parameter, so on
+// a busy company an agent's real run falls outside it. Reading that endpoint
+// alone invents a phantom agent and undercounts the live set.
+const TRUNCATED_LIVE_RUNS = [
+  { id: "live-run-1", agentId: "a1", status: "running" },
+];
+const RUNS_WITH_A2 = [
+  { id: "run-a2", agentId: "a2", status: "running", finishedAt: null },
+];
+
+test("summarize does not call an agent phantom when only heartbeat-runs shows its live run", () => {
+  const truncated = summarize(
+    {
+      runs: [],
+      agents: parseAgents(AGENTS),
+      liveRuns: parseLiveRuns(TRUNCATED_LIVE_RUNS),
+    },
+    NOW,
+    HOUR,
+    PHANTOM_STALE,
+  );
+  assertEquals(truncated.phantomRunning, 1);
+
+  const widened = summarize(
+    {
+      runs: parseRuns(RUNS_WITH_A2),
+      agents: parseAgents(AGENTS),
+      liveRuns: parseLiveRuns(TRUNCATED_LIVE_RUNS),
+    },
+    NOW,
+    HOUR,
+    PHANTOM_STALE,
+  );
+  assertEquals(widened.phantomRunning, 0);
+  assertEquals(widened.liveRuns, 2);
+});
+
+// The 2026-09-24 outage signature. A dropped sandbox leaves
+// heartbeat_runs.status = "running", so every stranded agent still appears to
+// own a live run and a run-status-only phantom test reports zero while the
+// board is deadlocked. lastHeartbeatAt is not falsified by the stall, so it is
+// the field that still separates a working agent from a stranded one.
+const STRANDED_AGENTS = [
+  // Observed: status running, heartbeat never, a live run row present.
+  { id: "s1", status: "running", lastHeartbeatAt: null },
+  // Observed: status running, heartbeat 25.3 h old, a live run row present.
+  { id: "s2", status: "running", lastHeartbeatAt: "2026-09-24T02:42:00Z" },
+  // A genuinely working agent, mid-turn, with the same run-row shape.
+  { id: "s3", status: "running", lastHeartbeatAt: FRESH_HEARTBEAT },
+];
+const STRANDED_LIVE_RUNS = [
+  { id: "run-s1", agentId: "s1", status: "running" },
+  { id: "run-s2", agentId: "s2", status: "running" },
+  { id: "run-s3", agentId: "s3", status: "running" },
+];
+
+test("summarize counts a stranded agent as phantom even though its dead run row still says running", () => {
+  const summary = summarize(
+    {
+      runs: [],
+      agents: parseAgents(STRANDED_AGENTS),
+      liveRuns: parseLiveRuns(STRANDED_LIVE_RUNS),
+    },
+    NOW,
+    HOUR,
+    PHANTOM_STALE,
+  );
+  // s1 (no heartbeat) and s2 (25 h stale) are phantom; s3 is mid-turn.
+  assertEquals(summary.phantomRunning, 2);
+});
+
+test("summarize does not call a mid-turn agent phantom just because its turn is long", () => {
+  // A legitimate turn that has run for 20 min, under the 30 min default floor.
+  const busy = [
+    { id: "b1", status: "running", lastHeartbeatAt: "2026-09-25T03:40:00Z" },
+  ];
+  const summary = summarize(
+    {
+      runs: [],
+      agents: parseAgents(busy),
+      liveRuns: parseLiveRuns([
+        { id: "run-b1", agentId: "b1", status: "running" },
+      ]),
+    },
+    NOW,
+    HOUR,
+    PHANTOM_STALE,
+  );
+  assertEquals(summary.phantomRunning, 0);
+});
+
+test("heartbeatStale treats a missing and an unparseable timestamp as stale", () => {
+  assertEquals(
+    heartbeatStale(
+      { id: "x", status: "running", lastHeartbeatAt: null },
+      NOW,
+      PHANTOM_STALE,
+    ),
+    true,
+  );
+  assertEquals(
+    heartbeatStale(
+      { id: "x", status: "running", lastHeartbeatAt: "not-a-date" },
+      NOW,
+      PHANTOM_STALE,
+    ),
+    true,
+  );
+  assertEquals(
+    heartbeatStale(
+      { id: "x", status: "running", lastHeartbeatAt: FRESH_HEARTBEAT },
+      NOW,
+      PHANTOM_STALE,
+    ),
+    false,
+  );
+});
+
+test("summarize counts a run present in both sources once", () => {
+  const summary = summarize(
+    {
+      runs: parseRuns([
+        {
+          id: "live-run-1",
+          agentId: "a1",
+          status: "running",
+          finishedAt: null,
+        },
+      ]),
+      agents: parseAgents(AGENTS),
+      liveRuns: parseLiveRuns(TRUNCATED_LIVE_RUNS),
+    },
+    NOW,
+    HOUR,
+    PHANTOM_STALE,
+  );
+  assertEquals(summary.liveRuns, 1);
 });
 
 test("renderMetrics escapes label values and emits a zero for every terminal status", () => {
@@ -253,6 +451,7 @@ test("renderMetrics escapes label values and emits a zero for every terminal sta
     up: true,
     durationSeconds: 0.25,
     windowSeconds: HOUR,
+    nowMs: NOW,
     companies: [
       {
         company: { id: ACTIVE, name: 'Acme "Labs"', status: "active" },
@@ -276,6 +475,13 @@ test("renderMetrics escapes label values and emits a zero for every terminal sta
           recoveryActions: 0,
           ratePercent: 0,
         },
+        wakeSweep: {
+          openIssues: 65,
+          sweptIssues: 65,
+          stranded: 10,
+          truncated: false,
+          sweptAtMs: NOW - 120_000,
+        },
       },
     ],
   });
@@ -287,6 +493,12 @@ test("renderMetrics escapes label values and emits a zero for every terminal sta
   );
   assertStringIncludes(text, `paperclip_recovery_breached{${labels}} 0\n`);
   assertStringIncludes(text, "paperclip_agent_runs_window_seconds 3600\n");
+  assertStringIncludes(text, `paperclip_issues_wake_stranded{${labels}} 10\n`);
+  assertStringIncludes(text, `paperclip_issues_open{${labels}} 65\n`);
+  assertStringIncludes(
+    text,
+    `paperclip_wake_sweep_age_seconds{${labels}} 120\n`,
+  );
 });
 
 test("renderMetrics reports only paperclip_up 0 when the scrape failed", () => {
@@ -294,10 +506,14 @@ test("renderMetrics reports only paperclip_up 0 when the scrape failed", () => {
     up: false,
     durationSeconds: 1,
     windowSeconds: HOUR,
+    nowMs: NOW,
     companies: [],
   });
   assertStringIncludes(text, "paperclip_up 0\n");
   assert(!text.includes("paperclip_agent_runs_finished"));
+  // No sweep means no series at all, so the alert cannot read a missing sweep
+  // as zero stranded issues.
+  assert(!text.includes("paperclip_issues_wake_stranded"));
 });
 
 test("collect reads every endpoint of each active company with the bearer key", async () => {
@@ -373,4 +589,176 @@ test("startServer serves /metrics and /healthz", async () => {
   } finally {
     exporter.stop(true);
   }
+});
+
+test("isStrandedByWake flags a dead claimant but not a finished or live one", () => {
+  const live = new Set(["live-run-1"]);
+  const claimed = (runId: string, claimedAt: string) => [
+    {
+      kind: "wake_request",
+      status: "claimed",
+      runId,
+      claimedAt,
+      finishedAt: null,
+    },
+  ];
+  // Claimed 20h ago by a run that is not live: the ledger record leaked.
+  assert(
+    isStrandedByWake(
+      claimed("dead-run", "2026-09-24T08:00:00Z"),
+      live,
+      NOW,
+      30,
+    ),
+    "a claim held by a dead run should be stranded",
+  );
+  // Same age, but the claimant is still running: a long run, not a leak.
+  assertEquals(
+    isStrandedByWake(
+      claimed("live-run-1", "2026-09-24T08:00:00Z"),
+      live,
+      NOW,
+      30,
+    ),
+    false,
+  );
+  // Dead claimant, but only 2min old: inside the age floor, so not yet stale.
+  assertEquals(
+    isStrandedByWake(
+      claimed("dead-run", "2026-09-25T03:58:00Z"),
+      live,
+      NOW,
+      30,
+    ),
+    false,
+  );
+  // A claim that finished is the healthy case.
+  assertEquals(
+    isStrandedByWake(
+      [
+        {
+          kind: "wake_request",
+          status: "claimed",
+          runId: "dead-run",
+          claimedAt: "2026-09-24T08:00:00Z",
+          finishedAt: "2026-09-24T08:05:00Z",
+        },
+      ],
+      live,
+      NOW,
+      30,
+    ),
+    false,
+  );
+});
+
+test("parseIssues accepts a bare array and an {issues} envelope", () => {
+  assertEquals(parseIssues([{ id: "a", identifier: "X-1" }]).length, 1);
+  assertEquals(
+    parseIssues({ issues: [{ id: "a", identifier: "X-1" }] })[0]?.id,
+    "a",
+  );
+  assertThrows(() => parseIssues({ nope: 1 }), Error, "issues");
+});
+
+test("parseWakeEvents reads events and tolerates an empty ledger", () => {
+  assertEquals(parseWakeEvents({ events: [] }), []);
+  const [event] = parseWakeEvents({
+    events: [
+      {
+        kind: "wake_request",
+        status: "claimed",
+        runId: "r",
+        claimedAt: "2026-09-24T08:00:00Z",
+        finishedAt: null,
+      },
+    ],
+  });
+  assertEquals(event?.status, "claimed");
+  assertEquals(event?.finishedAt, null);
+  assertThrows(() => parseWakeEvents([]), Error, "diagnostics/wakes");
+});
+
+test("collect counts stranded issues and exposes them as metrics", async () => {
+  const result = await collect(config(), NOW, () => {}, new Map());
+  const sweep = result.companies[0]?.wakeSweep;
+  assertEquals(sweep?.openIssues, 3);
+  assertEquals(sweep?.sweptIssues, 3);
+  // Only i-stranded: i-clean finished, and i-live is held by a run that is
+  // live in heartbeat-runs even though the capped /live-runs omits it.
+  assertEquals(sweep?.stranded, 1);
+  assertEquals(sweep?.truncated, false);
+  const text = renderMetrics(result);
+  assertStringIncludes(text, "paperclip_issues_wake_stranded{company_id=");
+  assertStringIncludes(text, "} 1\n");
+  assertStringIncludes(text, "paperclip_issues_open");
+  assertStringIncludes(text, "paperclip_wake_sweep_age_seconds");
+});
+
+test("collect reuses the cached sweep until the interval elapses", async () => {
+  const cache = new Map();
+  const wakePaths = () =>
+    seenPaths.filter((p) => p.includes("/diagnostics/wakes")).length;
+  seenPaths.length = 0;
+  await collect(config(), NOW, () => {}, cache);
+  const first = wakePaths();
+  assert(first > 0, "the first scrape should sweep");
+  // Second scrape one minute later, well inside the 300s interval.
+  await collect(config(), NOW + 60_000, () => {}, cache);
+  assertEquals(wakePaths(), first);
+  // Past the interval it sweeps again.
+  await collect(config(), NOW + 400_000, () => {}, cache);
+  assert(wakePaths() > first, "the sweep should re-run after the interval");
+});
+
+test("collect caps the sweep and reports it as truncated", async () => {
+  const result = await collect(
+    config({ staleWakeMaxIssues: 2 }),
+    NOW,
+    () => {},
+    new Map(),
+  );
+  const sweep = result.companies[0]?.wakeSweep;
+  assertEquals(sweep?.sweptIssues, 2);
+  assertEquals(sweep?.truncated, true);
+  assertEquals(sweep?.openIssues, 3);
+});
+
+test("a failed sweep keeps the previous count instead of reporting zero", async () => {
+  const cache = new Map();
+  await collect(config(), NOW, () => {}, cache);
+  assertEquals(cache.get(ACTIVE)?.stranded, 1);
+  const errors: string[] = [];
+  // Re-sweep past the interval against an API that now rejects the key, so the
+  // sweep throws while the cached result is still present.
+  const result = await collect(
+    config({ apiKey: "wrong" }),
+    NOW + 400_000,
+    (msg) => errors.push(msg),
+    cache,
+  );
+  // The whole scrape is down, but the cached sweep survived for the next one.
+  assertEquals(result.up, false);
+  assertEquals(cache.get(ACTIVE)?.stranded, 1);
+  assertEquals(cache.get(ACTIVE)?.sweptAtMs, NOW);
+});
+
+test("readConfig applies the stale-wake defaults", () => {
+  const cfg = readConfig({
+    PAPERCLIP_API_URL: "http://paperclip:3100/api",
+    PAPERCLIP_API_KEY: "k",
+  });
+  assertEquals(cfg.staleWakeMinutes, 30);
+  assertEquals(cfg.staleWakeIntervalSeconds, 300);
+  assertEquals(cfg.staleWakeMaxIssues, 200);
+  assertEquals(cfg.phantomStaleSeconds, 1800);
+  assertThrows(
+    () =>
+      readConfig({
+        PAPERCLIP_API_URL: "http://x/api",
+        STALE_WAKE_MINUTES: "never",
+      }),
+    Error,
+    "STALE_WAKE_MINUTES",
+  );
 });

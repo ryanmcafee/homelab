@@ -2365,6 +2365,41 @@ spec:
                     annotations:
                       summary: '{{ $labels.company }} has {{ $value }} phantom agents and no live run: the board is stalled'
                       description: 'No agent has a queued or running run while at least three report running, so no queued wake can dispatch and nothing self-heals. Clear the agent status from the board; docs/runbooks/paperclip-agents.md.'
+                  # A sandbox drop terminalizes the run but leaves the wake
+                  # record it claimed `claimed` with a null finishedAt forever,
+                  # while the issue row still looks healthy. The record marks
+                  # the drop; it does not by itself hold dispatch, so the
+                  # response is to probe each issue rather than escalate.
+                  - alert: PaperclipIssueWakeStranded
+                    expr: 'max by (company_id, company) (paperclip_issues_wake_stranded) > 0'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{ $value }} issues in {{ $labels.company }} carry a wake record claimed by a dead run'
+                      description: 'A sandbox drop left the ledger dirty and the issue row shows nothing. Name them with GET /api/issues/{id}/diagnostics/wakes, then probe each one; docs/runbooks/paperclip-wake-stranding.md.'
+                  # Five at once is a batch drop. The record still does not lock
+                  # the issue, but the wakes that deferred during the drop are
+                  # spent and never retried, so an issue whose newest wake
+                  # deferred needs a fresh one before it runs again.
+                  - alert: PaperclipIssueWakeStranded
+                    expr: 'max by (company_id, company) (paperclip_issues_wake_stranded) >= 5'
+                    for: 30m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: '{{ $labels.company }} has {{ $value }} issues behind a dead run''s wake claim: a batch drop'
+                      description: 'At least five open issues were hit by one drop. The record does not hold dispatch, but their deferred wakes are spent and never retried, so each needs a fresh one. Probe with a comment from any non-assignee before escalating; docs/runbooks/paperclip-wake-stranding.md.'
+                  # Without this the stranded gauge just freezes at its last
+                  # value, which reads like a healthy board rather than a blind one.
+                  - alert: PaperclipWakeSweepStale
+                    expr: 'max by (company_id, company) (paperclip_wake_sweep_age_seconds) > 1800'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The Paperclip wake sweep for {{ $labels.company }} is {{ $value | humanizeDuration }} old'
+                      description: 'paperclip_issues_wake_stranded is stale, so PaperclipIssueWakeStranded is reporting an old count. The exporter log names the failing request; docs/runbooks/paperclip-wake-stranding.md.'
           # JetStream work queue (docs/runbooks/pf-work-age-expiry.md). PF_WORK
           # age expiry deletes unacked work with no advisory and no per-message
           # signal of any kind, so these rules are the only thing standing
