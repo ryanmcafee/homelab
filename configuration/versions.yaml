@@ -6,11 +6,11 @@ charts:
   # renovate: datasource=helm depName=argo-cd registryUrl=https://argoproj.github.io/argo-helm
   argocd: "9.7.1"
   # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
-  cilium: "1.19.5"
+  cilium: "1.20.2"
   # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
-  cert-manager: "v1.20.3"
+  cert-manager: "v1.21.2"
   # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
-  external-dns: "1.21.1"
+  external-dns: "1.23.0"
   # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
   kube-prometheus-stack: "87.1.0"
   # CRD-only companion chart installed by the bootstrap chart (wave -1) so ServiceMonitors can
@@ -26,9 +26,9 @@ charts:
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
   democratic-csi: "0.15.1"
   # renovate: datasource=helm depName=tailscale-operator registryUrl=https://pkgs.tailscale.com/helmcharts
-  tailscale-operator: "1.98.4"
+  tailscale-operator: "1.102.4"
   # renovate: datasource=helm depName=kubelet-csr-approver registryUrl=https://postfinance.github.io/kubelet-csr-approver
-  kubelet-csr-approver: "1.2.14"
+  kubelet-csr-approver: "1.2.15"
   # renovate: datasource=helm depName=metrics-server registryUrl=https://kubernetes-sigs.github.io/metrics-server/
   metrics-server: "3.14.0"
   # renovate: datasource=helm depName=connect registryUrl=https://1password.github.io/connect-helm-charts
@@ -36,15 +36,15 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/spegel-org/helm-charts/spegel
   spegel: "0.6.0"
   # renovate: datasource=helm depName=local-path-provisioner registryUrl=https://charts.containeroo.ch
-  local-path-provisioner: "0.0.37"
+  local-path-provisioner: "0.0.38"
   # renovate: datasource=helm depName=cloudnative-pg registryUrl=https://cloudnative-pg.github.io/charts
-  cloudnative-pg: "0.28.3"
+  cloudnative-pg: "0.29.1"
   # renovate: datasource=helm depName=plugin-barman-cloud registryUrl=https://cloudnative-pg.github.io/charts
-  plugin-barman-cloud: "0.8.0"
+  plugin-barman-cloud: "0.8.1"
   # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
-  argo-workflows: "1.0.18"
+  argo-workflows: "1.1.1"
   # renovate: datasource=helm depName=argo-rollouts registryUrl=https://argoproj.github.io/argo-helm
-  argo-rollouts: "2.43.2"
+  argo-rollouts: "2.43.5"
   # renovate: datasource=helm depName=nats registryUrl=https://nats-io.github.io/k8s/helm/charts/
   nats: "2.15.0"
   # NACK ships the jetstream.nats.io CRDs (Stream, Consumer) that charts/nats-config
@@ -52,7 +52,7 @@ charts:
   # renovate: datasource=helm depName=nack registryUrl=https://nats-io.github.io/k8s/helm/charts/
   nack: "0.35.0"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
-  plex-media-server: "1.6.0"
+  plex-media-server: "1.9.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
   sonarr: "25.6.3"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/radarr
@@ -74,15 +74,15 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
   renovate: "46.106.12"
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
-  nvidia-gpu-operator: "v26.3.3"
+  nvidia-gpu-operator: "v26.7.1"
   # renovate: datasource=helm depName=intel-device-plugins-gpu registryUrl=https://intel.github.io/helm-charts
-  intel-device-plugins-gpu: "0.36.0"
+  intel-device-plugins-gpu: "0.37.0"
   # renovate: datasource=helm depName=intel-device-plugins-operator registryUrl=https://intel.github.io/helm-charts
-  intel-device-plugins-operator: "0.36.0"
+  intel-device-plugins-operator: "0.37.0"
   # renovate: datasource=helm depName=node-feature-discovery registryUrl=https://kubernetes-sigs.github.io/node-feature-discovery/charts
-  node-feature-discovery: "0.18.3"
+  node-feature-discovery: "0.19.0"
   # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
-  oauth2-proxy: "10.7.0"
+  oauth2-proxy: "10.7.1"
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
   external-dns-webhook-unifi: "v0.8.2"
   # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller
@@ -96,15 +96,15 @@ charts:
   # renovate: datasource=github-releases depName=kubernetes-sigs/gateway-api
   gateway-api: "v1.6.2"
   # renovate: datasource=helm depName=prometheus-blackbox-exporter registryUrl=https://prometheus-community.github.io/helm-charts
-  prometheus-blackbox-exporter: "11.18.0"
+  prometheus-blackbox-exporter: "11.19.1"
   # renovate: datasource=helm depName=prometheus-json-exporter registryUrl=https://prometheus-community.github.io/helm-charts
   prometheus-json-exporter: "0.20.1"
   # renovate: datasource=helm depName=kiali-server registryUrl=https://kiali.org/helm-charts
   kiali-server: "2.32.0"
   # renovate: datasource=helm depName=opentelemetry-collector registryUrl=https://open-telemetry.github.io/opentelemetry-helm-charts
-  opentelemetry-collector: "0.173.1"
+  opentelemetry-collector: "0.175.0"
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
-  altinity-clickhouse-operator: "0.27.3"
+  altinity-clickhouse-operator: "0.27.4"
   # Componentized LiteLLM chart (gateway, backend, ui, migrations Job), OCI-only (issue #424).
   # renovate: datasource=docker depName=ghcr.io/berriai/litellm/chart/litellm
   litellm: "1.102.1"
