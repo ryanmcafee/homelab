@@ -1,6 +1,6 @@
 # The RED metric contract for first-party control-plane services, v1.
 #
-# Normative. Reasoning and decision: ADR-041 in docs/project_notes/decisions.md.
+# Normative. Reasoning: docs/contracts/metric-contract.md.
 # Worked queries, SLO and canary template: docs/contracts/metric-contract.md.
 #
 # This file exists because the producers and the consumer of these metrics sit on
