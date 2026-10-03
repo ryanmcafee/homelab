@@ -1,6 +1,6 @@
 # The RED metric contract
 
-Normative. Decision record: ADR-041 in [`docs/project_notes/decisions.md`](../project_notes/decisions.md).
+Normative.
 The machine-checkable artifact is [`contracts/observability/metrics.v1.yaml`](../../contracts/observability/metrics.v1.yaml),
 gated by `scripts/metrics-contract_test.ts` in `task test:scripts`.
 
