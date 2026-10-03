@@ -21,10 +21,9 @@ wrong. Details, the verified versions and the nested-shell caveat: `Claude.md` â
 1. Always analyze plans for parallel execution opportunities before implementing
 2. Fix pre-existing bugs encountered during task execution
 3. Use sub-agents for multi-file analysis, version audits, and troubleshooting
-4. Reference CLAUDE.local.md for environment-specific IP addresses and hostnames
-5. Check and update project memory files in `docs/project_notes/`
-6. Check `mcp__serena__list_memories` at session start; call `write_memory` after any non-trivial discovery
-7. Use Serena MCP tools proactively - search_for_pattern, memories, think tools
+4. Reference CLAUDE.local.md for environment-specific IP addresses and hostnames, and `docs/project_notes/key_facts.md` for project constants
+5. Check `mcp__serena__list_memories` at session start; call `write_memory` after any non-trivial discovery
+6. Use Serena MCP tools proactively - search_for_pattern, memories, think tools
 
 ## Serena Tool Guidelines
 
@@ -36,35 +35,10 @@ wrong. Details, the verified versions and the nested-shell caveat: `Claude.md` â
 - Call `think_about_whether_you_are_done` before completing tasks
 - Use `write_memory` to persist useful discoveries for future sessions
 
-**Code agents** (golang-pro, typescript-pro, refactoring-specialist, code-reviewer) should also:
+**Agents working on Go or TypeScript** should also:
 - Use `get_symbols_overview` before reading unfamiliar Go/TS files
 - Use `find_symbol` to locate functions by name
 - Use `find_referencing_symbols` to trace usage across codebase
-
-## Project Memory System
-
-Memory files in `docs/project_notes/`:
-- **bugs.md** - Bug log with solutions
-- **decisions.md** - Architectural Decision Records (ADRs)
-- **key_facts.md** - Project configuration and constants
-- **issues.md** - Work log with PR/issue references
-
-### Memory Protocols for Sub-Agents
-
-**Before proposing changes:**
-- Check `decisions.md` for existing architectural decisions
-- Reference past decisions when making recommendations
-
-**When debugging:**
-- Search `bugs.md` for similar issues before investigating
-- Add new bugs with solutions after resolution
-
-**When looking up configuration:**
-- Check `key_facts.md` for project constants
-- Reference `CLAUDE.local.md` for environment-specific values
-
-**After completing work:**
-- Log significant work in `issues.md` with PR/commit references
 
 ## Sub-Agent Task Patterns
 
@@ -130,94 +104,10 @@ The `/gitops-test` skill MUST be invoked automatically in these scenarios:
 6. Push to a feature branch, create the PR, `gh pr checks --watch`:
    verify.yml (level 0), pr-contract.yml (re-runs level 0 on the PR head; no block in the body),
    tilt-ci.yml kind-argocd (level 2 + sticky Kind report), upgrade.yml for version bumps.
-8. Optional preview on the homelab cluster: ask the maintainer to add the `preview` and
+7. Optional preview on the homelab cluster: ask the maintainer to add the `preview` and
    `preview:<app>` labels (docs/runbooks/previews.md)
-9. After merge, observe production read-only: `task verify:prod`, `task prod:status`,
+8. After merge, observe production read-only: `task verify:prod`, `task prod:status`,
    `task prod:diff -- <app>`. Never apply to, patch, sync or repoint production
 ```
 
 Agents may mutate only Kind clusters (ADR-009). Production is verified through merge -> ArgoCD -> CI/notifications, and read through the `homelab-readonly` context only.
-
-## Specialist Subagents
-
-The repository ships **no** specialist agent definitions: `.claude/agents/` is untracked and
-holds no project agents, and `~/.claude/agents/` is per-user. The specialties below are
-the ones CLAUDE.md's routing table names; they come from [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
-and are optional. When a named agent is not installed, dispatch a `general-purpose` subagent
-and put the specialty, the project context from the customization table below and the file
-scope in the prompt; never skip delegation because the agent name is missing.
-
-To install them per user: copy the agent files into `~/.claude/agents/` (not into the repo).
-
-### Infrastructure (9 agents)
-
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| kubernetes-specialist | sonnet | K8s cluster design, workloads, security hardening, GitOps |
-| terraform-engineer | sonnet | Terraform modules, state management, CI/CD integration |
-| terragrunt-expert | sonnet | Terragrunt stack architecture, DRY configs, multi-env |
-| devops-engineer | sonnet | IaC automation, CI/CD, containerization, monitoring |
-| sre-engineer | sonnet | SLO/SLI management, reliability, toil reduction, chaos |
-| security-engineer | opus | DevSecOps, zero-trust, compliance, secrets management |
-| deployment-engineer | haiku | CI/CD pipelines, deployment strategies, GitOps |
-| devops-incident-responder | sonnet | Production incident triage, postmortems, emergency response |
-| network-engineer | sonnet | Cloud/hybrid networking, DNS, BGP, security |
-
-### Quality & Security (5 agents)
-
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| code-reviewer | opus | Code quality, security vulnerabilities, best practices |
-| architect-reviewer | opus | System design, architectural patterns, scalability |
-| performance-engineer | sonnet | Profiling, load testing, database optimization |
-| debugger | sonnet | Root cause analysis, systematic debugging, postmortems |
-| chaos-engineer | sonnet | Resilience testing, failure injection, game days |
-
-### Language Specialists (2 agents)
-
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| golang-pro | sonnet | Go concurrency, performance, microservices, testing |
-| typescript-pro | sonnet | TypeScript on Bun, type safety, async patterns |
-
-### Data (2 agents)
-
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| database-administrator | sonnet | DB performance, HA, backup/recovery, multi-engine |
-| postgres-pro | sonnet | PostgreSQL optimization, replication, CloudNativePG |
-
-### Developer Experience (5 agents)
-
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| documentation-engineer | haiku | API docs, doc systems, version management |
-| git-workflow-manager | haiku | Branching strategies, Git hooks, release management |
-| refactoring-specialist | sonnet | Code smell detection, safe refactoring, test-driven |
-| mcp-developer | sonnet | MCP server/client development, JSON-RPC, tool integration |
-| build-engineer | haiku | Build optimization, caching, bundling, monorepo |
-
-### Other (2 agents)
-
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| dependency-manager | haiku | Security scanning, version conflicts, license compliance |
-| technical-writer | haiku | API references, user guides, documentation automation |
-
-### Agent-Specific Customizations
-
-Project context to give these specialties (in the agent file when installed, in the prompt
-otherwise):
-
-| Agent | Customizations |
-|-------|---------------|
-| kubernetes-specialist | ArgoCD sync wave order, Cilium LB IPAM pool, Democratic-CSI notes, known issues |
-| terraform-engineer | Module/environment paths, rendered manifest workflow, 1Password docs |
-| terragrunt-expert | DRY patterns, module/environment directory layout |
-| security-engineer | SOPS age key paths, 1Password vault paths, sync wave ordering for secrets |
-| golang-pro | Table-driven tests, 95%+ coverage, Pact/TestContainers |
-| typescript-pro | Bun runtime, `bun test`, Biome, Pact, no Bash/Python |
-| code-reviewer | Forbidden CLI patterns, TypeScript-only scripting, semantic commits |
-| deployment-engineer | ArgoCD sync waves, health checks, ServerSideApply |
-| postgres-pro | CloudNativePG operator patterns |
-| network-engineer | Cilium BGP config (ASN 64512/64513), IP addresses, LB pool |
