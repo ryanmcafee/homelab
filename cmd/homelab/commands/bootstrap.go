@@ -19,7 +19,11 @@ const (
 )
 
 func NewBootstrapCmd() *cobra.Command {
-	var environment string
+	var (
+		environment      string
+		printRequiredKey bool
+		keysFormat       string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "bootstrap",
@@ -36,9 +40,23 @@ bare invocation reaches terragrunt apply.
 
   localdev  task localdev:up, task localdev:wait, then the ArgoCD access hint
   homelab   Proxmox installed? -> task ansible:apply -> task tf:apply
-            ENV=homelab -> GitOps takes over`,
+            ENV=homelab -> GitOps takes over
+
+--print-required-keys lists the configuration keys every tier requires and
+exits, changing nothing. It reads configuration/schema only, so it answers
+before a fork owns Proxmox, 1Password or a cluster. --format json emits the
+document fork-ability check 2 consumes.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// --print-required-keys takes the earliest return in this function,
+			// before anything logs. internal/logger writes to STDOUT, so the
+			// consumer's "stdout is the document and nothing else" guarantee is
+			// this early return, not a stream split.
+			// TestPrintRequiredKeysWritesNothingButTheDocument holds it.
+			if printRequiredKey {
+				return printRequiredKeys(cmd, environment, keysFormat)
+			}
+
 			utils.DryRun = DryRun
 			utils.AutoAccept = AutoAccept
 
@@ -108,6 +126,8 @@ bare invocation reaches terragrunt apply.
 	}
 
 	cmd.Flags().StringVarP(&environment, "environment", "e", "", "Tier to bootstrap (localdev|homelab); default: prompt, or localdev with --yes")
+	cmd.Flags().BoolVar(&printRequiredKey, "print-required-keys", false, "Print the configuration keys every tier requires and exit; changes nothing")
+	cmd.Flags().StringVar(&keysFormat, "format", formatText, "Output of --print-required-keys (text|json)")
 
 	return cmd
 }
