@@ -16,11 +16,15 @@ spec:
       valueFiles:
         - values.yaml
         - values-${environment}.yaml
-      # The base domain never lives in git: Terraform injects it here and the
-      # gitops chart derives the bootstrap (ArgoCD) hostname from global.domain.
+      # Neither the base domain nor the fork's own repository lives in git:
+      # Terraform injects both here. The gitops chart derives the bootstrap
+      # (ArgoCD) hostname from global.domain, and hands global.repoUrl to every
+      # child Application so a fork reconciles itself, not the upstream repo.
       parameters:
         - name: global.domain
           value: ${base_fqdn}
+        - name: global.repoUrl
+          value: ${repo_url}
   destination:
     server: https://kubernetes.default.svc
     namespace: ${namespace}

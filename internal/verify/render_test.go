@@ -439,27 +439,37 @@ func TestRenderGitopsDomainMirrorsTerraform(t *testing.T) {
 
 	// homelab: the Terraform root Application sets global.domain as a helm
 	// parameter, so the two-stage env injects the example domain the same way.
-	const set = "--set global.domain=replaceme-domain.com"
-	cmd, ok := fr.find("helm", "template gitops ", set)
+	const domainSet = "--set global.domain=replaceme-domain.com"
+	// Both envs inject the repository the same way their deploy path does:
+	// Terraform's helm.parameters in homelab, install's helm.valuesObject in
+	// Kind. Neither reads it from a committed chart value.
+	const repoSet = "--set global.repoUrl=https://github.com/REPLACEME-user/homelab"
+	const localdevRepoSet = "--set global.repoUrl=https://github.com/ryanmcafee/homelab"
+	cmd, ok := fr.find("helm", "template gitops ", domainSet, repoSet)
 	if !ok {
-		t.Fatalf("no homelab helm template gitops with %q; recorded:\n%s", set, fr.dump())
+		t.Fatalf("no homelab helm template gitops with %q and %q; recorded:\n%s", domainSet, repoSet, fr.dump())
 	}
-	if !strings.HasSuffix(cmd.line(), set) {
+	if !strings.HasSuffix(cmd.line(), repoSet) {
 		t.Errorf("--set must come after the values files: %s", cmd.line())
 	}
 	c := checkByName(t, res, "render/homelab/gitops")
-	wantDetail := "values: charts/gitops/values.yaml, charts/gitops/values-homelab.yaml; " + set + " (mirrors the Terraform root Application helm.parameters)"
+	wantDetail := "values: charts/gitops/values.yaml, charts/gitops/values-homelab.yaml; " +
+		domainSet + " (mirrors the Terraform root Application helm.parameters); " +
+		repoSet + " (mirrors the root Application the deploy path creates)"
 	if c.Detail != wantDetail {
 		t.Errorf("render/homelab/gitops detail = %q, want %q", c.Detail, wantDetail)
 	}
 
 	// localdev renders in plain-Helm mode and reads its domain from
-	// values-localdev.yaml, so nothing is injected.
-	if cmd, ok := fr.find("helm", "template gitops ", "values-localdev.yaml", "--set"); ok {
-		t.Errorf("localdev gitops must not receive --set: %s", cmd.line())
+	// values-localdev.yaml, so only the repository is injected.
+	if cmd, ok := fr.find("helm", "template gitops ", "values-localdev.yaml", domainSet); ok {
+		t.Errorf("localdev gitops must not receive the domain: %s", cmd.line())
 	}
-	if c := checkByName(t, res, "render/localdev/gitops"); strings.Contains(c.Detail, "--set") {
-		t.Errorf("render/localdev/gitops detail must not mention --set: %q", c.Detail)
+	if _, ok := fr.find("helm", "template gitops ", "values-localdev.yaml", localdevRepoSet); !ok {
+		t.Errorf("localdev gitops must receive %q; recorded:\n%s", localdevRepoSet, fr.dump())
+	}
+	if c := checkByName(t, res, "render/localdev/gitops"); !strings.Contains(c.Detail, localdevRepoSet) {
+		t.Errorf("render/localdev/gitops detail must mention %q: %q", localdevRepoSet, c.Detail)
 	}
 	// No --chart-filter parent is needed on gitops' behalf.
 	if cmd, ok := fr.find("helm", "template addons "); ok {

@@ -1013,8 +1013,9 @@ renovate:
   # Renovate configuration
   config:
     platform: github
-    repositories:
-      - ryanmcafee/homelab
+    # Empty: derived from global.repoUrl (templates/_repo.tpl), so a fork
+    # renovates its own repository. Set it only to cover other repositories.
+    repositories: []
     gitAuthor: "Renovate Bot <renovate@example.com>"
     onboarding: false
     requireConfig: "optional"

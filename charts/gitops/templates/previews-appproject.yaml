@@ -20,7 +20,7 @@ metadata:
 spec:
   description: Per-PR preview environments (docs/runbooks/previews.md)
   sourceRepos:
-    - {{ .Values.global.repoUrl }}
+    - {{ include "homelab.repo.cloneUrl" . }}
     - oci.trueforge.org/truecharts
   sourceNamespaces:
     - preview-*

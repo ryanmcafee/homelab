@@ -23,9 +23,10 @@ global:
   # hostname (argocd.<domain>) from it via helm.valuesObject.
   domain: homelab.local
 
-  # Repository URL - can be local path or GitHub URL
-  # ArgoCD will pull from this repository
-  repoUrl: https://github.com/ryanmcafee/homelab.git
+  # Placeholder, like targetRevision below. `install` sets
+  # helm.valuesObject.global.repoUrl on the root Application from the localdev
+  # config's GITOPS_REPO_URL, so a fork's Kind loop pulls the fork.
+  repoUrl: https://github.com/REPLACEME-user/homelab.git
 
   # Placeholder. `install` sets helm.valuesObject.global.targetRevision on the
   # root Application to the PR head, which overrides this value here and, via
