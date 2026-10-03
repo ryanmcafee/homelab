@@ -24,15 +24,9 @@ entries:
       (docs/project_notes/bugs.md 2026-09-13)
 pins:
   - file: terragrunt/environments/homelab/env.hcl
-    key: tools.talos
-    revision: v1.13.11
-    reason: >-
-      the cluster runs v1.13.11; the upgrade to versions.yaml's target is staged one minor at a
-      time by the owner, each step moving
-      env.hcl and this revision together
-  - file: terragrunt/environments/homelab/env.hcl
     key: tools.kubernetes
     revision: v1.32.0
     reason: >-
-      the cluster runs v1.32.0; same plan as tools.talos, Kubernetes follows each Talos step
-      within the support matrix
+      the cluster runs v1.32.0; the upgrade to versions.yaml's target is staged by the owner,
+      following each Talos step within the support matrix, each step moving env.hcl and this
+      revision together
