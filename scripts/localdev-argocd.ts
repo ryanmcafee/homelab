@@ -52,7 +52,7 @@
  *             and exits 1 on timeout.
  *   diagnose  Print conditions, operation message, unhealthy resources, recent
  *             namespace events and failing pod describe/logs for every
- *             Application that is not Healthy/Succeeded. Never throws on
+ *             Application that is not Healthy/Succeeded/Synced. Never throws on
  *             missing fields; stdout only.
  *   report    Markdown "Kind preview (level 2)" report (issue #261 item 17,
  *             posted by tilt-ci.yml as the sticky PR comment `kind-preview`):
@@ -1771,7 +1771,7 @@ Commands:
   wait       Block until every Application is Healthy with a Succeeded operation.
                                                                   (task localdev:wait)
   diagnose   Print conditions, unhealthy resources, events and failing pod logs for
-             every Application that is not Healthy/Succeeded.  (task localdev:diagnose)
+             every Application that is not Healthy/Succeeded/Synced.  (task localdev:diagnose)
   report     Markdown "${REPORT_TITLE}": level-2 pass/fail and failing checks
              (--verify-json), Application table (health, sync, last operation,
              vs <base>) and \`argocd app diff <app> --revision <base>
@@ -3727,6 +3727,12 @@ export function applicationLines(app: Application): string[] {
       st.sync?.status ?? "-"
     }  operation: ${st.operationState?.phase ?? "-"}`,
   ];
+  if (st.sync?.status !== "Synced") {
+    out.push(
+      `  status.sync.status: ${st.sync?.status ?? "(not reported)"} (expected Synced)`,
+    );
+    out.push(`  status.sync: ${JSON.stringify(st.sync ?? null)}`);
+  }
   if (st.health?.message) {
     out.push(`  health message: ${st.health.message}`);
   } else if ((st.health?.status ?? "-") !== "Healthy") {
@@ -3764,27 +3770,31 @@ function printApplication(app: Application): void {
   for (const line of applicationLines(app)) console.log(line);
 }
 
-async function cmdDiagnose(): Promise<number> {
+export async function cmdDiagnose(
+  dependencies = { listApplications, diagnoseNamespace },
+): Promise<number> {
   let apps: Application[];
   try {
-    apps = await listApplications();
+    apps = await dependencies.listApplications();
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
-  const unhealthy = apps.filter((a) => !isReady(a, false));
+  const unhealthy = apps.filter((a) => !isReady(a, true));
   console.log(
-    `\n===== diagnose: ${unhealthy.length}/${apps.length} Application(s) not Healthy/Succeeded =====`,
+    `\n===== diagnose: ${unhealthy.length}/${apps.length} Application(s) not Healthy/Succeeded/Synced =====`,
   );
   if (unhealthy.length === 0) {
-    log.ok("every Application is Healthy with a Succeeded operation");
+    log.ok(
+      "every Application is Healthy/Succeeded/Synced (or a new empty chart)",
+    );
     return 0;
   }
   for (const app of unhealthy) printApplication(app);
   const targets = describeTargets(unhealthy);
   for (const ns of diagnoseNamespaces(unhealthy)) {
     try {
-      await diagnoseNamespace(ns, targets);
+      await dependencies.diagnoseNamespace(ns, targets);
     } catch (err) {
       log.warn(
         `diagnose ${ns}: ${err instanceof Error ? err.message : String(err)}`,
