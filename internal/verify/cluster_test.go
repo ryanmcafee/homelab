@@ -272,6 +272,247 @@ func TestDryRunArgv(t *testing.T) {
 	}
 }
 
+// renderedAddonsApp is the addons render as it actually ships: the Application
+// object lives in argocd and points its workload at another namespace.
+const renderedAddonsApp = `---
+# Source: addons/templates/argo-events.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-events-config
+  namespace: argocd
+spec:
+  source:
+    path: charts/argo-events-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-events
+`
+
+// renderedEventBusAndSensor is the shape that made this fix necessary: two
+// objects with no metadata.namespace, where admitting the second one requires
+// the API server to resolve the first by namespace.
+const renderedEventBusAndSensor = `---
+# Source: argo-events-config/templates/eventbus.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: default
+---
+# Source: argo-events-config/templates/sensor-selftest.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: trigger-selftest
+spec:
+  eventBusName: default
+`
+
+func TestDryRunAppliesEachChartInItsApplicationDestinationNamespace(t *testing.T) {
+	root := writeLocaldevRender(t, t.TempDir(), map[string]string{
+		"addons.yaml":             renderedAddonsApp,
+		"argo-events-config.yaml": renderedEventBusAndSensor,
+	})
+	r := &fakeClusterRunner{}
+
+	checks := DryRun(context.Background(), clusterOpts(r, root))
+
+	cmds := r.invocations("kubectl")
+	if len(cmds) != 2 {
+		t.Fatalf("want 2 kubectl invocations, got %d", len(cmds))
+	}
+
+	var configCmd, addonsCmd string
+	for _, c := range cmds {
+		line := c.line()
+		if strings.Contains(line, "argo-events-config.yaml") {
+			configCmd = line
+		}
+		if strings.Contains(line, "addons.yaml") {
+			addonsCmd = line
+		}
+	}
+
+	// The chart the Application deploys is dry-run where it will really sync,
+	// so the admission webhook resolves EventBus/default in argo-events.
+	if !strings.Contains(configCmd, "-n argo-events ") {
+		t.Errorf("argo-events-config must be dry-run in argo-events, got %s", configCmd)
+	}
+	// addons.yaml has no Application named "addons", so it keeps the old argv
+	// rather than borrowing the namespace of an Application it happens to hold.
+	if strings.Contains(addonsCmd, " -n ") {
+		t.Errorf("a chart with no matching Application must not be given a namespace, got %s", addonsCmd)
+	}
+
+	c := clusterCheck(t, checks, "dryrun/localdev/argo-events-config")
+	if !strings.Contains(c.Detail, "namespace argo-events") {
+		t.Errorf("the passing detail must name the namespace it validated, got %q", c.Detail)
+	}
+}
+
+func TestDryRunNamespaceIsOmittedWhenTheApplicationDeclaresNone(t *testing.T) {
+	// An Application with no spec.destination at all: guessing a namespace here
+	// would be worse than the documented default-namespace behaviour.
+	root := writeLocaldevRender(t, t.TempDir(), map[string]string{"cilium.yaml": renderedApp})
+	r := &fakeClusterRunner{}
+
+	checks := DryRun(context.Background(), clusterOpts(r, root))
+
+	cmds := r.invocations("kubectl")
+	if len(cmds) != 1 {
+		t.Fatalf("want 1 kubectl invocation, got %d", len(cmds))
+	}
+	if strings.Contains(cmds[0].line(), " -n ") {
+		t.Errorf("no destination namespace means no -n flag, got %s", cmds[0].line())
+	}
+	c := clusterCheck(t, checks, "dryrun/localdev/cilium")
+	if !strings.Contains(c.Detail, "default namespace") {
+		t.Errorf("detail should say it fell back to the context default, got %q", c.Detail)
+	}
+}
+
+// renderedGatewaysMixedNamespaces is the istio-gateways render: the chart the
+// Application sends to istio-ingress also carries an object pinned to
+// envoy-gateway-system, plus a cluster-scoped one with no namespace at all.
+const renderedGatewaysMixedNamespaces = `---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: istio
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public
+  namespace: istio-ingress
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: envoy
+  namespace: envoy-gateway-system
+`
+
+// renderedGatewaysOwner is the Application that deploys it, as addons renders
+// it: name matches the chart, destination is only one of the two namespaces.
+const renderedGatewaysOwner = `---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-gateways
+  namespace: argocd
+spec:
+  source:
+    path: charts/istio-gateways
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-ingress
+`
+
+func TestDryRunOmitsNamespaceWhenADocumentContradictsTheDestination(t *testing.T) {
+	// kubectl rejects the whole file when -n disagrees with any document's
+	// metadata.namespace, so a chart that spans namespaces must keep the old
+	// argv. Its namespace-less objects are cluster-scoped, which -n never
+	// affects, so nothing is lost by leaving the flag off.
+	root := writeLocaldevRender(t, t.TempDir(), map[string]string{
+		"addons.yaml":         renderedGatewaysOwner,
+		"istio-gateways.yaml": renderedGatewaysMixedNamespaces,
+	})
+	r := &fakeClusterRunner{}
+
+	DryRun(context.Background(), clusterOpts(r, root))
+
+	var gatewaysCmd string
+	for _, c := range r.invocations("kubectl") {
+		if strings.Contains(c.line(), "istio-gateways.yaml") {
+			gatewaysCmd = c.line()
+		}
+	}
+	if gatewaysCmd == "" {
+		t.Fatal("istio-gateways was never dry-run")
+	}
+	if strings.Contains(gatewaysCmd, " -n ") {
+		t.Errorf("a chart holding a document outside the destination namespace must not be given -n, got %s", gatewaysCmd)
+	}
+}
+
+func TestDryRunKeepsNamespaceWhenEveryDocumentAgreesWithTheDestination(t *testing.T) {
+	// An explicit metadata.namespace that matches is not a contradiction:
+	// kubectl accepts it, so the flag still buys correct admission for the
+	// namespace-less documents alongside it.
+	const agreeing = `---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pinned
+  namespace: argo-events
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: default
+`
+	root := writeLocaldevRender(t, t.TempDir(), map[string]string{
+		"addons.yaml":             renderedAddonsApp,
+		"argo-events-config.yaml": agreeing,
+	})
+	r := &fakeClusterRunner{}
+
+	DryRun(context.Background(), clusterOpts(r, root))
+
+	var configCmd string
+	for _, c := range r.invocations("kubectl") {
+		if strings.Contains(c.line(), "argo-events-config.yaml") {
+			configCmd = c.line()
+		}
+	}
+	if !strings.Contains(configCmd, "-n argo-events ") {
+		t.Errorf("a matching metadata.namespace must not suppress -n, got %s", configCmd)
+	}
+}
+
+// TestDryRunNamespacesAgreeWithTheShippedRender runs the resolver over the
+// committed localdev snapshots rather than a fixture, because the argv it
+// builds is only safe against the charts that actually ship: a fixture cannot
+// notice a new chart that spans two namespaces.
+func TestDryRunNamespacesAgreeWithTheShippedRender(t *testing.T) {
+	snapshots := filepath.Join("..", "..", "tests", "snapshots", "localdev")
+	files, err := manifestFiles(snapshots)
+	if err != nil {
+		t.Fatalf("reading %s: %v", snapshots, err)
+	}
+	dests := destinationNamespaces(files)
+	if len(dests) < 20 {
+		t.Fatalf("resolved %d chart namespaces from %d shipped manifests, want at least 20: the resolver read nothing meaningful", len(dests), len(files))
+	}
+
+	inspected := 0
+	for _, file := range files {
+		chart := strings.TrimSuffix(filepath.Base(file), ".yaml")
+		dest, ok := dests[chart]
+		if !ok {
+			continue
+		}
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("reading %s: %v", file, err)
+		}
+		docs, err := ParseMultiDoc(chart, "localdev", raw)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", file, err)
+		}
+		inspected++
+		for _, d := range docs {
+			if ns := d.Namespace(); ns != "" && ns != dest {
+				t.Errorf("%s would be dry-run with -n %s but holds %s/%s in %s; kubectl rejects the whole file", chart, dest, d.Kind(), d.Name(), ns)
+			}
+		}
+	}
+	if inspected < 20 {
+		t.Fatalf("inspected %d charts, want at least 20", inspected)
+	}
+}
+
 func TestDryRunFindingsAreStderrLinesCappedAtTwenty(t *testing.T) {
 	var lines []string
 	for i := 0; i < 30; i++ {
