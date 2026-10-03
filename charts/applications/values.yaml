@@ -1108,7 +1108,7 @@ paperclip:
         cpu: 500m
         memory: 16Gi
       limits:
-        cpu: "2"
+        cpu: "4"
         memory: 16Gi
     exporter:
       enabled: false
