@@ -85,6 +85,7 @@ interface TopologyContract {
     path: string;
     role: string;
     conformant: string;
+    runShapes?: string[];
   }[];
 }
 
@@ -191,6 +192,30 @@ test("the health conditions keep everything the TypeScript gate enforced", () =>
   assertEquals(ids, [
     "absences-are-declared",
     "member-count",
+    "membership-accounts-for-expected",
+    "no-errors",
+    "no-learners",
+    "quorum-present",
+    "raft-index-converged",
+    "single-leader",
+  ]);
+
+  // Defining an atom is not enforcing it: a condition dropped from `whole` is
+  // still defined, and still referenced by `survivable`, so every other test in
+  // this file stayed green while the gate at the door stopped checking it.
+  // Found by mutating this file and watching nothing fail (MCAA-482). Both
+  // consumers read the composition, so this is where it is pinned; changing it
+  // is a contract decision (ADR-035), made here deliberately and in one commit.
+  const byId = new Map(contract.health.predicates.map((p) => [p.id, p]));
+  assertEquals([...byId.get("whole")!.conditions].sort(), [
+    "member-count",
+    "no-errors",
+    "no-learners",
+    "raft-index-converged",
+    "single-leader",
+  ]);
+  assertEquals([...byId.get("survivable")!.conditions].sort(), [
+    "absences-are-declared",
     "membership-accounts-for-expected",
     "no-errors",
     "no-learners",
@@ -589,6 +614,33 @@ test("both declared consumers still exist at the paths the contract names", () =
   }
 });
 
+/** The calls that mark where a consumer's guard lives, per `consumers[].language`. */
+const GUARD_MARKERS: Record<string, { evaluate: string; selectEntry: string }> =
+  {
+    go: { evaluate: "Evaluate", selectEntry: "SelectEntry" },
+    typescript: { evaluate: "evaluatePredicate", selectEntry: "selectEntry" },
+  };
+
+/** The run shapes a consumer runs; an omitted list means every shape the contract defines. */
+const runShapesOf = (
+  consumer: TopologyContract["consumers"][number],
+): string[] =>
+  consumer.runShapes ?? contract.evaluation.runShapes.map((s) => s.id);
+
+test("every consumer's run shapes are ones the contract defines", () => {
+  const defined = contract.evaluation.runShapes.map((s) => s.id);
+  for (const consumer of contract.consumers) {
+    const shapes = runShapesOf(consumer);
+    assert(shapes.length > 0, `consumer ${consumer.id} declares no run shapes`);
+    for (const shape of shapes) {
+      assert(
+        defined.includes(shape),
+        `consumer ${consumer.id} runs shape "${shape}", which evaluation.runShapes does not define (${defined.join(", ")})`,
+      );
+    }
+  }
+});
+
 test("the fully conformant consumer's path is where the guard actually is", () => {
   // An existence check cannot tell the difference: this contract named
   // cmd/homelab/commands/talos.go, which exists and contains none of the guard — the
@@ -598,8 +650,16 @@ test("the fully conformant consumer's path is where the guard actually is", () =
   const repoRoot = join(import.meta.dir, "..");
   for (const consumer of contract.consumers) {
     if (consumer.conformant !== "full") continue;
+    const markers = GUARD_MARKERS[consumer.language];
+    assert(
+      markers !== undefined,
+      `consumer ${consumer.id} is written in ${consumer.language}, which has no guard markers here (${Object.keys(GUARD_MARKERS).join(", ")})`,
+    );
+    const required = runShapesOf(consumer).includes("resumed")
+      ? [markers.selectEntry, markers.evaluate]
+      : [markers.evaluate];
     const src = readFileSync(join(repoRoot, consumer.path), "utf8");
-    for (const marker of ["SelectEntry", "Evaluate"]) {
+    for (const marker of required) {
       assert(
         src.includes(marker),
         `consumer ${consumer.id} declares conformant: full at ${consumer.path}, which never calls ${marker}: the entry selection and predicate evaluation are what conformance means, so this path points at the wrong file`,
@@ -631,11 +691,10 @@ test("the ordinary dead-target case refuses and names the procedure that applies
 });
 
 test("every consumer states how far its conformance actually goes", () => {
-  // A contract that lists a consumer reads as a contract that binds one. It binds
-  // homelab-cli, whose loader refuses a condition it does not implement; it does not
-  // bind cp-storage-migrate, whose only assertion against this file is the key pattern.
-  // Naming the level as data means the gap is reportable instead of being carried in
-  // prose that drifts, and a new consumer cannot be added without declaring one.
+  // A contract that lists a consumer reads as a contract that binds one. Both
+  // consumers are `full` today (MCAA-482), each with its own conformance test; the
+  // partial level stays in the vocabulary so a new consumer states where it actually
+  // is instead of being listed here and silently assumed to comply.
   const levels = ["full", "count-key-pattern-only"];
   for (const consumer of contract.consumers) {
     assert(
@@ -650,20 +709,27 @@ test("every consumer states how far its conformance actually goes", () => {
 });
 
 test("no consumer restates a contract value as a literal constant", () => {
-  // ADR-031: "a second implementation of the same logic is a review failure". The
-  // TypeScript consumer still carries EXPECTED_MEMBERS while #39 is in flight; this
-  // test names that debt rather than pretending it is gone, and flips to an assertion
-  // the moment both consumers read the contract.
+  // ADR-031: "a second implementation of the same logic is a review failure". This
+  // named the TypeScript consumer's EXPECTED_MEMBERS as debt while #39 was in flight,
+  // and flipped to an assertion the moment both consumers read the contract
+  // (MCAA-482). The raft tolerance is here for the same reason: a `= 10` in either
+  // language is health.raftIndexTolerance restated, and changing it is a contract
+  // change (ADR-030), not an edit to a constant.
   const repoRoot = join(import.meta.dir, "..");
   const offenders: string[] = [];
   for (const consumer of contract.consumers) {
     const src = readFileSync(join(repoRoot, consumer.path), "utf8");
-    if (/EXPECTED_MEMBERS\s*=\s*\d/.test(src)) offenders.push(consumer.path);
+    if (
+      /EXPECTED_MEMBERS\s*=\s*\d/.test(src) ||
+      /RAFT_TOLERANCE\s*=\s*\d/.test(src)
+    ) {
+      offenders.push(consumer.path);
+    }
   }
   assertEquals(
     offenders,
-    ["scripts/cp-storage-migrate.ts"],
-    "a consumer started or stopped hard-coding the member count; update this expectation deliberately, in the same change that moves it to the contract",
+    [],
+    "a consumer hard-codes a value this contract states; move it to the contract rather than relaxing this expectation",
   );
 
   // The symmetric half: while countSourceSchemaReady is false, the derivation may not
