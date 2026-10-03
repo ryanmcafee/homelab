@@ -53,6 +53,8 @@ on:
       - 'configuration/versions.yaml'
       - 'charts/**'
       - '.github/workflows/upgrade.yml'
+      - 'internal/verify/**'
+      - 'cmd/homelab/commands/verify_upgrade*'
       # The undeclared-values gate and its allowlist: a PR that changes either
       # has to run it, and tests/snapshots is where it reads the values from.
       - 'scripts/upstream-values-check.ts'
@@ -140,10 +142,39 @@ jobs:
         run: |
           set +e
           ok=true
-          task config:export:localdev || ok=false
-          task schemas:vendor || ok=false
-          go run ./cmd/homelab verify render --env homelab,localdev --json > revalidate.raw.json
-          sed -n '/^{/,/^}/p' revalidate.raw.json > revalidate.json
+          # Tool diagnostics can contain values or whole failed manifests.
+          # Only the allowlisted check summary below may reach report sinks.
+          task config:export:localdev > /dev/null 2>&1 || ok=false
+          task schemas:vendor > /dev/null 2>&1 || ok=false
+          go run ./cmd/homelab verify render --env homelab,localdev --json > revalidate.raw.json 2>/dev/null || ok=false
+          if ! jq -s -e '
+            def sane_ms: type == "number" and . >= 0 and . <= 2147483647 and floor == .;
+            if length == 1 and (.[0] | type) == "object" then
+              .[0] as $result |
+              if $result.level == 0
+                and ($result.pass | type) == "boolean"
+                and ($result.duration_ms | sane_ms)
+                and ($result.checks | type) == "array"
+                and all($result.checks[];
+                  type == "object"
+                  and (.name | type) == "string"
+                  and (.status == "pass" or .status == "fail" or .status == "skip")
+                  and (.duration_ms | sane_ms))
+                and ($result.pass == ([$result.checks[] | select(.status == "fail")] | length == 0))
+              then
+                {level: 0, pass: $result.pass, duration_ms: $result.duration_ms,
+                 checks: ($result.checks | to_entries | map({
+                   name: ("render-check-" + (.key | tostring)),
+                   status: .value.status,
+                   duration_ms: .value.duration_ms,
+                   detail: "Diagnostics omitted for Secret safety; reproduce locally with synthetic values"
+                 }))}
+              else empty end
+            else empty end' \
+            revalidate.raw.json > revalidate.json 2>/dev/null; then
+            ok=false
+            echo '{"pass":false,"checks":[]}' > revalidate.json
+          fi
           if ! jq -e '.pass == true' revalidate.json > /dev/null 2>&1; then
             ok=false
           fi
