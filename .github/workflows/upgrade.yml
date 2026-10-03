@@ -52,6 +52,7 @@ on:
     paths:
       - 'configuration/versions.yaml'
       - 'charts/**'
+      - 'mise.toml'
       - '.github/workflows/upgrade.yml'
       # The undeclared-values gate and its allowlist: a PR that changes either
       # has to run it, and tests/snapshots is where it reads the values from.
