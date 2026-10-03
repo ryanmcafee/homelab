@@ -149,13 +149,9 @@ plex:
     intel:
       nodeSelector:
         intel.feature.node.kubernetes.io/gpu: "true"
-      # gpu.intel.com/xe resource limit intentionally omitted — the device
-      # plugin DaemonSet is Running but is not advertising the resource yet
-      # on this Talos cluster. Plex gets /dev/dri via the hostPath mount
-      # below and uses the GPU directly via the xe driver. Re-add the limit
-      # once the plugin advertises the resource.
-      devDri:
-        hostPath: /dev/dri
+      # Added to pms.resources requests and limits; the device plugin injects /dev/dri.
+      resources:
+        gpu.intel.com/xe: 1
 
   # Plex configuration
   pms:

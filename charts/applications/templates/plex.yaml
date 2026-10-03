@@ -83,32 +83,25 @@ spec:
         {{- end }}
 
         {{- if .Values.plex.pms }}
+        {{- $pms := deepCopy .Values.plex.pms }}
+        {{- if eq (default "none" .Values.plex.gpu.vendor) "intel" }}
+        {{- $resources := default dict $pms.resources }}
+        {{- $_ := set $resources "requests" (merge (default dict $resources.requests) .Values.plex.gpu.intel.resources) }}
+        {{- $_ := set $resources "limits" (merge (default dict $resources.limits) .Values.plex.gpu.intel.resources) }}
+        {{- $_ := set $pms "resources" $resources }}
+        {{- end }}
         pms:
-          {{- toYaml .Values.plex.pms | nindent 10 }}
+          {{- toYaml $pms | nindent 10 }}
         {{- end }}
 
-        {{- if or .Values.plex.extraVolumes (eq (default "none" .Values.plex.gpu.vendor) "intel") }}
+        {{- if .Values.plex.extraVolumes }}
         extraVolumes:
-          {{- if .Values.plex.extraVolumes }}
           {{- toYaml .Values.plex.extraVolumes | nindent 10 }}
-          {{- end }}
-          {{- if eq (default "none" .Values.plex.gpu.vendor) "intel" }}
-          - name: dev-dri
-            hostPath:
-              path: {{ .Values.plex.gpu.intel.devDri.hostPath }}
-              type: Directory
-          {{- end }}
         {{- end }}
 
-        {{- if or .Values.plex.extraVolumeMounts (eq (default "none" .Values.plex.gpu.vendor) "intel") }}
+        {{- if .Values.plex.extraVolumeMounts }}
         extraVolumeMounts:
-          {{- if .Values.plex.extraVolumeMounts }}
           {{- toYaml .Values.plex.extraVolumeMounts | nindent 10 }}
-          {{- end }}
-          {{- if eq (default "none" .Values.plex.gpu.vendor) "intel" }}
-          - name: dev-dri
-            mountPath: /dev/dri
-          {{- end }}
         {{- end }}
 
         {{- if .Values.plex.service }}

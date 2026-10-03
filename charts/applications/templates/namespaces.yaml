@@ -48,14 +48,6 @@ spec:
 ---
 # Namespace: media
 # Created early so config charts and app deployments have a target namespace.
-# Privileged PodSecurity is required because Plex hostPath-mounts /dev/dri for
-# Intel GPU hardware transcoding. The intel-gpu-device-plugin is not yet
-# advertising gpu.intel.com/xe in node allocatable on this Talos cluster (the
-# pod is Running but the plugin scans /dev/dri/by-path which Talos may populate
-# differently), so we work around it via direct hostPath instead of the device
-# plugin's resource-based device injection. Once the device plugin advertises
-# the resource, the hostPath can be removed AND this namespace can drop back to
-# baseline.
 apiVersion: v1
 kind: Namespace
 metadata:
