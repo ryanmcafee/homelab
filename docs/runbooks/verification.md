@@ -617,3 +617,19 @@ The allowlist is deliberately all documentation-reserved space. The `192.168.1.x
 MCAA-79 and is now excluded on purpose: it is the most common home LAN subnet, so for a forker
 running on it the guard could not tell their real `GATEWAY_IP` from the template's placeholder.
 Re-adding it would restore that collision for exactly the users the check protects.
+
+A documentation-reserved address (RFC 5737 `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`;
+RFC 3849 `2001:db8::/32`) outside a template file is still a finding — the guard cannot tell a
+deliberate example from a real value that happens to land there — but the message names the
+convention to use instead of calling it a routable host IP:
+
+```
+docs/runbooks/talos-upgrade.md:389 PII detected (CP1_IP (documentation address (RFC 5737/3849)
+— outside a template file, write it as a <KEY> placeholder such as <CP1_IP>; see
+docs/runbooks/tailscale-dns.md)): CP1_IP: "192.0.2.11"
+```
+
+Write the configuration key in angle brackets, as
+[`tailscale-dns.md`](tailscale-dns.md) does with `<GATEWAY_IP>/32`. The reserved ranges are
+spent on the example ConfigSets: each `configuration/environments/*.yaml.example` owns one
+outright, which `go test ./internal/config/` enforces, so a runbook cannot borrow one.
