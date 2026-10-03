@@ -40,18 +40,14 @@ The operator's one-shot admin bootstrap Job mounts the same `ReadWriteOnce` data
 server although it only calls the HTTP API, and operator 0.19.1 copies only
 `availability.nodeSelector` and `tolerations` (not affinity) to that Job. On iSCSI the Job pod
 therefore has to run on the server's node or it sits in `ContainerCreating` with
-`Multi-Attach error`. Homelab pins both to one labelled node (`availability.nodeSelector`
-from `helm-apps.tmpl`); Kind sets nothing. Exactly one node carries the label:
+`Multi-Attach error`. Homelab runs `admin.bootstrap: false` (since 2026-09-30), so the Job is not
+rendered and the server schedules on any node; neither environment sets a nodeSelector. For a
+one-sync bootstrap of a fresh database on iSCSI, label one node, set `availability.nodeSelector`
+to that label for the same sync, then remove both:
 
 ```bash
 kubectl label node <node> paperclip.homelab/pin=true
-# to move: label the new node, remove the label from the old one, then
-kubectl -n paperclip rollout restart statefulset paperclip
 ```
-
-The pin goes away once upstream drops the volume from the Job or gives it pod affinity. With
-`admin.bootstrap: false` (homelab since 2026-09-30) the Job is not rendered at all, so the pin only
-matters again for a one-sync bootstrap of a fresh database.
 
 ## Configuration keys
 

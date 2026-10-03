@@ -1550,9 +1550,6 @@ spec:
           enabled: true
           image: oven/bun:1.4.2-alpine
           maxConcurrentRuns: 1
-        availability:
-          nodeSelector:
-            paperclip.homelab/pin: "true"
         exporter:
           enabled: true
           image: oven/bun:1.4.2-alpine
