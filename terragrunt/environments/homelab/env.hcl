@@ -175,6 +175,9 @@ locals {
   # an environment that fails to resolve it stops rather than inheriting one.
   base_fqdn = local.config.DOMAIN
 
+  # Optional split-horizon zone for extra A records; empty publishes none.
+  local_dns_domain = try(local.config.LOCAL_DNS_DOMAIN, "")
+
   # TrueNAS hostname for DNS and certificates (a ConfigSet const key derived from DOMAIN)
   truenas_hostname = local.config.TRUENAS_HOSTNAME
 
