@@ -786,20 +786,23 @@ tasks:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --non-interactive --auto-approve
 
   talos:recreate:node:
-    desc: Recreate a Talos node via terragrunt taint + apply
+    desc: Recreate a Talos node via terragrunt taint + apply (drains first; SKIP_DRAIN=true skips it)
     prompt: This will destroy and recreate the Talos VM for node {{.NODE}}. Continue?
     deps: [cli:build]
     vars:
       NODE: '{{.NODE | default "worker-1"}}'
+      SKIP_DRAIN: '{{.SKIP_DRAIN | default "false"}}'
     cmds:
-      - ./bin/homelab -y talos recreate --node={{.NODE}} --skip-drain
+      - ./bin/homelab -y talos recreate --node={{.NODE}}{{if eq .SKIP_DRAIN "true"}} --skip-drain{{end}}
 
   talos:recreate:gpu-node:
-    desc: Recreate GPU node (worker-1) with new image and verify GPU support
+    desc: Recreate GPU node (worker-1) with new image and verify GPU support (drains first; SKIP_DRAIN=true skips it)
     prompt: This will destroy and recreate worker-1 and then verify GPU support. Continue?
     deps: [cli:build]
+    vars:
+      SKIP_DRAIN: '{{.SKIP_DRAIN | default "false"}}'
     cmds:
-      - ./bin/homelab -y talos recreate --node=worker-1 --skip-drain
+      - ./bin/homelab -y talos recreate --node=worker-1{{if eq .SKIP_DRAIN "true"}} --skip-drain{{end}}
       - ./bin/homelab verify gpu
 
   gpu:verify:

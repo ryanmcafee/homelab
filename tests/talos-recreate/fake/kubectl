@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Fake kubectl for tests/talos-recreate/run.sh, backed by
-# $FAKE_STATE/k8snodes (NAME<TAB>INTERNAL-IP). Every node is Ready.
+# $FAKE_STATE/k8snodes (NAME<TAB>INTERNAL-IP[<TAB>READY]); READY defaults to True.
 export PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd):$PATH"
 set -euo pipefail
 
 S="$FAKE_STATE"
 case "$1 ${2:-}" in
   "get nodes")
-    # The jsonpath the command uses renders one name=ip line per node.
-    while IFS=$'\t' read -r name ip; do
-      [[ -n "$name" ]] && echo "$name=$ip"
-    done < "$S/k8snodes"
+    # The jsonpath the command uses renders one name=ip=ready line per node,
+    # sorted by name like the real API server.
+    while IFS=$'\t' read -r name ip ready; do
+      [[ -n "$name" ]] && echo "$name=$ip=${ready:-True}"
+    done < "$S/k8snodes" | LC_ALL=C sort
     ;;
   "get node")
     if [[ "$*" == *"Ready"* ]]; then printf 'True'; else echo "node ${3} ok"; fi

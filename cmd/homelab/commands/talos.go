@@ -229,7 +229,8 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 			"--ignore-daemonsets", "--delete-emptydir-data",
 			"--force", "--timeout="+talosDrainTimeout,
 		); err != nil {
-			return fmt.Errorf("drain node %q: %w", preK8sName, err)
+			return fmt.Errorf("drain node %q: %w (the node is left cordoned: `kubectl uncordon %s` to "+
+				"restore it, or rerun with --skip-drain / SKIP_DRAIN=true)", preK8sName, err, preK8sName)
 		}
 	}
 
@@ -258,7 +259,7 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 	}
 
 	logger.Info(fmt.Sprintf("Step 8/10: Waiting up to %s for a new Ready K8s node at %s", talosReadyTimeout, nodeIP))
-	newK8sName, werr := waitForNewReadyNodeByIP(ctx, nodeIP, preK8sName, 20*time.Minute)
+	newK8sName, staleK8sNames, werr := waitForNewReadyNodeByIP(ctx, nodeIP, preK8sName, 20*time.Minute)
 	if werr != nil {
 		return werr
 	}
@@ -270,12 +271,12 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 	}
 
 	// Talos assigns a fresh random hostname on every boot, so the old
-	// K8s node entry is stale and will never come back Ready. Delete it
+	// K8s node entries are stale and will never come back Ready. Delete them
 	// so downstream verify steps see a clean cluster view.
-	if preK8sName != "" && preK8sName != newK8sName {
-		logger.Info(fmt.Sprintf("Deleting stale K8s node entry %q", preK8sName))
-		if err := streamCmd("", "", "", "kubectl", "delete", "node", preK8sName); err != nil {
-			logger.Warn(fmt.Sprintf("Delete stale node %q failed (non-fatal): %v", preK8sName, err))
+	for _, stale := range staleK8sNames {
+		logger.Info(fmt.Sprintf("Deleting stale K8s node entry %q", stale))
+		if err := streamCmd("", "", "", "kubectl", "delete", "node", stale); err != nil {
+			logger.Warn(fmt.Sprintf("Delete stale node %q failed (non-fatal): %v", stale, err))
 		}
 	}
 
@@ -312,30 +313,33 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 	return nil
 }
 
-// waitForNewReadyNodeByIP polls kubectl until a K8s node whose InternalIP
-// matches ip is Ready. If oldName is non-empty it also requires the
-// resolved name to differ from oldName (so we do not accept the stale
-// pre-recreate entry). The name differs because Talos assigns a new
-// random hostname on every boot.
-func waitForNewReadyNodeByIP(ctx context.Context, ip, oldName string, timeout time.Duration) (string, error) {
+// waitForNewReadyNodeByIP polls kubectl until a Ready K8s node other than
+// oldName has InternalIP ip, and returns it with every other node at that IP.
+// Talos assigns a new random hostname on every boot, so the stale entry
+// shares the IP and may sort before the rebuilt node.
+func waitForNewReadyNodeByIP(ctx context.Context, ip, oldName string, timeout time.Duration) (string, []string, error) {
 	if utils.DryRun {
-		return "dry-run-node", nil
+		var stale []string
+		if oldName != "" {
+			stale = []string{oldName}
+		}
+		return "dry-run-node", stale, nil
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		name, err := resolveK8sNodeByIP(ctx, ip)
-		if err == nil && name != "" && name != oldName {
-			if ready, _ := isNodeReady(name); ready {
-				return name, nil
+		nodes, err := listK8sNodes(ctx)
+		if err == nil {
+			if name, ok := pickNewReadyNodeByIP(nodes, ip, oldName); ok {
+				return name, staleNodesByIP(nodes, ip, name), nil
 			}
 		}
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", nil, ctx.Err()
 		case <-time.After(15 * time.Second):
 		}
 	}
-	return "", fmt.Errorf("timed out after %s waiting for a new Ready K8s node at %s (old=%q)", timeout, ip, oldName)
+	return "", nil, fmt.Errorf("timed out after %s waiting for a new Ready K8s node at %s (old=%q)", timeout, ip, oldName)
 }
 
 // resolveTalosClusterDir returns an absolute path to the talos-cluster

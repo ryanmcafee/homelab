@@ -21,6 +21,7 @@
 #   G  no snapshot means no removal
 #   H  it refuses to remove a SECOND member after an earlier run crashed
 #   I  a resume refuses when a survivor has died since the crash
+#   L  a stale node entry sorting before the rebuilt node is found and deleted
 #
 # Usage: tests/talos-recreate/run.sh   (or: task test:talos-recreate)
 set -euo pipefail
@@ -83,18 +84,18 @@ setup_project() {
 reset_cluster() {
   rm -rf "$FAKE_STATE"; mkdir -p "$FAKE_STATE"
   {
-    printf 'a1b2c3d4e5f60001\ttalos-aa1-bb1\t192.168.1.11\n'
-    printf 'a1b2c3d4e5f60002\ttalos-cc2-dd2\t192.168.1.12\n'
-    printf 'a1b2c3d4e5f60003\ttalos-ee3-ff3\t192.168.1.13\n'
+    printf 'a1b2c3d4e5f60001\ttalos-aa1-bb1\t198.51.100.11\n'
+    printf 'a1b2c3d4e5f60002\ttalos-cc2-dd2\t198.51.100.12\n'
+    printf 'a1b2c3d4e5f60003\ttalos-ee3-ff3\t198.51.100.13\n'
   } > "$FAKE_STATE/members"
   {
-    printf 'talos-aa1-bb1\t192.168.1.11\n'
-    printf 'talos-cc2-dd2\t192.168.1.12\n'
-    printf 'talos-ee3-ff3\t192.168.1.13\n'
-    printf 'talos-w01-w01\t192.168.1.21\n'
+    printf 'talos-aa1-bb1\t198.51.100.11\n'
+    printf 'talos-cc2-dd2\t198.51.100.12\n'
+    printf 'talos-ee3-ff3\t198.51.100.13\n'
+    printf 'talos-w01-w01\t198.51.100.21\n'
   } > "$FAKE_STATE/k8snodes"
   {
-    printf 'cp-1\t192.168.1.11\ncp-2\t192.168.1.12\ncp-3\t192.168.1.13\nworker-1\t192.168.1.21\n'
+    printf 'cp-1\t198.51.100.11\ncp-2\t198.51.100.12\ncp-3\t198.51.100.13\nworker-1\t198.51.100.21\n'
   } > "$FAKE_STATE/vmips"
   {
     echo 'proxmox_virtual_environment_vm.controlplane["cp-1"]'
@@ -102,7 +103,7 @@ reset_cluster() {
     echo 'proxmox_virtual_environment_vm.controlplane["cp-3"]'
     echo 'proxmox_virtual_environment_vm.worker["worker-1"]'
   } > "$FAKE_STATE/tfstate"
-  for ip in 192.168.1.11 192.168.1.12 192.168.1.13; do touch "$FAKE_STATE/is_cp_$ip"; done
+  for ip in 198.51.100.11 198.51.100.12 198.51.100.13; do touch "$FAKE_STATE/is_cp_$ip"; done
   echo 9182740 > "$FAKE_STATE/raft_index"
 }
 
@@ -130,14 +131,14 @@ reset_cluster
 rc=$(recreate "$SANDBOX/a.log" --node=cp-2)
 assert_eq   "exits 0" "$rc" "0"
 assert_contains "removes the member before the taint" "$SANDBOX/a.log" \
-  "192.168.1.12 is etcd member a1b2c3d4e5f60002"
+  "198.51.100.12 is etcd member a1b2c3d4e5f60002"
 assert_contains "verifies the removal took effect" "$SANDBOX/a.log" \
   "removed and confirmed absent from the member list"
 assert_contains "takes a verified snapshot first" "$SANDBOX/a.log" "etcd snapshot verified"
 assert_contains "waits for etcd to be whole again"  "$SANDBOX/a.log" "etcd is whole again"
 assert_eq   "back to three members" "$(members_count)" "3"
-if has_member 192.168.1.12; then ok "the rebuilt node rejoined at the same IP"
-else bad "the rebuilt node did not rejoin at 192.168.1.12"; fi
+if has_member 198.51.100.12; then ok "the rebuilt node rejoined at the same IP"
+else bad "the rebuilt node did not rejoin at 198.51.100.12"; fi
 # The order matters more than anything else here: a removal after the taint
 # is the bug, not the fix.
 if [[ $(grep -n "confirmed absent" "$SANDBOX/a.log" | head -1 | cut -d: -f1) \
@@ -150,14 +151,14 @@ fi
 # ---------------------------------------------------------------------------
 say "B  idempotent: a crashed run already removed the member"
 reset_cluster
-awk -F'\t' '$3 != "192.168.1.12"' "$FAKE_STATE/members" > "$FAKE_STATE/m" && mv "$FAKE_STATE/m" "$FAKE_STATE/members"
+awk -F'\t' '$3 != "198.51.100.12"' "$FAKE_STATE/members" > "$FAKE_STATE/m" && mv "$FAKE_STATE/m" "$FAKE_STATE/members"
 rc=$(recreate "$SANDBOX/b.log" --node=cp-2)
 assert_eq   "exits 0" "$rc" "0"
 assert_contains "notices the member is already gone" "$SANDBOX/b.log" \
   "is a control plane but not an etcd member"
 assert_absent   "does not remove a second member"    "$SANDBOX/b.log" "confirmed absent from the member list"
 assert_eq   "cp-1 and cp-3 survived" \
-  "$(awk -F'\t' '$3=="192.168.1.11" || $3=="192.168.1.13"' "$FAKE_STATE/members" | grep -c .)" "2"
+  "$(awk -F'\t' '$3=="198.51.100.11" || $3=="198.51.100.13"' "$FAKE_STATE/members" | grep -c .)" "2"
 # A resume is not a worker. Finding the member already gone must not switch the
 # recovery wait off: reporting success over a cluster still at 2 of 3 is how a
 # degraded control plane gets signed off as healthy.
@@ -165,13 +166,13 @@ assert_contains "enters at resume per evaluation.entry: exclusive, rather than r
   "an earlier run removed it and did not finish"
 assert_contains "still waits for etcd to be whole again" "$SANDBOX/b.log" "etcd is whole again"
 assert_eq   "resume ends at three members" "$(members_count)" "3"
-if has_member 192.168.1.12; then ok "the resumed node rejoined at the same IP"
-else bad "the resumed node did not rejoin at 192.168.1.12"; fi
+if has_member 198.51.100.12; then ok "the resumed node rejoined at the same IP"
+else bad "the resumed node did not rejoin at 198.51.100.12"; fi
 
 # ---------------------------------------------------------------------------
 say "C  refuses when a surviving member is unreachable"
 reset_cluster
-touch "$FAKE_STATE/down_192.168.1.13"
+touch "$FAKE_STATE/down_198.51.100.13"
 rc=$(recreate "$SANDBOX/c.log" --node=cp-2)
 assert_eq   "exits non-zero" "$rc" "1"
 # Nothing is declared at preflight, so a member that does not answer is not a
@@ -179,14 +180,14 @@ assert_eq   "exits non-zero" "$rc" "1"
 assert_contains "names the gate and the predicate" "$SANDBOX/c.log" \
   "does not satisfy \`whole\` at preflight"
 assert_contains "names the member at fault, not just \"unhealthy\"" "$SANDBOX/c.log" \
-  "member(s) did not answer: 192.168.1.13"
+  "member(s) did not answer: 198.51.100.13"
 assert_eq   "nothing was removed" "$(members_count)" "3"
 assert_absent "nothing was applied" "$SANDBOX/c.log" "Apply complete"
 
 # ---------------------------------------------------------------------------
 say "D  refuses when a surviving member is raft-lagging"
 reset_cluster
-echo 5000 > "$FAKE_STATE/lag_192.168.1.13"
+echo 5000 > "$FAKE_STATE/lag_198.51.100.13"
 rc=$(recreate "$SANDBOX/d.log" --node=cp-2)
 assert_eq   "exits non-zero" "$rc" "1"
 assert_contains "names the lag and the tolerance" "$SANDBOX/d.log" "behind 9182740 (tolerance 10)"
@@ -197,7 +198,7 @@ say "E  a worker is recreated without touching etcd"
 reset_cluster
 rc=$(recreate "$SANDBOX/e.log" --node=worker-1)
 assert_eq   "exits 0" "$rc" "0"
-assert_contains "recognises a non-member" "$SANDBOX/e.log" "192.168.1.21 is not an etcd member"
+assert_contains "recognises a non-member" "$SANDBOX/e.log" "198.51.100.21 is not an etcd member"
 assert_absent   "takes no snapshot"       "$SANDBOX/e.log" "etcd snapshot verified"
 assert_eq   "all three members untouched" "$(members_count)" "3"
 
@@ -231,12 +232,12 @@ assert_eq   "nothing was removed" "$(members_count)" "3"
 # missed, which is why this case needs its own gate.
 say "H  refuses to remove a second member after an earlier run crashed"
 reset_cluster
-awk -F'\t' '$3 != "192.168.1.12"' "$FAKE_STATE/members" > "$FAKE_STATE/m" && mv "$FAKE_STATE/m" "$FAKE_STATE/members"
+awk -F'\t' '$3 != "198.51.100.12"' "$FAKE_STATE/members" > "$FAKE_STATE/m" && mv "$FAKE_STATE/m" "$FAKE_STATE/members"
 rc=$(recreate "$SANDBOX/h.log" --node=cp-3)
 assert_eq   "exits non-zero" "$rc" "1"
 # cp-3 is still a member, so this is a fresh run and not a resume: the cluster
 # it would start from is already short cp-2, and preflight says which member.
-assert_contains "names the member an earlier run left out" "$SANDBOX/h.log" "192.168.1.12"
+assert_contains "names the member an earlier run left out" "$SANDBOX/h.log" "198.51.100.12"
 assert_contains "measures against the configured control-plane count" "$SANDBOX/h.log" \
   "but 3 control-plane address(es) are configured"
 assert_eq   "no second member was removed" "$(members_count)" "2"
@@ -251,15 +252,15 @@ assert_absent "no snapshot was taken, because nothing was destroyed" "$SANDBOX/h
 # refusal has to come before the taint.
 say "I  a resume refuses when a survivor has died since the crash"
 reset_cluster
-awk -F'\t' '$3 != "192.168.1.12"' "$FAKE_STATE/members" > "$FAKE_STATE/m" && mv "$FAKE_STATE/m" "$FAKE_STATE/members"
-touch "$FAKE_STATE/down_192.168.1.13"
+awk -F'\t' '$3 != "198.51.100.12"' "$FAKE_STATE/members" > "$FAKE_STATE/m" && mv "$FAKE_STATE/m" "$FAKE_STATE/members"
+touch "$FAKE_STATE/down_198.51.100.13"
 rc=$(recreate "$SANDBOX/i.log" --node=cp-2)
 assert_eq   "exits non-zero" "$rc" "1"
 assert_contains "evaluates the predicate at the resume point" "$SANDBOX/i.log" \
   'does not satisfy `survivable` at resume'
 assert_contains "refuses on absences-are-declared, so exclusive entry relaxes nothing" "$SANDBOX/i.log" \
   "not a declared target of this operation"
-assert_contains "names the dead survivor" "$SANDBOX/i.log" "192.168.1.13"
+assert_contains "names the dead survivor" "$SANDBOX/i.log" "198.51.100.13"
 assert_absent "does not destroy the VM first" "$SANDBOX/i.log" "Apply complete"
 assert_eq   "membership untouched" "$(members_count)" "2"
 
@@ -288,6 +289,19 @@ assert_eq   "exits non-zero" "$rc" "1"
 assert_contains "quotes the contract's own value" "$SANDBOX/k.log" \
   "looser than the contract's raftIndexTolerance of 10"
 assert_eq   "nothing was removed" "$(members_count)" "3"
+
+# ---------------------------------------------------------------------------
+# A real rebuild leaves the old node object behind NotReady at the same IP;
+# kubectl lists by name, so here the stale entry sorts first.
+say "L  a stale node entry sorting first does not hide the rebuilt node"
+reset_cluster
+awk -F'\t' -v OFS='\t' '$1 == "talos-w01-w01" {$1 = "talos-000-000"} {print}' "$FAKE_STATE/k8snodes" > "$FAKE_STATE/k8snodes.new"
+mv "$FAKE_STATE/k8snodes.new" "$FAKE_STATE/k8snodes"
+touch "$FAKE_STATE/keep_stale_node"
+rc=$(recreate "$SANDBOX/l.log" --node=worker-1)
+assert_eq   "exits 0" "$rc" "0"
+assert_contains "deletes the stale entry" "$SANDBOX/l.log" 'Deleting stale K8s node entry "talos-000-000"'
+assert_eq   "one node left at the worker IP" "$(awk -F'\t' '$2=="198.51.100.21"' "$FAKE_STATE/k8snodes" | grep -c .)" "1"
 
 # ---------------------------------------------------------------------------
 printf '\n%s\n' "-----------------------------------------------"
