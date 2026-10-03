@@ -40,7 +40,7 @@ dependency "talos_image" {
   mock_outputs = {
     image_id      = "local:iso/talos-mock.img"
     schematic_id  = "mock-schematic-id"
-    talos_version = "v1.12.2"
+    talos_version = "v1.13.11"
   }
 }
 
@@ -50,7 +50,7 @@ dependency "talos_image_gpu" {
   mock_outputs = {
     image_id      = "local:iso/talos-gpu-mock.img"
     schematic_id  = "mock-gpu-schematic-id"
-    talos_version = "v1.12.2"
+    talos_version = "v1.13.11"
   }
 }
 
@@ -60,7 +60,7 @@ dependency "talos_image_gpu_intel" {
   mock_outputs = {
     image_id      = "local:iso/talos-gpu-intel-mock.img"
     schematic_id  = "mock-gpu-intel-schematic-id"
-    talos_version = "v1.12.2"
+    talos_version = "v1.13.11"
   }
 }
 
@@ -153,9 +153,6 @@ inputs = {
         "nvidia.com/gpu"                              = "true"
         "feature.node.kubernetes.io/pci-10de.present" = "true"
       }
-      nodeTaints = {
-        "nvidia.com/gpu" = "true:PreferNoSchedule"
-      }
     }
   })
 
@@ -174,9 +171,6 @@ inputs = {
       nodeLabels = {
         "intel.com/gpu"                               = "true"
         "feature.node.kubernetes.io/pci-8086.present" = "true"
-      }
-      nodeTaints = {
-        "intel.com/gpu" = "true:PreferNoSchedule"
       }
     }
   })
@@ -247,10 +241,6 @@ inputs = {
           modules = [
             { name = "iscsi_tcp" }
           ]
-        }
-        # Node labels for storage capabilities
-        nodeLabels = {
-          "storage.kubernetes.io/iscsi-client" = "true"
         }
         # TCP BBR congestion control for improved throughput
         sysctls = {

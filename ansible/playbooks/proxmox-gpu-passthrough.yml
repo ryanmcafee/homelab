@@ -1,0 +1,13 @@
+---
+# Host side of the Intel Arc GPU passthrough to the Talos GPU worker.
+#
+#   ansible-playbook playbooks/proxmox-gpu-passthrough.yml --check --diff
+#   ansible-playbook playbooks/proxmox-gpu-passthrough.yml
+
+- name: Proxmox GPU passthrough
+  hosts: proxmox
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: proxmox_gpu_passthrough

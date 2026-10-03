@@ -35,11 +35,6 @@ machine:
     # nvidia.com/gpu.product: "Quadro-P2200"
 
   # Sysctls for container runtime
-  # Taint NVIDIA GPU workers so non-GPU workloads prefer to schedule elsewhere.
-  # PreferNoSchedule is a soft repel; parity with the Intel GPU patch.
-  nodeTaints:
-    nvidia.com/gpu: "true:PreferNoSchedule"
-
   sysctls:
     # Enable memory swappiness for GPU workloads
     vm.swappiness: "10"
@@ -51,7 +46,7 @@ machine:
 #
 # And in worker_nodes configuration:
 # "worker-1" = {
-#   ip        = "172.16.100.21"
+#   ip        = local.config.WORKER1_IP
 #   host_node = "pve"
 #   cores     = 8
 #   memory    = 32768

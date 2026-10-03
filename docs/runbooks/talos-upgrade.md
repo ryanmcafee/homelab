@@ -210,7 +210,7 @@ task talos:recreate:node NODE=cp-2               # a control plane: etcd is hand
 These tasks run `./bin/homelab`, which is gitignored, and they build it from source first
 (`task cli:build`) so the binary can never be older than the checkout. If you invoke the
 binary directly instead of through `task`, build it yourself and confirm you have the guarded
-version before you point it at a control plane — a binary predating `ryanmcafee/homelab#39`
+version before you point it at a control plane — a binary predating issue #39
 runs the old path with no member removal, no quorum gate and no snapshot:
 
 ```bash
@@ -222,7 +222,7 @@ task cli:build
 plane is an etcd member, and etcd identifies a member by its peer URL. A rebuilt node comes
 back at the same static IP under a new Talos hostname and a new member id, so unless the old
 member is removed first, etcd still holds a member at that address and the replacement cannot
-join (`ryanmcafee/homelab#39`).
+join (issue #39).
 
 `homelab talos recreate` does that for you. Its ten steps are, in order:
 
@@ -394,7 +394,7 @@ task talos:recreate:node NODE=cp-2
 ```
 
 Re-run it through `task`, not through `./bin/homelab` directly. The task rebuilds the binary
-from the checkout first; a hand-built one left over from before `ryanmcafee/homelab#39` has no
+from the checkout first; a hand-built one left over from before issue #39 has no
 resume gate and would destroy the VM on a cluster that is already short a member. If the
 binary you have does not list `--etcd-snapshot-dir` under `talos recreate --help`, it is too
 old to use here.
@@ -518,8 +518,8 @@ kubectl get nodes -o json | jq '.items[].spec.taints'
 kubectl describe pod <pod> -n <namespace>
 ```
 
-`worker-1` carries the soft taint `intel.com/gpu=true:PreferNoSchedule` by design
-(`talos/patches/gpu-passthrough-intel.yaml`); do not remove it.
+Talos machine patches set no node taints: NodeRestriction forbids a node from changing its own
+taints, and a rejected taint makes Talos drop every node label in the same update.
 
 ### etcd Unhealthy After Upgrade
 

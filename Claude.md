@@ -44,18 +44,19 @@ export MISE_TRUSTED_CONFIG_PATHS="$PWD"   # the repo root, if you are not in it
 1. **The shims are not on the default `PATH`.** mise installs its binary to `~/.local/bin` and its
    shims to `~/.local/share/mise/shims`; a non-interactive shell (CI runner, agent sandbox, `ssh
    host cmd`) starts with neither. That is the whole reason `command -v bun` comes back empty.
+
 2. **This repo's `mise.toml` is untrusted** in a fresh clone or worktree, so every shim fails even
-   once it is on `PATH`. The error's first line is misleading:
+once it is on `PATH`. The error's first line is misleading:
 
-   ```
-   mise ERROR error parsing config file: .../homelab/mise.toml
-   mise ERROR Config files in .../homelab/mise.toml are not trusted.
-   mise ERROR Trust them with `mise trust`.
-   ```
+```sh
+mise ERROR error parsing config file: .../homelab/mise.toml
+mise ERROR Config files in .../homelab/mise.toml are not trusted.
+mise ERROR Trust them with `mise trust`.
+```
 
-   It is **not** a parse error and there is nothing wrong with `mise.toml` — read the second line.
-   Older mise versions print only the first line from a shim invocation; run `mise ls` to see the
-   trust line if you do not get it.
+It is **not** a parse error and there is nothing wrong with `mise.toml` — read the second line.
+Older mise versions print only the first line from a shim invocation; run `mise ls` to see the
+trust line if you do not get it.
 
 Prefer `MISE_TRUSTED_CONFIG_PATHS` over `mise trust` when the checkout is shared or ephemeral: it
 is per-shell and writes nothing to mise's global trust store or to the working tree. Use
@@ -72,7 +73,7 @@ Verified 2026-09-25 at `358a566`, in a sandbox where all four commands were "not
 | `task --version` | `3.46.4` |
 | `task test:scripts` | `386 pass, 0 fail` across 15 files |
 
-**The caveat that bites:** these are shell exports, and some sandboxes rebuild `PATH` in every
+__The caveat that bites:__ these are shell exports, and some sandboxes rebuild `PATH` in every
 non-interactive child shell from a `BASH_ENV` startup file. A tool `command -v` just resolved can
 still come back "not found" inside a script you launch — `MISE_TRUSTED_CONFIG_PATHS` survives the
 hop but `PATH` does not. Either re-export `PATH` inside the script, or call the absolute shim path
@@ -114,6 +115,7 @@ All environment-specific values (IPs, domains, hostnames, usernames) are central
 | `task config:guard` | Scan every tracked file in the guard scope for PII (the pre-commit hook scans the staged ones) |
 
 ### Key Files
+
 - `configuration/schema/*.schema.yaml` — key declarations (committed)
 - `configuration/environments/defaults.yaml` — shared defaults (committed)
 - `configuration/environments/homelab.yaml` — production PII (GITIGNORED)
@@ -124,6 +126,7 @@ All environment-specific values (IPs, domains, hostnames, usernames) are central
 ## Project Overview
 
 GitOps-driven homelab infrastructure with:
+
 - ArgoCD App-of-Apps pattern (gitops -> addons -> applications)
 - Talos Linux Kubernetes cluster on Proxmox VE
 - Multi-environment: localdev (Kind + Tilt) and homelab (production)
@@ -162,6 +165,7 @@ render time through the CMP (`homelab config export`) and localdev through the c
 `charts/*/values.yaml` are placeholders that both environments override.
 
 <!-- embedme configuration/versions.yaml -->
+
 ```yaml
 # Centralized version registry — single source of truth for all chart and tool versions.
 # Update this file instead of editing individual values.yaml files.
@@ -303,7 +307,7 @@ tools:
   # reason in tests/gitops/version-drift.yaml `pins:` or level 0 `versions/pins` fails
   # (docs/runbooks/talos-upgrade.md).
   # renovate: datasource=github-releases depName=siderolabs/talos
-  talos: "v1.14.1"
+  talos: "v1.13.11"
   # renovate: datasource=github-releases depName=kubernetes/kubernetes
   kubernetes: "v1.37.1"
   # renovate: datasource=github-releases depName=hashicorp/terraform
@@ -324,7 +328,9 @@ tools:
 ```
 
 ### Version Update Files
+
 To update a chart, image or tool version:
+
 1. Edit `configuration/versions.yaml` (or let Renovate do it).
 2. If the chart ships CRDs, run `task schemas:vendor` and commit `tests/schemas/`.
 3. Run `task config:export:localdev` (the committed localdev values embed chart versions), `task verify:text`, then `task test:snapshot -- --update` and commit the snapshots.
@@ -334,7 +340,7 @@ Do not edit `chart.version` in `charts/*/values.yaml`; those values are overridd
 
 ## Project Structure
 
-```
+```ini
 homelab/
 ├── ansible/              # Proxmox post-install roles + playbooks (site.yml), TrueNAS setup
 ├── charts/
@@ -403,12 +409,14 @@ Run `task --list` for full list. Most commonly used:
 Rendered YAML files (Cilium, kubelet-csr-approver, Spegel) are stored in 1Password Documents for cross-machine consistency. This prevents config drift from Helm re-rendering (e.g., Cilium generates new TLS certs on each render).
 
 **Initial Setup (first time):**
+
 ```bash
 task render           # Generate files locally
 task render:push      # Upload to 1Password
 ```
 
 **New Machine Setup:**
+
 ```bash
 task render:pull      # Download from 1Password
 # OR
@@ -416,6 +424,7 @@ task tf:plan          # Auto-syncs before planning
 ```
 
 **Intentional Cluster Update:**
+
 ```bash
 task render           # Re-render with new config
 task render:push      # Push new versions to 1Password
@@ -426,28 +435,33 @@ task tf:apply         # Apply changes
 ## ArgoCD Troubleshooting
 
 ### Sync Wave Order
+
 - Wave 0: Bootstrap (inside it: namespace/RBAC -3, `sops-secrets` -2, `1password-operator` and `prometheus-operator-crds` -1, `homelab-environment-config` 0, ArgoCD self-manage 1)
 - Addons (core infrastructure — via CMP plugin in homelab): wave 1 in homelab (`charts/gitops/values-homelab.yaml`), chart default 2
 - Applications (user workloads — via CMP plugin in homelab): wave 10 in homelab, chart default 3
 - Full table: `docs/architecture.md` § GitOps bridge
 
 ### CMP Architecture
+
 The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to generate environment-specific Helm values at runtime, eliminating PII from committed files.
 
 - **Bootstrap chart** deploys: SOPS secrets, 1Password operator, homelab-environment-config secret
 - **CMP sidecar** runs `homelab config export --stdout` piped into `helm template`
-- **Localdev** uses native Helm with `values-localdev.yaml`, which is generated from the same templates (`homelab config export --set localdev`, `task config:export:localdev`) and committed; level 0 fails when it is stale (no CMP). Kind differences are capability keys in `platform.schema.yaml` (`ARGOCD_AUTOMATED_SYNC=false`, `MEDIA_PROVIDER=ephemeral`, `CERT_ISSUER=selfsigned`, `STORAGE_PROVIDER=local-path`, `SECRETS_PROVIDER=none`, `KUBELET_SERVING_CERT=self-signed`), never environment-name branches (ADR-011, ADR-012)
+- __Localdev__ uses native Helm with `values-localdev.yaml`, which is generated from the same templates (`homelab config export --set localdev`, `task config:export:localdev`) and committed; level 0 fails when it is stale (no CMP). Kind differences are capability keys in `platform.schema.yaml` (`ARGOCD_AUTOMATED_SYNC=false`, `MEDIA_PROVIDER=ephemeral`, `CERT_ISSUER=selfsigned`, `STORAGE_PROVIDER=local-path`, `SECRETS_PROVIDER=none`, `KUBELET_SERVING_CERT=self-signed`), never environment-name branches (ADR-011, ADR-012)
 - **Child `*-config`/`*-dependencies` charts** stay on plain `helm.valueFiles`; anything derived from `configuration/` (domain, hostnames, IPs, iSCSI portal, e-mail) reaches them via the parent Application's `helm.valuesObject`, so their committed `values-homelab.yaml` carries no PII. Level 0 mirrors this by feeding each child the `valuesObject` extracted from the rendered parent (ADR-010)
 - Decisions: `docs/project_notes/decisions.md` (entry "2026-02-11: ArgoCD CMP for PII removal" and ADR-010; the original design doc was removed in c4daa10 once implemented)
 
 ### Kind + ArgoCD loop (localdev)
-`task localdev:up` creates Kind (`homelab-localdev`, context `kind-homelab-localdev`, Cilium CNI, registry pull-through caches, fakes from `localdev/fakes/`), installs the Prometheus operator CRDs (bootstrap wave -1 in homelab, which Kind never syncs) and then ArgoCD from `versions.yaml` with the health Lua in `charts/bootstrap/files/health/`, applies the root `gitops` Application at the PR head (`-- --revision <ref>` / `LOCALDEV_REVISION`; default the upstream branch of HEAD, `main` with a warning when the branch is not pushed; the `gitops` chart hands the revision to `addons`/`applications` via `helm.valuesObject.global.targetRevision`) and syncs **every Application from the working tree** with `argocd app sync --local`, tier by tier. That requires automated sync off in localdev (`ARGOCD_AUTOMATED_SYNC=false`). After a local sync `Synced` means the tree equals the pushed head and `OutOfSync` means unpushed local changes; `task localdev:wait`, `task verify LEVEL=2` and the e2e tests judge `Healthy` + `operationState.phase == Succeeded`, never sync status. PostSync smoke Jobs (`smoke-<app>`, `<app>.smoke {enabled,url,expect}`) make an operation succeed only when the endpoint answers. `task localdev:diagnose` prints conditions, events and failing pod logs; `task localdev:sync -- --only <app>` re-syncs one app; `task localdev:report -- --base main` prints the Application table and `argocd app diff --revision main` per git-path app. CI runs the same loop in `.github/workflows/tilt-ci.yml` (`kind-argocd`, required; it checks out the PR head SHA and sets `LOCALDEV_REVISION` to it) and posts that report as the sticky PR comment `kind-preview`. Every script pins the Kind context (ADR-009); details in `docs/local-development.md` and ADR-012.
+
+`task localdev:up` creates Kind (`homelab-localdev`, context `kind-homelab-localdev`, Cilium CNI, registry pull-through caches, fakes from `localdev/fakes/`), installs the Prometheus operator CRDs (bootstrap wave -1 in homelab, which Kind never syncs) and then ArgoCD from `versions.yaml` with the health Lua in `charts/bootstrap/files/health/`, applies the root `gitops` Application at the PR head (`-- --revision <ref>` / `LOCALDEV_REVISION`; default the upstream branch of HEAD, `main` with a warning when the branch is not pushed; the `gitops` chart hands the revision to `addons`/`applications` via `helm.valuesObject.global.targetRevision`) and syncs __every Application from the working tree__ with `argocd app sync --local`, tier by tier. That requires automated sync off in localdev (`ARGOCD_AUTOMATED_SYNC=false`). After a local sync `Synced` means the tree equals the pushed head and `OutOfSync` means unpushed local changes; `task localdev:wait`, `task verify LEVEL=2` and the e2e tests judge `Healthy` + `operationState.phase == Succeeded`, never sync status. PostSync smoke Jobs (`smoke-<app>`, `<app>.smoke {enabled,url,expect}`) make an operation succeed only when the endpoint answers. `task localdev:diagnose` prints conditions, events and failing pod logs; `task localdev:sync -- --only <app>` re-syncs one app; `task localdev:report -- --base main` prints the Application table and `argocd app diff --revision main` per git-path app. CI runs the same loop in `.github/workflows/tilt-ci.yml` (`kind-argocd`, required; it checks out the PR head SHA and sets `LOCALDEV_REVISION` to it) and posts that report as the sticky PR comment `kind-preview`. Every script pins the Kind context (ADR-009); details in `docs/local-development.md` and ADR-012.
 
 ### Previews and read-only production (ADR-013)
+
 - **Previews:** a maintainer labels a PR `preview` (+ `preview:<app>` per app); the `previews` ApplicationSet renders `charts/applications` at the PR head through the CMP in preview mode (`global.preview.*`): Applications `<app>-pr<N>` in namespace `preview-<N>`, AppProject `previews`, hosts `<app>-pr<N>.<domain>`, ephemeral (`emptyDir`) storage; closing or unlabelling deletes it. Level 0 renders it as env `homelab-preview`. `docs/runbooks/previews.md`
 - **Read-only production:** agents never mutate homelab. The `agent-readonly` account may also `exec` and port-forward, for diagnosis only (`amtool alert`, the Prometheus API); it still cannot change API objects or read Secrets through the API. `task prod:kubeconfig` (once), then `task verify:prod`, `task prod:status`, `task prod:diff -- <app>` through the `homelab-readonly` context (ServiceAccount `agent-readonly`, Tailscale API server proxy) and the read-only ArgoCD `agent` account. `docs/runbooks/readonly-access.md`
 
 ### Common Errors & Solutions
+
 | Error | Cause | Solution |
 |-------|-------|----------|
 | "OnePasswordItem not found" | 1Password Operator not ready | Check sync wave ordering |
@@ -458,6 +472,7 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 | API unreachable for seconds, healthy afterwards | etcd fsync stalled by disk contention, leases expire, the Talos VIP moves | `talosctl -n <cp> logs etcd \| rg "slow fdatasync"`; `task apiserver:probe`; `docs/runbooks/control-plane-storage.md` |
 
 ### Debug Commands
+
 ```bash
 kubectl -n argocd get applications -o wide
 argocd app get <app-name> --refresh
@@ -487,11 +502,13 @@ Comments apply to every language in the repository (Go, TypeScript, YAML, templa
 ## TypeScript Scripting Patterns
 
 All scripts run on Bun (`mise.toml` pins it; dependencies are in `package.json` and `bun.lock`):
+
 ```typescript
 #!/usr/bin/env bun
 ```
 
 Conventions:
+
 - Run scripts through their `task` entry; `task test:scripts` runs the unit tests (`scripts/<name>_test.ts`, `bun test`), `task scripts:lint` checks format, lint (Biome) and types (tsc), `task scripts:fmt` formats. If `bun` or `task` is "not found", they are installed and hidden, not missing — [If your toolchain looks missing, it isn't](#if-your-toolchain-looks-missing-it-isnt)
 - Always include `--help` flag
 - Use `--dry-run` for non-destructive preview

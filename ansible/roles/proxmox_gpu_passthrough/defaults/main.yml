@@ -1,0 +1,8 @@
+---
+# Intel Arc Pro B50 passed through to the Talos GPU worker (worker-1).
+# After an FLR the card stops answering the IOMMU (AMD-Vi IOTLB_INV_TIMEOUT)
+# and the guest xe driver reads 0xFFFFFFFF from every register.
+proxmox_gpu_passthrough_vendor_id: "8086"
+proxmox_gpu_passthrough_device_id: "e212"
+proxmox_gpu_passthrough_host_driver: xe
+proxmox_gpu_passthrough_reset_method: bus
