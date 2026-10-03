@@ -44,6 +44,15 @@ clearest case) shows red in the checks list without stopping the merge. Rebasing
 turns it into a head failure, which does block. Treat a red merge-result level 0 as a
 merge blocker even though GitHub will not.
 
+A second, wider gap sits alongside it: **a gate written as a `scripts/*_test.ts` unit test
+is not in the required check at all, on either commit.** `task verify` is
+`homelab verify all`, and `task test:scripts` is not one of its checks — it sits under
+`ci:test` in `Taskfile.yml` and runs only in `verify.yml`'s `policy` job, published as
+"Policy unit tests and negative fixtures", which is not required either. So a red
+scripts-based contract gate never holds the merge button on any commit, not even after a
+rebase. Treat one as a merge blocker by hand, and prefer `internal/verify/` for a gate that
+must block. Making it block is MCAA-477; it needs repository admin, like MCAA-164.
+
 ## What level 0 checks
 
 | Check name | What it proves | Fix when it fails |
