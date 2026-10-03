@@ -4427,7 +4427,7 @@ spec:
                       severity: critical
                     annotations:
                       summary: 'PF_WORK work is 18h old and max_age deletes it silently in under 6h'
-                      description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Get a consumer taking work, or copy the queue out now. docs/runbooks/pf-work-age-expiry.md.'
+                      description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Restart the existing consumer, or back the stream up now with nats stream backup. Do not create a wildcard work-queue consumer to drain it: that permanently forecloses every other component in the domain. docs/runbooks/pf-work-age-expiry.md.'
                   # Grouped by (account, stream_name, namespace, job): PF_WORK
                   # exists once per NATS account (ADR-043) and per install, and
                   # dropping either label nets one stream's head against another's.
