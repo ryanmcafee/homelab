@@ -248,10 +248,6 @@ inputs = {
             { name = "iscsi_tcp" }
           ]
         }
-        # Node labels for storage capabilities
-        nodeLabels = {
-          "storage.kubernetes.io/iscsi-client" = "true"
-        }
         # TCP BBR congestion control for improved throughput
         sysctls = {
           "net.core.default_qdisc"          = "fq"
