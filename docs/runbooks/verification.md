@@ -339,18 +339,30 @@ a bump whose upstream render changes anything (an image tag, a CRD) waits for a 
 reads the `upgrade-diff` comment.
 
 **Regeneration bot (optional).** A chart bump also needs the committed localdev values,
-`tests/schemas`, `tests/snapshots` and the `configuration/versions.yaml` block embedded in
-`Claude.md` regenerated; until then the `level-0`, `schemas`, `snapshot` and `policy` jobs
-in `verify.yml` stay red. `task docs:embedme` is the fix for the `policy` one, which fails
-as `docs:embedme:verify`. The `regenerate` job in `upgrade.yml` does all of it
+`tests/schemas`, `tests/snapshots`, the `configuration/versions.yaml` block embedded in
+`Claude.md` and the generated regions of `readme.md` and `docs/` regenerated; until then
+the `level-0`, `schemas`, `snapshot` and `policy` jobs in `verify.yml` stay red. The
+`policy` job carries two of these: `task docs:embedme` fixes `docs:embedme:verify`, and
+`task docs:check -- --fix` fixes `task docs:check`, which a bump reaches twice — a
+`charts.cilium` bump moves the `readme.md` badge region on its own, and the regenerated
+`tests/snapshots` move the `docs/applications.md` addons table. The `regenerate` job in
+`upgrade.yml` does all of it
 on `renovate/*` branches and pushes one commit, `chore(deps): regenerate snapshots,
-schemas, localdev values and embedded snippets`, authored by `homelab-regen-bot
+schemas, localdev values, embedded snippets and doc regions`, authored by `homelab-regen-bot
 <homelab-regen-bot@users.noreply.github.com>`, with a GitHub App token. This supersedes
 the "no auto-commit" stance of the `snapshot` job for this bot only, and it answers that
 stance's three reasons: an App-token push triggers the other workflows (a `GITHUB_TOKEN`
 push does not), `gitIgnoredAuthors` keeps Renovate managing and rebasing the branch, and
 the automerge gate blocks any bump whose render changed. A loop guard skips a head commit
 that is already the bot's. Human PRs are never committed to.
+
+The bot commits every generated path except `.github/homelab.svg`. Every SVG literal
+`docs:check --fix` can rewrite is a count of addons, applications or synced Applications,
+and the rest — the suite counter, the route hosts — it can only report; a version bump
+moves none of them. So a moved SVG on a `renovate/*` branch is a human change, and the
+commit step's "outside its scope" warning names it rather than committing it half
+regenerated. The exclusion and its reason live in `BOT_UNCOMMITTED_PATHS` in
+`scripts/renovate-regen.ts`.
 
 Without the secrets the job prints a notice and does nothing. To enable it (human step):
 create a GitHub App owned by the repository owner with repository permission
@@ -377,6 +389,7 @@ and verifies both on the commit it just made. It refuses to run when:
 | Guard | Why |
 |---|---|
 | `renovate-regen/identity-parity` | `upgrade.yml`'s `REGEN_BOT_EMAIL` is not in `renovate.json5`'s `gitIgnoredAuthors`. Three places have to agree and nothing else checks that they do; `scripts/renovate-regen_test.ts` asserts it against the real files, so drift fails `task test:scripts` instead of silently orphaning every future branch. |
+| `renovate-regen/workflow-parity` | `upgrade.yml`'s `regenerate` job does not run the same steps, or commit the same paths, as `REGEN_STEPS`/`GENERATED_PATHS` in `scripts/renovate-regen.ts`. The two are one contract in two languages, and the difference is silent: whatever the bot regenerates less of stays red on every Renovate PR with no automatic remedy, `platformAutomerge` never fires, and a human runs `task renovate:regen` by hand for every bump. `scripts/renovate-regen_test.ts` asserts it against the real workflow, so drift fails `task test:scripts`. A deliberate difference is declared in `BOT_UNCOMMITTED_PATHS` with its reason; there is no other bypass. |
 | `renovate-regen/branch-scope` | HEAD is not a `renovate/*` branch. Signing a human PR's commit as the bot would invite Renovate to force-push over real work. Bypass: `-- --any-branch`, with the reason in the commit or PR body. |
 | `renovate-regen/generated-only` | Regeneration touched a file outside the generated set. No bypass: commit that file separately under your own author — which keeps the branch out of Renovate's hands, and for a real change that is the correct outcome. |
 | `renovate-regen/clean-tree` | The working tree was already dirty, so the commit would not be regeneration output alone. |
@@ -448,7 +461,7 @@ On an ordinary machine, then, set both and read them back — never one without 
 git -c user.name=homelab-regen-bot \
     -c user.email=homelab-regen-bot@users.noreply.github.com \
     commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>" \
-    -m 'chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets'
+    -m 'chore(deps): regenerate snapshots, schemas, localdev values, embedded snippets and doc regions'
 git log -1 --format='%ae %ce'   # both must be homelab-regen-bot@users.noreply.github.com
 ```
 
@@ -471,7 +484,7 @@ only path that takes both as explicit fields:
 
 ```sh
 gh api -X PUT "repos/$OWNER/$REPO/contents/$PATH" -f branch="$BRANCH" \
-  -f message='chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets' \
+  -f message='chore(deps): regenerate snapshots, schemas, localdev values, embedded snippets and doc regions' \
   -f content="$(base64 -w0 "$PATH")" -f sha="$BLOB_SHA" \
   -f 'author[name]=homelab-regen-bot' \
   -f 'author[email]=homelab-regen-bot@users.noreply.github.com' \
