@@ -1164,3 +1164,80 @@ litellm:
       limits:
         cpu: "1"
         memory: 1Gi
+
+# ============================================================================
+# OpenClaw - AI agent instances (openclaw-operator)
+# Sync Waves: 10 namespaces, 11 openclaw-operator, 12 openclaw-dependencies,
+# 13 openclaw (issue #425, docs/apps/openclaw.md)
+# ============================================================================
+# Placeholders only. The real values (hostname, 1Password paths, storage class,
+# versions) come from configuration/templates/helm-apps.tmpl: the CMP renders
+# them for homelab and `task config:export:localdev` writes values-localdev.yaml.
+
+openclaw:
+  enabled: false
+  namespace: openclaw
+  hostname: openclaw.example.com
+
+  # openclaw-operator: OCI chart (repoURL without oci://), CRDs + controller.
+  # configuration/versions.yaml charts.openclaw-operator is the only pin.
+  operator:
+    namespace: openclaw-system
+    chart:
+      name: openclaw-operator
+      repo: ghcr.io/paperclipinc/charts
+      version: "0.40.0"
+    serviceMonitor:
+      enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  # charts/openclaw-dependencies: OnePasswordItems -> Secrets openclaw-api-keys
+  # (ANTHROPIC_OAUTH_TOKEN, plus an API key per enabled toggle) and
+  # openclaw-gateway (token). Inert without a secret store.
+  dependencies:
+    onePassword:
+      enabled: false
+      apiKeysItemPath: ""
+      gatewayItemPath: ""
+
+  # charts/openclaw: the openclaw.rocks OpenClawInstance. image.tag is pinned from
+  # configuration/versions.yaml images.openclaw (the CRD refuses an Instance
+  # without a tag or digest).
+  instance:
+    image:
+      repository: ghcr.io/openclaw/openclaw
+      tag: ""
+    # No Gateway is named: the internal one serves the whole LAN, not only the
+    # tailnet, and a name here would survive the merge and keep openclaw in the
+    # docs/networking.md route inventory with nothing rendered behind it.
+    route:
+      enabled: false
+    persistence:
+      size: 10Gi
+      storageClass: ""
+    observability:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: false
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+
+  # PostSync smoke hook (templates/_smoke.tpl): the gateway's liveness path on
+  # the Instance Service (gateway port 18789). Unauthenticated, unlike the
+  # Control UI, which needs the gateway token.
+  smoke:
+    enabled: true
+    url: http://openclaw.openclaw.svc.cluster.local:18789/healthz
+    expect: ["200"]

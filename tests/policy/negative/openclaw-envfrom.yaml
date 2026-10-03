@@ -1,0 +1,12 @@
+# expect: openclaw-envfrom
+# The shape the upstream OpenClaw samples use: one Secret reference that exposes
+# every key it holds, including the provider API keys no toggle asked for.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  envFrom:
+    - secretRef:
+        name: openclaw-api-keys

@@ -1,0 +1,19 @@
+---
+# Source: openclaw-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: openclaw-api-keys
+  namespace: openclaw
+spec:
+  itemPath: "vaults/homelab/items/openclaw-api-keys"
+
+---
+# Source: openclaw-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: openclaw-gateway
+  namespace: openclaw
+spec:
+  itemPath: "vaults/homelab/items/openclaw-gateway"

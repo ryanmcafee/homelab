@@ -1,0 +1,290 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "OpenClawClusterDefaults is a cluster-scoped singleton (name must be \"cluster\")\nthat provides default values merged into every OpenClawInstance at reconcile\ntime. It exists so platform operators managing air-gapped or restricted-network\nenvironments can set a single source of truth for image registry mirrors,\nshared environment variables (e.g. NPM_CONFIG_REGISTRY, PIP_INDEX_URL), and\nruntime-dep init containers without duplicating the same boilerplate in every\nOpenClawInstance manifest.\n\nPrecedence: per-instance fields always win over cluster defaults. A default\nis only applied when the corresponding instance field is unset.",
+  "properties": {
+    "apiVersion": {
+      "description": "APIVersion defines the versioned schema of this representation of an object.\nServers should convert recognized schemas to the latest internal value, and\nmay reject unrecognized values.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+      "type": "string"
+    },
+    "kind": {
+      "description": "Kind is a string value representing the REST resource this object represents.\nServers may infer this from the endpoint the client submits requests to.\nCannot be updated.\nIn CamelCase.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object"
+    },
+    "spec": {
+      "description": "OpenClawClusterDefaultsSpec defines cluster-wide defaults that the operator\napplies to every OpenClawInstance at reconcile time. Per-instance fields\nalways win: a default is only applied when the instance field is unset.",
+      "properties": {
+        "env": {
+          "description": "Env is a list of default environment variables merged into every\ninstance's container env. Instance-level env entries with the same Name\noverride the cluster default for that name. Defaults appear first in\nthe resulting env list, followed by instance-only names.",
+          "items": {
+            "description": "EnvVar represents an environment variable present in a Container.",
+            "properties": {
+              "name": {
+                "description": "Name of the environment variable. Must be a C_IDENTIFIER.",
+                "type": "string"
+              },
+              "value": {
+                "description": "Variable references $(VAR_NAME) are expanded\nusing the previously defined environment variables in the container and\nany service environment variables. If a variable cannot be resolved,\nthe reference in the input string will be unchanged. Double $$ are reduced\nto a single $, which allows for escaping the $(VAR_NAME) syntax: i.e.\n\"$$(VAR_NAME)\" will produce the string literal \"$(VAR_NAME)\".\nEscaped references will never be expanded, regardless of whether the variable\nexists or not.\nDefaults to \"\".",
+                "type": "string"
+              },
+              "valueFrom": {
+                "description": "Source for the environment variable's value. Cannot be used if value is not empty.",
+                "properties": {
+                  "configMapKeyRef": {
+                    "description": "Selects a key of a ConfigMap.",
+                    "properties": {
+                      "key": {
+                        "description": "The key to select.",
+                        "type": "string"
+                      },
+                      "name": {
+                        "default": "",
+                        "description": "Name of the referent.\nThis field is effectively required, but due to backwards compatibility is\nallowed to be empty. Instances of this type with an empty value here are\nalmost certainly wrong.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names",
+                        "type": "string"
+                      },
+                      "optional": {
+                        "description": "Specify whether the ConfigMap or its key must be defined",
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "key"
+                    ],
+                    "type": "object"
+                  },
+                  "fieldRef": {
+                    "description": "Selects a field of the pod: supports metadata.name, metadata.namespace, `metadata.labels['<KEY>']`, `metadata.annotations['<KEY>']`,\nspec.nodeName, spec.serviceAccountName, status.hostIP, status.podIP, status.podIPs.",
+                    "properties": {
+                      "apiVersion": {
+                        "description": "Version of the schema the FieldPath is written in terms of, defaults to \"v1\".",
+                        "type": "string"
+                      },
+                      "fieldPath": {
+                        "description": "Path of the field to select in the specified API version.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fieldPath"
+                    ],
+                    "type": "object"
+                  },
+                  "resourceFieldRef": {
+                    "description": "Selects a resource of the container: only resources limits and requests\n(limits.cpu, limits.memory, limits.ephemeral-storage, requests.cpu, requests.memory and requests.ephemeral-storage) are currently supported.",
+                    "properties": {
+                      "containerName": {
+                        "description": "Container name: required for volumes, optional for env vars",
+                        "type": "string"
+                      },
+                      "divisor": {
+                        "anyOf": [
+                          {
+                            "type": "integer"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ],
+                        "description": "Specifies the output format of the exposed resources, defaults to \"1\"",
+                        "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+                      },
+                      "resource": {
+                        "description": "Required: resource to select",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "resource"
+                    ],
+                    "type": "object"
+                  },
+                  "secretKeyRef": {
+                    "description": "Selects a key of a secret in the pod's namespace",
+                    "properties": {
+                      "key": {
+                        "description": "The key of the secret to select from.  Must be a valid secret key.",
+                        "type": "string"
+                      },
+                      "name": {
+                        "default": "",
+                        "description": "Name of the referent.\nThis field is effectively required, but due to backwards compatibility is\nallowed to be empty. Instances of this type with an empty value here are\nalmost certainly wrong.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names",
+                        "type": "string"
+                      },
+                      "optional": {
+                        "description": "Specify whether the Secret or its key must be defined",
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "key"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "image": {
+          "description": "Image is the default container image configuration applied to instances\nwhere the corresponding instance fields are unset. Each sub-field is\nmerged independently (e.g. a cluster-default tag still applies even when\nthe instance sets its own repository).",
+          "properties": {
+            "digest": {
+              "description": "Digest is the container image digest (overrides tag if specified)",
+              "type": "string"
+            },
+            "pullPolicy": {
+              "default": "IfNotPresent",
+              "description": "PullPolicy specifies when to pull the image",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ],
+              "type": "string"
+            },
+            "pullSecrets": {
+              "description": "PullSecrets is a list of secret names for pulling from private registries",
+              "items": {
+                "description": "LocalObjectReference contains enough information to let you locate the\nreferenced object inside the same namespace.",
+                "properties": {
+                  "name": {
+                    "default": "",
+                    "description": "Name of the referent.\nThis field is effectively required, but due to backwards compatibility is\nallowed to be empty. Instances of this type with an empty value here are\nalmost certainly wrong.\nMore info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "repository": {
+              "default": "ghcr.io/openclaw/openclaw",
+              "description": "Repository is the container image repository",
+              "type": "string"
+            },
+            "tag": {
+              "default": "latest",
+              "description": "Tag is the container image tag",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "registry": {
+          "description": "Registry is the default container image registry override applied to\ninstances where spec.registry is unset. Replaces the registry prefix of\nall container images (main, sidecars, init containers).\nExample: \"my-registry.example.com\".",
+          "type": "string"
+        },
+        "runtimeDeps": {
+          "description": "RuntimeDeps configures the default set of built-in init containers\n(pnpm, Python) applied to instances where the corresponding fields are\nunset. A cluster default of true for a runtime dep is always applied\nunless the instance explicitly opts out (sets the field to false).\nNOTE: because the enablement fields are plain booleans, \"unset\" and\n\"false\" are indistinguishable; those fields are OR-merged here. UVImage\nfollows normal precedence and applies only when the instance omits it.",
+          "properties": {
+            "pnpm": {
+              "description": "Pnpm installs pnpm via corepack for npm-based MCP servers and skills.",
+              "type": "boolean"
+            },
+            "python": {
+              "description": "Python installs Python 3.12 and uv for Python-based MCP servers and skills.",
+              "type": "boolean"
+            },
+            "uvImage": {
+              "description": "UVImage configures the uv bootstrap image used by the built-in init-uv\nand init-python containers.",
+              "properties": {
+                "digest": {
+                  "description": "Digest is the container image digest for supply chain security.\nWhen set, it takes precedence over Tag.",
+                  "type": "string"
+                },
+                "repository": {
+                  "default": "ghcr.io/astral-sh/uv",
+                  "description": "Repository is the container image repository.",
+                  "type": "string"
+                },
+                "tag": {
+                  "default": "0.6-bookworm-slim",
+                  "description": "Tag is the container image tag.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "status": {
+      "description": "OpenClawClusterDefaultsStatus reports which singleton (if any) is currently\nbeing applied by the operator.",
+      "properties": {
+        "conditions": {
+          "description": "Conditions describes the current state of the singleton, including\nwhether the name matches the expected \"cluster\" singleton.",
+          "items": {
+            "description": "Condition contains details for one aspect of the current state of this API Resource.",
+            "properties": {
+              "lastTransitionTime": {
+                "description": "lastTransitionTime is the last time the condition transitioned from one status to another.\nThis should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.",
+                "format": "date-time",
+                "type": "string"
+              },
+              "message": {
+                "description": "message is a human readable message indicating details about the transition.\nThis may be an empty string.",
+                "maxLength": 32768,
+                "type": "string"
+              },
+              "observedGeneration": {
+                "description": "observedGeneration represents the .metadata.generation that the condition was set based upon.\nFor instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date\nwith respect to the current state of the instance.",
+                "format": "int64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reason": {
+                "description": "reason contains a programmatic identifier indicating the reason for the condition's last transition.\nProducers of specific condition types may define expected values and meanings for this field,\nand whether the values are considered a guaranteed API.\nThe value should be a CamelCase string.\nThis field may not be empty.",
+                "maxLength": 1024,
+                "minLength": 1,
+                "pattern": "^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$",
+                "type": "string"
+              },
+              "status": {
+                "description": "status of the condition, one of True, False, Unknown.",
+                "enum": [
+                  "True",
+                  "False",
+                  "Unknown"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "description": "type of condition in CamelCase or in foo.example.com/CamelCase.",
+                "maxLength": 316,
+                "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "lastTransitionTime",
+              "message",
+              "reason",
+              "status",
+              "type"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "observedGeneration": {
+          "description": "ObservedGeneration is the generation of the spec most recently\nprocessed by the operator.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "type": "object"
+}

@@ -115,6 +115,7 @@ invoked wrongly.`,
 					continue
 				}
 				result.Add(verify.LintGitOps(env.Name, charts, reg, repoRoot)...)
+				result.Add(verify.OpenClawCheck(cmd.Context(), verify.ExecRunner{}, env.Name, charts, false))
 			}
 			result.Finalize(start)
 
