@@ -526,6 +526,15 @@ kubectl -n argocd logs -l app.kubernetes.io/name=argocd-application-controller
 | Secrets | Fake/disabled | 1Password + SOPS |
 | GPU | None | NVIDIA GPU (see CLAUDE.local.md for model) |
 
+## Code Comments and Commit Messages
+
+Comments apply to every language in the repository (Go, TypeScript, YAML, templates):
+
+- Use comments sparingly; prefer self-documenting code (clear names, small functions, tests that state the behaviour).
+- When a comment is needed, keep it succinct: one sentence at most.
+- Neither comments nor commit messages reference ADRs or internal project issues.
+- Public GitHub issues may be referenced in either when needed (for example, the upstream bug a workaround exists for).
+
 ## TypeScript Scripting Patterns
 
 All scripts run on Bun (`mise.toml` pins it; dependencies are in `package.json` and `bun.lock`):
