@@ -61,7 +61,7 @@ locals {
   vip_endpoint     = local.config.CP_VIP
 
   # Talos configuration (using latest stable versions)
-  talos_version      = "v1.12.2"
+  talos_version      = "v1.13.11"
   kubernetes_version = "v1.32.0"
 
   # Image Cache Configuration

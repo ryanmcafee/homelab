@@ -25,9 +25,9 @@ entries:
 pins:
   - file: terragrunt/environments/homelab/env.hcl
     key: tools.talos
-    revision: v1.12.2
+    revision: v1.13.11
     reason: >-
-      the cluster runs v1.12.2; the upgrade to versions.yaml's target is staged one minor at a
+      the cluster runs v1.13.11; the upgrade to versions.yaml's target is staged one minor at a
       time by the owner, each step moving
       env.hcl and this revision together
   - file: terragrunt/environments/homelab/env.hcl
