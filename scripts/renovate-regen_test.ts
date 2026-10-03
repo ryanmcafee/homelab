@@ -27,6 +27,7 @@ import {
 import {
   branchGuardError,
   commitIdentityFindings,
+  commitPreflightError,
   COMMITTER_READ_FROM_MAJOR,
   committerIsRead,
   deployedMajorFindings,
@@ -642,4 +643,35 @@ test("readChangedPaths returns nothing for a real clean worktree", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("managed Git committer mismatch fails before the commit", () => {
+  const error = commitPreflightError(
+    "operator <operator@example.com> 1 +0000",
+    BOT_EMAIL_FIXTURE,
+  );
+  assert(error !== null);
+  assertStringIncludes(error, "stopped before staging or committing");
+  assertStringIncludes(error, "governed API commit path");
+});
+
+test("managed Git committer preflight accepts the bot identity", () => {
+  assertEquals(
+    commitPreflightError(
+      `homelab-regen-bot <${BOT_EMAIL_FIXTURE}> 1 +0000`,
+      BOT_EMAIL_FIXTURE,
+    ),
+    null,
+  );
+});
+
+test("managed regeneration never launches Git outside the PATH wrapper", () => {
+  const source = readFileSync("scripts/renovate-regen.ts", "utf8");
+  assert(
+    !source.includes('"/usr/bin/git"') &&
+      !source.includes('"/opt/homebrew/bin/git"') &&
+      !source.includes('"/usr/local/bin/git"') &&
+      !source.includes("const direct = unwrappedGit("),
+    "regeneration must refuse a pinned committer instead of bypassing managed Git",
+  );
 });
