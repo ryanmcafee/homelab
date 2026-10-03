@@ -121,6 +121,7 @@ Each entry should include:
 
 ## Pending/In Progress
 
+- **2026-09-30** - [MCAA-913](/MCAA/issues/MCAA-913): #255's deployed-major check omitted its head because it was open PR 104 while `gh pr list --limit 100` returned 100. A paginated same-repository read and 104-PR regression are on `fix/mcaa-913-renovate-major-pagination`; publishing/checks are pending GitHub write identity.
 - **2026-09-30** - PR dependency triage cross-PR cancellation: workflow concurrency now keys PR events by number and schedule/manual sweeps separately; focused regression test reproduced the prior collision and passes after the fix. [MCAA-1070](/MCAA/issues/MCAA-1070).
 - **2026-09-30** - Cold-draw script test stabilization for PR #460: injectable command runner removes real `kubectl`/`docker` calls from the no-cluster unit test while retaining missing-evidence assertions; 25 focused and 619 script cases pass locally. [MCAA-1007](/MCAA/issues/MCAA-1007).
 - **2026-09-30** - PR dependency triage label-write 403: PR #533 (`1cc4189`) scopes the job to `pull-requests: write` and adds targeted dispatch; run 36656956730 is the known-bad case. Security signed off on the scope, but this integration's targeted dispatch of #511 returns Actions HTTP 403, so a live known-good label write remains pending — https://github.com/ryanmcafee/homelab/pull/533

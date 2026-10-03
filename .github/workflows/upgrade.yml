@@ -53,6 +53,9 @@ on:
       - 'configuration/versions.yaml'
       - 'charts/**'
       - '.github/workflows/upgrade.yml'
+      - 'Taskfile.yml'
+      - 'scripts/renovate-regen.ts'
+      - 'scripts/renovate-pr-list_test.ts'
       # The undeclared-values gate and its allowlist: a PR that changes either
       # has to run it, and tests/snapshots is where it reads the values from.
       - 'scripts/upstream-values-check.ts'
@@ -339,6 +342,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_EXPECTED_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: task renovate:deployed-major
 
   regenerate:
