@@ -129,7 +129,7 @@ whole stack; `terragrunt/environments/homelab/env.hcl` `gpu_vendor` must say the
 |--|-----------------|---------------------|
 | Card | Arc Pro B50 | Quadro P2200 |
 | Talos image | `talos-image-gpu-intel` unit, `talos/image/schematic-intel.yaml` (`siderolabs/xe`, `siderolabs/mei`, `i915-ucode`) | `talos-image-gpu`, `talos/image/schematic.yaml` (`nonfree-kmod-nvidia`, `nvidia-container-toolkit`) |
-| Machine patch | `gpu_intel_config_patch` in the `talos-cluster` unit (reference copy `talos/patches/gpu-passthrough-intel.yaml`): loads `xe`, labels `intel.com/gpu=true`, soft taint `intel.com/gpu=true:PreferNoSchedule` | `talos/patches/gpu-passthrough.yaml` |
+| Machine patch | `gpu_intel_config_patch` in the `talos-cluster` unit (reference copy `talos/patches/gpu-passthrough-intel.yaml`): loads `xe`, labels `intel.com/gpu=true` (no taint: NodeRestriction forbids a node from setting its own taints) | `talos/patches/gpu-passthrough.yaml` |
 | Kubernetes | `intel-device-plugins-operator` + `intel-gpu-device-plugin` Applications, `node-feature-discovery` | `nvidia-gpu-operator` Application |
 | Check | `task gpu:verify` (`homelab verify gpu`, vendor from config) | same |
 

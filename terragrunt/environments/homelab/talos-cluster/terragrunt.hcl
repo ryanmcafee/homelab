@@ -153,9 +153,6 @@ inputs = {
         "nvidia.com/gpu"                              = "true"
         "feature.node.kubernetes.io/pci-10de.present" = "true"
       }
-      nodeTaints = {
-        "nvidia.com/gpu" = "true:PreferNoSchedule"
-      }
     }
   })
 
@@ -174,9 +171,6 @@ inputs = {
       nodeLabels = {
         "intel.com/gpu"                               = "true"
         "feature.node.kubernetes.io/pci-8086.present" = "true"
-      }
-      nodeTaints = {
-        "intel.com/gpu" = "true:PreferNoSchedule"
       }
     }
   })

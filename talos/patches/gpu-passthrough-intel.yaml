@@ -20,11 +20,6 @@ machine:
     # PCI vendor ID for Intel (8086)
     feature.node.kubernetes.io/pci-8086.present: "true"
 
-  # Taint Intel GPU workers so non-GPU workloads prefer to schedule elsewhere.
-  # PreferNoSchedule is a soft repel — DaemonSets and other system pods still schedule.
-  nodeTaints:
-    intel.com/gpu: "true:PreferNoSchedule"
-
   # Sysctls for container runtime (matching NVIDIA pattern)
   sysctls:
     vm.swappiness: "10"
