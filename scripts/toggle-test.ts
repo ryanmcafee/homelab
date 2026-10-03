@@ -9,19 +9,14 @@
  * and asserts each rendered output matches its expected shape (TGL-01..TGL-04).
  *
  * - GPU_VENDOR=none   → no GPU operator Applications, no Plex GPU block
- * - GPU_VENDOR=nvidia → byte-identical to the golden snapshots at
- *                       tests/snapshots/homelab/{addons,applications}.yaml
- *                       (homelab.yaml.example, which this snapshot was
- *                       rendered from, sets GPU_VENDOR: nvidia). A mismatch
- *                       means either a real regression or that the snapshots
- *                       are stale — run `task test:snapshot -- --update` and
- *                       review the diff before trusting either explanation.
- * - GPU_VENDOR=intel  → intel-gpu-device-plugin Application present, Plex has
- *                       /dev/dri mounted, no runtimeClassName. Plex does NOT
- *                       yet request the gpu.intel.com/xe resource — that
- *                       limit is intentionally omitted (see
- *                       configuration/templates/helm-apps.tmpl) until the
- *                       device plugin advertises it in node allocatable.
+ * - GPU_VENDOR=nvidia → nvidia-gpu-operator Application present, Plex has
+ *                       runtimeClassName nvidia, no Intel bits.
+ * - GPU_VENDOR=intel  → intel-gpu-device-plugin Application present, Plex
+ *                       requests gpu.intel.com/xe, no /dev/dri hostPath, no
+ *                       runtimeClassName.
+ *
+ * The vendor homelab.yaml.example sets must also be byte-identical to the
+ * golden snapshots at tests/snapshots/homelab/{addons,applications}.yaml.
  *
  * All three renders are validated against `helm lint` and `kubeconform -strict`.
  *
@@ -73,12 +68,13 @@ const ALL_VENDORS: Vendor[] = ["none", "nvidia", "intel"];
 let ARTIFACT_ROOT = "";
 // SNAPSHOT_DIR holds the golden, byte-exact renders produced by
 // `task test:snapshot -- --update` (see internal/verify/snapshot.go). The
-// nvidia toggle state is asserted against SNAPSHOT_DIR/{addons,applications}.yaml
+// toggle state matching homelab.yaml.example is asserted against SNAPSHOT_DIR/{addons,applications}.yaml
 // instead of a separate fixture, so there is exactly one source of truth for
 // "what does a homelab render look like" — this test's own render must match
 // internal/verify/render.go's invocation exactly (release name, --include-crds,
 // -f order) for that comparison to be meaningful. See renderChart() below.
 const SNAPSHOT_DIR = "tests/snapshots/homelab";
+const EXAMPLE_ENV = "configuration/environments/homelab.yaml.example";
 const HOMELAB_BIN = "./bin/homelab";
 const ADDONS_CHART = "charts/addons";
 const APPS_CHART = "charts/applications";
@@ -175,7 +171,7 @@ Flags:
   --vendor=<v>       Run only one vendor (none|nvidia|intel); default: all three
   --keep-artifacts   Do not delete the artifact temp dir on exit
 
-  On a GPU_VENDOR=nvidia mismatch against the golden snapshots, run
+  On a mismatch against the golden snapshots, run
   \`task test:snapshot -- --update\` and review the diff — see
   tests/snapshots/README.md.
 
@@ -271,8 +267,7 @@ async function writeVendorEnvFile(
 ): Promise<string> {
   // Use homelab.yaml.example as the base (it has all the keys defaults.yaml
   // leaves unset, e.g. TRUENAS_IP, NFS_SHARE_ALLOW), then override GPU_VENDOR.
-  const examplePath = "configuration/environments/homelab.yaml.example";
-  const base = await readFile(examplePath, "utf8");
+  const base = await readFile(EXAMPLE_ENV, "utf8");
   // Replace the GPU_VENDOR line with the target vendor.
   const overridden = base.replace(
     /^GPU_VENDOR:.*$/m,
@@ -285,6 +280,13 @@ async function writeVendorEnvFile(
   const envPath = `${outDir}/env.yaml`;
   await writeFile(envPath, final);
   return envPath;
+}
+
+async function exampleVendor(): Promise<Vendor> {
+  const match = (await readFile(EXAMPLE_ENV, "utf8")).match(
+    /^GPU_VENDOR:\s*"?(none|nvidia|intel)"?/m,
+  );
+  return match ? (ALL_VENDORS.find((v) => v === match[1]) ?? "none") : "none";
 }
 
 // ============================================================================
@@ -564,7 +566,7 @@ function assertNone(addonsYaml: string, appsYaml: string): AssertionFailure[] {
   return f;
 }
 
-// SNAPSHOT_MISMATCH_HINT is appended to a failing nvidia assertion's detail.
+// SNAPSHOT_MISMATCH_HINT is appended to a failing snapshot assertion's detail.
 // A mismatch means either a real regression, or that the golden snapshots
 // are stale relative to current source — `task test:snapshot -- --update`
 // regenerates them (from the same env.EnvFile / helm invocation this test
@@ -572,7 +574,8 @@ function assertNone(addonsYaml: string, appsYaml: string): AssertionFailure[] {
 // as the (now-removed) --regen-baseline flow used to be for the old fixture.
 const SNAPSHOT_MISMATCH_HINT = "run: task test:snapshot -- --update";
 
-async function assertNvidia(
+async function assertSnapshot(
+  vendor: Vendor,
   addonsYaml: string,
   appsYaml: string,
   outDir: string,
@@ -585,7 +588,7 @@ async function assertNvidia(
 
   if (addonsYaml !== snapshotAddons) {
     f.push({
-      rule: "addons[nvidia] MUST be byte-identical to the golden snapshot",
+      rule: `addons[${vendor}] MUST be byte-identical to the golden snapshot`,
       detail: `${await unifiedDiff(
         snapshotAddonsPath,
         `${outDir}/addons.yaml`,
@@ -594,13 +597,30 @@ async function assertNvidia(
   }
   if (appsYaml !== snapshotApps) {
     f.push({
-      rule: "apps[nvidia] MUST be byte-identical to the golden snapshot",
+      rule: `apps[${vendor}] MUST be byte-identical to the golden snapshot`,
       detail: `${await unifiedDiff(
         snapshotAppsPath,
         `${outDir}/applications.yaml`,
       )}\n${SNAPSHOT_MISMATCH_HINT}`,
     });
   }
+  return f;
+}
+
+function assertNvidia(
+  addonsYaml: string,
+  appsYaml: string,
+): AssertionFailure[] {
+  const f: AssertionFailure[] = [];
+  mustContain("addons[nvidia]", addonsYaml, "name: nvidia-gpu-operator", f);
+  mustNotContain(
+    "addons[nvidia]",
+    addonsYaml,
+    "name: intel-gpu-device-plugin",
+    f,
+  );
+  mustContain("apps[nvidia]", appsYaml, "runtimeClassName: nvidia", f);
+  mustNotContain("apps[nvidia]", appsYaml, "gpu.intel.com/xe", f);
   return f;
 }
 
@@ -611,17 +631,10 @@ function assertIntel(addonsYaml: string, appsYaml: string): AssertionFailure[] {
   mustContain("addons[intel]", addonsYaml, "kind: Application", f);
   // NVIDIA operator Application absent
   mustNotContain("addons[intel]", addonsYaml, "name: nvidia-gpu-operator", f);
-  // Plex Intel bits. No mustContain(..., "gpu.intel.com/xe", ...) here: per
-  // configuration/templates/helm-apps.tmpl (see the "NOTE: gpu.intel.com/xe
-  // resource limit intentionally NOT set yet" comment there) and
-  // charts/applications/values.yaml, that resource limit is deliberately
-  // omitted until the intel-gpu-device-plugin actually advertises
-  // gpu.intel.com/xe in node allocatable on this cluster — asserting on it
-  // would either false-pass against a stray comment (as it did before) or
-  // permanently fail against the intentional current design. Plex instead
-  // uses a hostPath /dev/dri mount, which the two checks below do cover.
-  mustContain("apps[intel]", appsYaml, "path: /dev/dri", f);
-  mustContain("apps[intel]", appsYaml, "mountPath: /dev/dri", f);
+  // Plex gets the GPU from the device plugin, not a /dev/dri hostPath
+  mustContain("apps[intel]", appsYaml, "gpu.intel.com/xe: 1", f);
+  mustNotContain("apps[intel]", appsYaml, "path: /dev/dri", f);
+  mustNotContain("apps[intel]", appsYaml, "mountPath: /dev/dri", f);
   // Plex must NOT have NVIDIA bits
   mustNotContain("apps[intel]", appsYaml, "runtimeClassName: nvidia", f);
   mustNotContain("apps[intel]", appsYaml, "nvidia.com/gpu", f);
@@ -643,11 +656,26 @@ async function runAssertions(
 ): Promise<AssertionFailure[]> {
   const addonsYaml = await readFile(`${outDir}/addons.yaml`, "utf8");
   const appsYaml = await readFile(`${outDir}/applications.yaml`, "utf8");
+  const snapshotFailures =
+    vendor === (await exampleVendor())
+      ? await assertSnapshot(vendor, addonsYaml, appsYaml, outDir)
+      : [];
+  return [
+    ...vendorAssertions(vendor, addonsYaml, appsYaml),
+    ...snapshotFailures,
+  ];
+}
+
+function vendorAssertions(
+  vendor: Vendor,
+  addonsYaml: string,
+  appsYaml: string,
+): AssertionFailure[] {
   switch (vendor) {
     case "none":
       return assertNone(addonsYaml, appsYaml);
     case "nvidia":
-      return await assertNvidia(addonsYaml, appsYaml, outDir);
+      return assertNvidia(addonsYaml, appsYaml);
     case "intel":
       return assertIntel(addonsYaml, appsYaml);
   }

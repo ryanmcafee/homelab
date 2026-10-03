@@ -84,14 +84,6 @@ plex:
       limits:
         cpu: 1000m
         memory: 1Gi
-    # NOTE: gpu.intel.com/xe resource limit intentionally NOT set yet.
-    # The intel-gpu-device-plugin DaemonSet is Running on talos-lz1-3u1 but is
-    # not advertising gpu.intel.com/xe in node allocatable (plugin logs cut off
-    # after "GPU (i915/xe) resource share count = 1" with no advertisement
-    # events; likely Talos /dev/dri/by-path layout incompatibility). Plex gets
-    # /dev/dri via the hostPath mount in plex.yaml's Intel branch and uses the
-    # GPU directly via the xe driver. Re-add the resource limit once the
-    # device plugin actually advertises the resource.
 
   # Persistence configuration
   persistence:
@@ -130,11 +122,6 @@ plex:
       emptyDir: {}
     - name: pictures
       emptyDir: {}
-  # NOTE: dev-dri volume + mount for Intel GPU is added by the Plex application
-  # chart template (charts/applications/templates/plex.yaml) based on
-  # .Values.plex.gpu.vendor == "intel". Don't append it here, or the structured-
-  # merge diff against the rendered StatefulSet fails with "duplicate entries
-  # for key [name=\"dev-dri\"]".
 
   extraVolumeMounts:
     - name: movies
@@ -149,7 +136,6 @@ plex:
     - name: pictures
       mountPath: /pictures
       readOnly: false
-  # (dev-dri mount is also added by plex.yaml — see note above.)
 
   # HTTPRoute on the https listener of the external Gateway (GATEWAY_EXTERNAL);
   # Cloudflare CNAMEs the hostname to the Gateway's target, EXTERNAL_DNS_DEFAULT_TARGET.
