@@ -24,3 +24,6 @@
 
 - name: Configure Proxmox networking
   import_playbook: proxmox-networking.yml
+
+- name: Configure GPU passthrough
+  import_playbook: proxmox-gpu-passthrough.yml
