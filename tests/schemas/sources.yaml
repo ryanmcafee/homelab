@@ -96,6 +96,19 @@ sources:
       name: nack
     kinds: [Stream, Consumer]
 
+  - name: argo-events
+    versionKey: argo-events
+    # The CRDs are templates under templates/crds/ gated by .Values.crds.install
+    # (default true), so `helm show crds` is empty and the
+    # `helm template --include-crds` fallback applies. Each one declares spec and
+    # status as x-kubernetes-preserve-unknown-fields, so the vendored schema can
+    # confirm the kind is known and nothing more; the admission webhook is what
+    # rejects a malformed spec.
+    chart:
+      repo: https://argoproj.github.io/argo-helm
+      name: argo-events
+    kinds: [EventBus, EventSource, Sensor]
+
   - name: onepassword-connect
     versionKey: onepassword-connect
     chart:

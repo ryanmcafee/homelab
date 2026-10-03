@@ -1,0 +1,26 @@
+{{- if not (has (int .Values.replicas) (list 1 3 5)) }}
+{{- fail (printf "argo-events-config: replicas must be 1, 3 or 5, got %v (ARGO_EVENTS_BUS_REPLICAS)" .Values.replicas) }}
+{{- end }}
+{{- include "argo-events-config.assertMaxBytesBudget" . }}
+# Argo Events looks up an EventBus named `default` in its own namespace when an
+# EventSource or Sensor names none, so this name is the wiring, not a label.
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: default
+spec:
+  jetstream:
+    version: {{ .Values.version | quote }}
+    replicas: {{ .Values.replicas }}
+    persistence:
+      storageClassName: {{ .Values.storage.className | quote }}
+      accessMode: ReadWriteOnce
+      volumeSize: {{ .Values.storage.size }}
+    # A YAML string, not a mapping: Argo Events merges it over the
+    # controller-config the argo-events chart installs, which is where the
+    # replica count is set. Byte counts are plain integers because Argo Events
+    # reads them with viper's GetInt64, which yields 0 for a suffixed string.
+    streamConfig: |
+      maxAge: {{ .Values.maxAge }}
+      maxBytes: {{ include "argo-events-config.quantityBytes" .Values.maxBytes }}
+      maxMsgs: {{ .Values.maxMsgs | int64 }}

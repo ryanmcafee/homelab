@@ -1,0 +1,4 @@
+# argo-events-config - homelab overrides
+#
+# Sizing is injected by the parent Application from configuration/; this file
+# exists so the environment valueFile the parent names always resolves.
