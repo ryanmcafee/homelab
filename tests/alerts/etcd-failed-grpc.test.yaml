@@ -1,0 +1,99 @@
+# promtool unit tests for etcdHighNumberOfFailedGRPCRequests in the
+# homelab-control-plane group of charts/addons/templates/kube-prometheus-stack.yaml
+# (docs/runbooks/alerting.md).
+#
+# `task test:alerts` renders the addons chart, extracts every group of
+# additionalPrometheusRulesMap into rules.yaml in a temp directory, copies this
+# file next to it and runs `promtool test rules`, so the expressions under test
+# are the ones that deploy - the test cannot drift from the chart.
+#
+# The rule is the chart's etcd-mixin rule with MemberPromote left out. A Talos
+# control plane joins etcd as a learner and retries MemberPromote until it is
+# in sync with the leader; etcd answers the early tries with FailedPrecondition.
+# The ratio is per grpc_method and MemberPromote is called only a few times per
+# join, so those expected answers read as 100 % failed and paged as critical on
+# every control-plane rebuild.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 1. A control-plane join. MemberPromote is rejected once a minute for eight
+  #    minutes and never answers OK on this member, while normal Range traffic
+  #    succeeds. The chart's rule fired critical at 6m and warning at 11m here;
+  #    the homelab copy stays silent through both.
+  - interval: 1m
+    name: learner promotion retries do not page
+    input_series:
+      - series: 'grpc_server_handled_total{job="kube-etcd",instance="cp-1:2381",grpc_service="etcdserverpb.Cluster",grpc_method="MemberPromote",grpc_type="unary",grpc_code="FailedPrecondition"}'
+        values: '0+1x8 8+0x12'
+      - series: 'grpc_server_handled_total{job="kube-etcd",instance="cp-1:2381",grpc_service="etcdserverpb.Cluster",grpc_method="MemberPromote",grpc_type="unary",grpc_code="OK"}'
+        values: '0+0x20'
+      - series: 'grpc_server_handled_total{job="kube-etcd",instance="cp-1:2381",grpc_service="etcdserverpb.KV",grpc_method="Range",grpc_type="unary",grpc_code="OK"}'
+        values: '0+100x20'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: etcdHighNumberOfFailedGRPCRequests
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: etcdHighNumberOfFailedGRPCRequests
+        exp_alerts: []
+
+  # 2. A real failure on any other method still pages at the chart's
+  #    thresholds: 6.25 % of Range calls Unavailable is critical after 5m and
+  #    also warning after 10m, under the same alertname.
+  - interval: 1m
+    name: failing Range calls still alert
+    input_series:
+      - series: 'grpc_server_handled_total{job="kube-etcd",instance="cp-1:2381",grpc_service="etcdserverpb.KV",grpc_method="Range",grpc_type="unary",grpc_code="OK"}'
+        values: '0+120x20'
+      - series: 'grpc_server_handled_total{job="kube-etcd",instance="cp-1:2381",grpc_service="etcdserverpb.KV",grpc_method="Range",grpc_type="unary",grpc_code="Unavailable"}'
+        values: '0+8x20'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: etcdHighNumberOfFailedGRPCRequests
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: kube-etcd
+              instance: cp-1:2381
+              grpc_service: etcdserverpb.KV
+              grpc_method: Range
+            exp_annotations:
+              summary: 'etcd cluster has high number of failed grpc requests.'
+              description: 'etcd cluster "kube-etcd": 6.25% of requests for Range failed on etcd instance cp-1:2381.'
+      - eval_time: 12m
+        alertname: etcdHighNumberOfFailedGRPCRequests
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: kube-etcd
+              instance: cp-1:2381
+              grpc_service: etcdserverpb.KV
+              grpc_method: Range
+            exp_annotations:
+              summary: 'etcd cluster has high number of failed grpc requests.'
+              description: 'etcd cluster "kube-etcd": 6.25% of requests for Range failed on etcd instance cp-1:2381.'
+          - exp_labels:
+              severity: critical
+              job: kube-etcd
+              instance: cp-1:2381
+              grpc_service: etcdserverpb.KV
+              grpc_method: Range
+            exp_annotations:
+              summary: 'etcd cluster has high number of failed grpc requests.'
+              description: 'etcd cluster "kube-etcd": 6.25% of requests for Range failed on etcd instance cp-1:2381.'
+
+  # 3. A trickle of failures under the 1 % warning threshold stays silent.
+  - interval: 1m
+    name: failures below one percent do not alert
+    input_series:
+      - series: 'grpc_server_handled_total{job="kube-etcd",instance="cp-1:2381",grpc_service="etcdserverpb.KV",grpc_method="Txn",grpc_type="unary",grpc_code="OK"}'
+        values: '0+199x20'
+      - series: 'grpc_server_handled_total{job="kube-etcd",instance="cp-1:2381",grpc_service="etcdserverpb.KV",grpc_method="Txn",grpc_type="unary",grpc_code="Unavailable"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: etcdHighNumberOfFailedGRPCRequests
+        exp_alerts: []
