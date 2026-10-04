@@ -613,7 +613,8 @@ spec:
     mutexes:
       - name: triage-{{workflow.parameters.alertname}}
   podGC:
-    strategy: OnPodSuccess
+    deleteDelayDuration: 1h
+    strategy: OnPodCompletion
   ttlStrategy:
     secondsAfterFailure: 259200
     secondsAfterSuccess: 86400
@@ -817,6 +818,8 @@ spec:
               parameters:
                 - name: stage
                   value: notify
+                - name: deadline
+                  value: "1800"
                 - name: workflow-status
                   value: "{{workflow.status}}"
                 - name: workflow-failures
@@ -827,6 +830,8 @@ spec:
               parameters:
                 - name: stage
                   value: cleanup
+                - name: deadline
+                  value: "1800"
                 - name: workflow-status
                   value: "{{workflow.status}}"
 
