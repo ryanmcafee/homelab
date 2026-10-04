@@ -340,7 +340,8 @@ data "talos_machine_configuration" "worker" {
       })
     ] : [],
     # GPU-specific patches for workers with GPU enabled (vendor-conditional)
-    try(each.value.gpu, false) && var.gpu_vendor != "none" ? [local.active_gpu_config_patch] : []
+    try(each.value.gpu, false) && var.gpu_vendor != "none" ? [local.active_gpu_config_patch] : [],
+    length(each.value.node_labels) > 0 ? [yamlencode({ machine = { nodeLabels = each.value.node_labels } })] : []
   )
 }
 

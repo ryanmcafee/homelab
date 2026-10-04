@@ -153,3 +153,6 @@ PII.md
 # snapshot contains every Kubernetes Secret in plaintext - never commit one.
 etcd-snapshots/
 *.snapshot
+
+# Ansible local collection/fact cache
+ansible/.ansible/

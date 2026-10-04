@@ -30,11 +30,6 @@ machine:
           - rshared
           - rw
 
-  # Node labels for storage capabilities
-  nodeLabels:
-    # Indicates iSCSI client support
-    storage.kubernetes.io/iscsi-client: "true"
-
 # Apply this patch to ALL nodes that will use iSCSI volumes:
 # In terragrunt/environments/*/talos-cluster/terragrunt.hcl:
 #

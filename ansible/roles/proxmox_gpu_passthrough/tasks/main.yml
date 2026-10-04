@@ -1,0 +1,74 @@
+---
+# Host side of the Intel Arc passthrough. Idempotent: safe to re-run.
+
+- name: Load the vfio modules at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/vfio.conf
+    mode: '0644'
+    content: |
+      # Managed by ansible/roles/proxmox_gpu_passthrough (homelab repo).
+      vfio
+      vfio_iommu_type1
+      vfio_pci
+  notify: Update initramfs
+
+- name: Bind the passthrough GPU to vfio-pci and keep the host driver off it
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/vfio-gpu-passthrough.conf
+    mode: '0644'
+    content: |
+      # Managed by ansible/roles/proxmox_gpu_passthrough (homelab repo).
+      options vfio-pci ids={{ proxmox_gpu_passthrough_vendor_id }}:{{ proxmox_gpu_passthrough_device_id }} disable_idle_d3=1
+      softdep {{ proxmox_gpu_passthrough_host_driver }} pre: vfio-pci
+      blacklist {{ proxmox_gpu_passthrough_host_driver }}
+  notify: Update initramfs
+
+- name: Reset the GPU with a bus reset and keep it out of D3cold
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/90-vfio-gpu-passthrough.rules
+    mode: '0644'
+    content: |
+      # Managed by ansible/roles/proxmox_gpu_passthrough (homelab repo).
+      {{ gpu_match }}, {{ gpu_settings }}
+  vars:
+    gpu_match: >-
+      ACTION=="add|bind", SUBSYSTEM=="pci",
+      ATTR{vendor}=="0x{{ proxmox_gpu_passthrough_vendor_id }}", ATTR{device}=="0x{{ proxmox_gpu_passthrough_device_id }}"
+    gpu_settings: ATTR{reset_method}="{{ proxmox_gpu_passthrough_reset_method }}", ATTR{d3cold_allowed}="0"
+  notify: Reload udev rules
+
+- name: Find the passthrough GPU on the PCI bus
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      grep -l 'PCI_ID={{ proxmox_gpu_passthrough_vendor_id | upper }}:{{ proxmox_gpu_passthrough_device_id | upper }}'
+      /sys/bus/pci/devices/*/uevent | xargs -r -n1 dirname
+    executable: /bin/bash
+  register: gpu_sysfs_paths
+  changed_when: false
+
+- name: Apply the reset method and D3cold setting without a host reboot
+  ansible.builtin.shell:
+    cmd: |
+      changed=0
+      if [ "$(cat {{ item }}/reset_method)" != "{{ proxmox_gpu_passthrough_reset_method }}" ]; then
+        echo {{ proxmox_gpu_passthrough_reset_method }} > {{ item }}/reset_method; changed=1
+      fi
+      if [ "$(cat {{ item }}/d3cold_allowed)" != "0" ]; then
+        echo 0 > {{ item }}/d3cold_allowed; changed=1
+      fi
+      echo "changed=$changed"
+    executable: /bin/bash
+  loop: "{{ gpu_sysfs_paths.stdout_lines }}"
+  register: gpu_runtime
+  changed_when: "'changed=1' in gpu_runtime.stdout"
+
+- name: Disable idle D3 in the loaded vfio-pci module
+  ansible.builtin.shell:
+    cmd: |
+      param=/sys/module/vfio_pci/parameters/disable_idle_d3
+      [ -w "$param" ] || { echo "changed=0"; exit 0; }
+      if [ "$(cat $param)" != "Y" ]; then echo Y > $param; echo "changed=1"; else echo "changed=0"; fi
+    executable: /bin/bash
+  register: vfio_idle_d3
+  changed_when: "'changed=1' in vfio_idle_d3.stdout"

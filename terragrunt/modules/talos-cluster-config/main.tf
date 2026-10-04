@@ -261,3 +261,65 @@ resource "unifi_dns_record" "this" {
     ignore_changes = [port]
   }
 }
+
+locals {
+  worker_taints = merge([
+    for node_key, node in var.worker_nodes : {
+      for taint_key, taint_value in node.node_taints : "${node_key}/${taint_key}" => {
+        node_ip = node.ip
+        key     = taint_key
+        value   = taint_value
+      }
+    }
+  ]...)
+  kubectl = "kubectl --kubeconfig ${pathexpand(var.kubeconfig_path)}"
+}
+
+# A rebuilt node registers under a new random hostname, so the current name is part of the trigger.
+data "external" "worker_node_name" {
+  for_each = { for node_key, node in var.worker_nodes : node_key => node.ip if length(node.node_taints) > 0 }
+
+  program = ["bash", "-c", <<-EOT
+    name=$(${local.kubectl} get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}' 2>/dev/null \
+      | awk -F= -v ip="${each.value}" '$2 == ip { print $1; exit }')
+    printf '{"name":"%s"}' "$name"
+  EOT
+  ]
+
+  depends_on = [local_sensitive_file.kubeconfig]
+}
+
+resource "terraform_data" "worker_taint" {
+  for_each = local.worker_taints
+
+  triggers_replace = {
+    node_name  = data.external.worker_node_name[split("/", each.key)[0]].result.name
+    node_ip    = each.value.node_ip
+    taint      = "${each.value.key}=${each.value.value}"
+    kubeconfig = pathexpand(var.kubeconfig_path)
+  }
+
+  provisioner "local-exec" {
+    command     = <<-EOT
+      set -euo pipefail
+      node=$(${local.kubectl} get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}' \
+        | awk -F= -v ip="${each.value.node_ip}" '$2 == ip { print $1; exit }')
+      [ -n "$node" ] || { echo "no Kubernetes node with InternalIP ${each.value.node_ip}" >&2; exit 1; }
+      ${local.kubectl} taint nodes "$node" "${each.value.key}=${each.value.value}" --overwrite
+    EOT
+    interpreter = ["bash", "-c"]
+  }
+
+  provisioner "local-exec" {
+    when        = destroy
+    on_failure  = continue
+    interpreter = ["bash", "-c"]
+    command     = <<-EOT
+      node=$(kubectl --kubeconfig ${self.triggers_replace.kubeconfig} get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"="}{.status.addresses[?(@.type=="InternalIP")].address}{"\n"}{end}' \
+        | awk -F= -v ip="${self.triggers_replace.node_ip}" '$2 == ip { print $1; exit }')
+      [ -z "$node" ] || kubectl --kubeconfig ${self.triggers_replace.kubeconfig} taint nodes "$node" "${split("=", self.triggers_replace.taint)[0]}:${split(":", self.triggers_replace.taint)[1]}-" || true
+    EOT
+  }
+
+  depends_on = [talos_machine_configuration_apply.worker, local_sensitive_file.kubeconfig]
+}

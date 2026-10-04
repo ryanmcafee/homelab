@@ -1,5 +1,5 @@
 variable "talos_version" {
-  description = "Talos Linux version (e.g. 'v1.12.2'); every unit sets it, no default"
+  description = "Talos Linux version (e.g. 'v1.13.11'); every unit sets it, no default"
   type        = string
 }
 
