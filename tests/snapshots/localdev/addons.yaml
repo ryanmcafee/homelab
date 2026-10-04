@@ -2522,7 +2522,10 @@ spec:
                       description: 'PF_AUDIT is discard: new, so at the ceiling it refuses its own writes rather than stopping the bus (ADR-042). Refused events wait in PF_EVENTS and are lost from the audit trail once PF_EVENTS ages them out. docs/runbooks/jetstream-storage-budget.md.'
           # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
           # monitors and kube-state-metrics. ztunnel and istio-cni must run on
-          # every node or enrolled pods there lose their traffic.
+          # every node or enrolled pods there lose their traffic. The node agent
+          # rule counts nodes with a Ready pod rather than the DaemonSet status,
+          # which judges a node by its oldest pod: Failed pods a node reboot
+          # leaves behind would keep a healthy node "not ready" for hours.
           homelab-service-mesh:
             groups:
               - name: homelab-service-mesh
@@ -2536,7 +2539,7 @@ spec:
                       summary: 'istiod is not running'
                       description: 'No istiod instance has answered the metrics scrape for 10m. Running workloads keep their last configuration, but new pods, certificates and policy changes wait for it. `kubectl -n istio-system get pods -l app=istiod`.'
                   - alert: HomelabMeshNodeAgentNotReady
-                    expr: 'kube_daemonset_status_number_ready{namespace="istio-system",daemonset=~"ztunnel|istio-cni-node"} < kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset=~"ztunnel|istio-cni-node"}'
+                    expr: 'max by (namespace, daemonset) (kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset=~"ztunnel|istio-cni-node"}) > on (namespace, daemonset) (count by (namespace, daemonset) (count by (namespace, daemonset, node) (label_replace(max by (namespace, pod, owner_name) (kube_pod_owner{namespace="istio-system",owner_kind="DaemonSet",owner_name=~"ztunnel|istio-cni-node"}), "daemonset", "$1", "owner_name", "(.*)") * on (namespace, pod) group_left (node) max by (namespace, pod, node) (kube_pod_info{namespace="istio-system"}) * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_ready{namespace="istio-system",condition="true"}) == 1))) or on (namespace, daemonset) 0 * max by (namespace, daemonset) (kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset=~"ztunnel|istio-cni-node"}))'
                     for: 15m
                     labels:
                       severity: warning

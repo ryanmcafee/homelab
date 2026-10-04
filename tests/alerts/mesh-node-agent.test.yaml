@@ -1,0 +1,207 @@
+# promtool unit tests for HomelabMeshNodeAgentNotReady in the
+# homelab-service-mesh group of charts/addons/templates/kube-prometheus-stack.yaml
+# (docs/runbooks/alerting.md). `task test:alerts` runs them against the
+# rendered localdev chart, where istio is enabled.
+#
+# The rule counts nodes that have a Ready ztunnel or istio-cni-node pod instead
+# of reading kube_daemonset_status_number_ready. The DaemonSet controller judges
+# a node by its oldest daemon pod, so Failed pods left behind by a node reboot
+# (reason NodeShutdown) kept a node "not ready" for hours while the healthy pod
+# next to them served traffic. Case 1 replays that incident.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 1. The incident: six nodes, the DaemonSet status reports 5 of 6 ready, but
+  #    node-f has a Ready ztunnel pod next to three Failed ones. Silent.
+  - interval: 1m
+    name: stale failed pods next to a ready pod do not page
+    input_series:
+      - series: 'kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset="ztunnel"}'
+        values: '6+0x40'
+      - series: 'kube_daemonset_status_number_ready{namespace="istio-system",daemonset="ztunnel"}'
+        values: '5+0x40'
+      # Ready pods, one per node.
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-a",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x40'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-a",node="node-a"}'
+        values: '1+0x40'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-a",condition="true"}'
+        values: '1+0x40'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-b",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x40'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-b",node="node-b"}'
+        values: '1+0x40'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-b",condition="true"}'
+        values: '1+0x40'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-c",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x40'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-c",node="node-c"}'
+        values: '1+0x40'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-c",condition="true"}'
+        values: '1+0x40'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-d",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x40'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-d",node="node-d"}'
+        values: '1+0x40'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-d",condition="true"}'
+        values: '1+0x40'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-e",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x40'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-e",node="node-e"}'
+        values: '1+0x40'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-e",condition="true"}'
+        values: '1+0x40'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-f",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x40'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-f",node="node-f"}'
+        values: '1+0x40'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-f",condition="true"}'
+        values: '1+0x40'
+      # Failed pods from the node shutdown on node-f: never Ready.
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-f-old1",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x40'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-f-old1",node="node-f"}'
+        values: '1+0x40'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-f-old1",condition="true"}'
+        values: '0+0x40'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-f-old2",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x40'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-f-old2",node="node-f"}'
+        values: '1+0x40'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-f-old2",condition="true"}'
+        values: '0+0x40'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-f-old3",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x40'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-f-old3",node="node-f"}'
+        values: '1+0x40'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-f-old3",condition="true"}'
+        values: '0+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: HomelabMeshNodeAgentNotReady
+        exp_alerts: []
+
+  # 2. One of two nodes has only a not-ready ztunnel pod for 20m: silent inside
+  #    the 15m `for`, then one alert per DaemonSet.
+  - interval: 1m
+    name: a node without a ready pod pages after 15m
+    input_series:
+      - series: 'kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset="ztunnel"}'
+        values: '2+0x30'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-a",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x30'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-a",node="node-a"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-a",condition="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-b",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x30'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-b",node="node-b"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-b",condition="true"}'
+        values: '0+0x20 1+0x9'  # not ready for the first 20m
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: HomelabMeshNodeAgentNotReady
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: HomelabMeshNodeAgentNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: istio-system
+              daemonset: ztunnel
+            exp_annotations:
+              summary: 'ztunnel is not ready on every node'
+              description: 'ztunnel has fewer ready pods than nodes for 15m. Pods of enrolled namespaces on the affected node cannot send or receive traffic. `kubectl -n istio-system get pods -o wide`.'
+      - eval_time: 25m
+        alertname: HomelabMeshNodeAgentNotReady
+        exp_alerts: []
+
+  # 3. No ztunnel pod is Ready anywhere, so the inner count is empty. The
+  #    `or ... 0 *` fallback still pages.
+  - interval: 1m
+    name: no ready pod at all still pages
+    input_series:
+      - series: 'kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset="ztunnel"}'
+        values: '2+0x30'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-a",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x30'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-a",node="node-a"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-a",condition="true"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HomelabMeshNodeAgentNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: istio-system
+              daemonset: ztunnel
+            exp_annotations:
+              summary: 'ztunnel is not ready on every node'
+              description: 'ztunnel has fewer ready pods than nodes for 15m. Pods of enrolled namespaces on the affected node cannot send or receive traffic. `kubectl -n istio-system get pods -o wide`.'
+
+  # 4. istio-cni-node fails on its own while ztunnel is fine: one alert, for
+  #    istio-cni-node only.
+  - interval: 1m
+    name: each DaemonSet is judged on its own
+    input_series:
+      - series: 'kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset="ztunnel"}'
+        values: '1+0x30'
+      - series: 'kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset="istio-cni-node"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-a",owner_kind="DaemonSet",owner_name="ztunnel"}'
+        values: '1+0x30'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-a",node="node-a"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-a",condition="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="istio-cni-node-a",owner_kind="DaemonSet",owner_name="istio-cni-node"}'
+        values: '1+0x30'
+      - series: 'kube_pod_info{namespace="istio-system",pod="istio-cni-node-a",node="node-a"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="istio-cni-node-a",condition="true"}'
+        values: '0+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HomelabMeshNodeAgentNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: istio-system
+              daemonset: istio-cni-node
+            exp_annotations:
+              summary: 'istio-cni-node is not ready on every node'
+              description: 'istio-cni-node has fewer ready pods than nodes for 15m. Pods of enrolled namespaces on the affected node cannot send or receive traffic. `kubectl -n istio-system get pods -o wide`.'
+
+  # 5. kube-state-metrics is rolling: every series exists under two instances.
+  #    The max by () wrappers keep the joins one-to-one, so no evaluation error
+  #    and no alert.
+  - interval: 1m
+    name: duplicate kube-state-metrics instances neither error nor page
+    input_series:
+      - series: 'kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset="ztunnel",instance="ksm-1"}'
+        values: '1+0x30'
+      - series: 'kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset="ztunnel",instance="ksm-2"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-a",owner_kind="DaemonSet",owner_name="ztunnel",instance="ksm-1"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{namespace="istio-system",pod="ztunnel-a",owner_kind="DaemonSet",owner_name="ztunnel",instance="ksm-2"}'
+        values: '1+0x30'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-a",node="node-a",instance="ksm-1"}'
+        values: '1+0x30'
+      - series: 'kube_pod_info{namespace="istio-system",pod="ztunnel-a",node="node-a",instance="ksm-2"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-a",condition="true",instance="ksm-1"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_ready{namespace="istio-system",pod="ztunnel-a",condition="true",instance="ksm-2"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HomelabMeshNodeAgentNotReady
+        exp_alerts: []
