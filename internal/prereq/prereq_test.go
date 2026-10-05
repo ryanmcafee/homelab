@@ -376,3 +376,77 @@ func TestProxmoxAddr(t *testing.T) {
 		})
 	}
 }
+
+// writeConfigRootMissingKeys lays out a configuration/ tree whose schema
+// requires three keys that no default and no ConfigSet supplies.
+func writeConfigRootMissingKeys(t *testing.T) string {
+	t.Helper()
+	root := writeConfigRoot(t, "PROXMOX_IP: \"10.0.0.1\"\n")
+	writes := map[string]string{
+		"environments/defaults.yaml": "",
+		"schema/network.schema.yaml": `keys:
+  DOMAIN:
+    description: Base domain
+    required: true
+  PROXMOX_IP:
+    description: Proxmox hypervisor IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+  CP_VIP:
+    description: Control plane VIP
+    required: true
+  TRUENAS_IP:
+    description: TrueNAS storage IP
+    required: true
+`,
+	}
+	for rel, body := range writes {
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+// Fork-ability check 4: the bootstrap names EVERY missing key, not the first
+// one. A fork missing three values must learn all three on one run instead of
+// discovering them one failed run at a time.
+func TestHomelabConfigRowNamesEveryMissingKey(t *testing.T) {
+	results := runChecks(ChecksWith(Options{ConfigRoot: writeConfigRootMissingKeys(t), AgeKeyFile: "/age"}), &fakeEnv{}, Homelab)
+
+	row, ok := byName(results, "homelab.yaml")
+	if !ok {
+		t.Fatalf("no homelab.yaml row in %v", names(results))
+	}
+	if row.Err == nil {
+		t.Fatal("homelab.yaml passed with three required keys missing")
+	}
+	for _, key := range []string{"CP_VIP", "DOMAIN", "TRUENAS_IP"} {
+		if !strings.Contains(row.Err.Error(), key) {
+			t.Errorf("error does not name missing key %q: %v", key, row.Err)
+		}
+	}
+}
+
+// The homelab.yaml row already reports the whole validation error. The proxmox
+// row must point at it rather than repeat it: repeating printed every missing
+// key twice, so a fork missing three keys read six findings.
+func TestProxmoxRowDoesNotRepeatTheValidationError(t *testing.T) {
+	results := runChecks(ChecksWith(Options{ConfigRoot: writeConfigRootMissingKeys(t), AgeKeyFile: "/age"}), &fakeEnv{}, Homelab)
+
+	row, ok := byName(results, "proxmox")
+	if !ok {
+		t.Fatalf("no proxmox row in %v", names(results))
+	}
+	if row.Err == nil {
+		t.Fatal("proxmox passed although the config did not resolve")
+	}
+	if strings.Contains(row.Err.Error(), "CP_VIP") {
+		t.Errorf("proxmox row repeats the missing-key list: %v", row.Err)
+	}
+	for _, want := range []string{"PROXMOX_IP", "homelab.yaml"} {
+		if !strings.Contains(row.Err.Error(), want) {
+			t.Errorf("proxmox row error %q does not mention %q", row.Err, want)
+		}
+	}
+}
