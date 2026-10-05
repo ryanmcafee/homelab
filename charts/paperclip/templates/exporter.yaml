@@ -77,6 +77,14 @@ spec:
                   optional: true
             - name: RUN_WINDOW_SECONDS
               value: {{ .Values.exporter.runWindowSeconds | quote }}
+            - name: STALE_WAKE_MINUTES
+              value: {{ .Values.exporter.staleWakeMinutes | quote }}
+            - name: STALE_WAKE_INTERVAL_SECONDS
+              value: {{ .Values.exporter.staleWakeIntervalSeconds | quote }}
+            - name: STALE_WAKE_MAX_ISSUES
+              value: {{ .Values.exporter.staleWakeMaxIssues | quote }}
+            - name: PHANTOM_STALE_SECONDS
+              value: {{ .Values.exporter.phantomStaleSeconds | quote }}
             - name: PORT
               value: "9464"
             - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
