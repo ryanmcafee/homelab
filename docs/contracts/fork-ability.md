@@ -60,6 +60,17 @@ address from a placeholder. The fork-ability gate was not fork-able. That range 
 **absent** from `examplePlaceholderSubnets` in `internal/config/guard.go` rather than joined
 there, and `TestIsExamplePlaceholder` pins it that way.
 
+**No two example ConfigSets may draw from the same reserved address range.** Check 1 greps a
+render for values from the real environment; that grep can only tell a leak from a placeholder if
+each `configuration/environments/*.yaml.example` owns its range outright — `homelab.yaml.example`
+RFC 5737 TEST-NET-2 (`198.51.100.0/24`), `single-node.yaml.example` TEST-NET-1 (`192.0.2.0/24`),
+a third whatever is left. This is enforced, not
+aspirational: `TestExampleConfigSetsAreDisjoint` (over
+[`internal/config/exampleranges.go`](../../internal/config/exampleranges.go)) fails the build and
+names the shared range and the declaration in each file that claims it. Adding a range to the
+template placeholder allowlist (`examplePlaceholderSubnets` in `internal/config/guard.go`) does
+not entitle a second file to reuse it.
+
 `DOMAIN` is deliberately absent from `defaults.yaml`. That is the pattern to copy: **a default
 that silently papers over a missing required value is worse than no default**, because the
 fork then comes up wrong instead of failing at render.
