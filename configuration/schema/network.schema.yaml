@@ -185,6 +185,10 @@ keys:
     description: Hubble UI (Cilium flow visibility) on the internal ingress
     const: "hubble.{{.DOMAIN}}"
 
+  ECOWITT_HOSTNAME:
+    description: Ecowitt exporter on the internal ingress; the weather gateway POSTs its readings here (docs/runbooks/iot-sensors.md)
+    const: "ecowitt.{{.DOMAIN}}"
+
   OTEL_LB_IP:
     description: Fixed LoadBalancer address of the OpenTelemetry gateway collector (inside LB_POOL_START..LB_POOL_END); target of the UniFi syslog/NetFlow export
     required: true

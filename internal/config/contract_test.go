@@ -59,6 +59,13 @@ type templateRef struct {
 
 var (
 	valuesRefRe = regexp.MustCompile(`\.Values\.([A-Z0-9_]+)\.Value`)
+	// valuesGuardRefRe finds the presence-guard form `{{ with .Values.KEY }}`.
+	// An optional key with no default is absent from .Values entirely, and
+	// text/template's default missingkey=invalid renders `.Values.KEY.Value`
+	// as "<no value>", so guarding on the key itself is the only correct way
+	// to read one. Requiring the action to close right after the key keeps
+	// this to a bare presence test rather than any mention of the key.
+	valuesGuardRefRe = regexp.MustCompile(`(?:with|if)\s+\.Values\.([A-Z0-9_]+)\s*-?\s*\}\}`)
 	// controlPlaneRefRe finds a template's use of the resolver's derived
 	// control-plane list. Unlike `range .Values`, this is a NAMED field whose
 	// membership is defined by the schema's control-plane key pattern, so
@@ -119,6 +126,9 @@ func extractTemplateRefs(t *testing.T, path string) []templateRef {
 		for _, m := range valuesRefRe.FindAllStringSubmatch(line, -1) {
 			refs = append(refs, templateRef{file: base, line: lineNum, kind: "value", key: m[1]})
 		}
+		for _, m := range valuesGuardRefRe.FindAllStringSubmatch(line, -1) {
+			refs = append(refs, templateRef{file: base, line: lineNum, kind: "valueGuard", key: m[1]})
+		}
 		for _, m := range chartsDotRefRe.FindAllStringSubmatch(line, -1) {
 			refs = append(refs, templateRef{file: base, line: lineNum, kind: "chartDot", key: m[1]})
 		}
@@ -152,12 +162,16 @@ func TestTemplatesReferenceOnlyDeclaredKeys(t *testing.T) {
 
 	for _, path := range listTemplateFiles(t, configRoot) {
 		for _, ref := range extractTemplateRefs(t, path) {
-			if ref.kind != "value" {
+			if ref.kind != "value" && ref.kind != "valueGuard" {
 				continue
 			}
 			if _, ok := schema.Keys[ref.key]; !ok {
-				t.Errorf("%s:%d references undeclared config key %q (.Values.%s.Value)",
-					ref.file, ref.line, ref.key, ref.key)
+				expr := fmt.Sprintf(".Values.%s.Value", ref.key)
+				if ref.kind == "valueGuard" {
+					expr = fmt.Sprintf("with .Values.%s", ref.key)
+				}
+				t.Errorf("%s:%d references undeclared config key %q (%s)",
+					ref.file, ref.line, ref.key, expr)
 			}
 		}
 	}
@@ -190,7 +204,7 @@ func TestDeclaredKeysAreReferenced(t *testing.T) {
 	gitOpsReferenced := false
 	for _, path := range listTemplateFiles(t, configRoot) {
 		for _, ref := range extractTemplateRefs(t, path) {
-			if ref.kind == "value" {
+			if ref.kind == "value" || ref.kind == "valueGuard" {
 				referenced[ref.key] = true
 			}
 		}
