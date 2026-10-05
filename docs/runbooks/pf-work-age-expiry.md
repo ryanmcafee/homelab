@@ -193,6 +193,13 @@ per account and install: it fires for each `(account, namespace, job)` that repo
 the last 6h and no longer does, so the alert's own `account` and `namespace` labels are the ones to
 act on — another account or a second NATS still reporting does not suppress it.
 
+Renaming an install (moving NATS to another namespace, or changing its scrape `job`) also fires
+it, for the old label set. Once the new label set is reporting and PF_WORK depth looks right, the
+alert is expected: it starts about 35m after the rename (the 30m `for` plus 5m of staleness) and
+resolves on its own when the old series leave the 6h window, about 5.5h later. Silence it for
+that window with matchers on both the old `namespace` and the old `job`: a job-only rename keeps
+the namespace, so a `namespace`-only silence would also hide the renamed install going blind.
+
 1. `kubectl -n nats get pods` — the exporter is a sidecar of the NATS pods, so a restarting NATS
    pod takes it with it.
 2. Check the sidecar still has `-jsz=all`: without it the exporter serves `varz` only, and every
