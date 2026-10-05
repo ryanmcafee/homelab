@@ -25,12 +25,39 @@ func isGuardHCL(path string) bool {
 	return false
 }
 
+// hclIdentityNames are the snake_case keys terragrunt/environments/*/env.hcl
+// resolves out of the ConfigSet that no prefix or suffix rule reaches. The
+// ConfigSet key and the HCL key rarely share a name - LAN_CIDR is written
+// subnet, LB_POOL_START is lb_pool_start - so the value rule covers them and
+// the shape rule, the half that runs in a clone with no homelab.yaml, did not.
+var hclIdentityNames = map[string]bool{
+	"subnet":        true,
+	"dns_servers":   true,
+	"lb_pool_start": true,
+	"lb_pool_end":   true,
+	"endpoint":      true,
+	"node_name":     true,
+}
+
+// hclIdentitySuffixes mirror how HCL prefixes an identity by subsystem rather
+// than suffixing it: proxmox_host, cluster_endpoint, host_node. An explicit
+// name list would go stale the first time a unit adds another subsystem.
+var hclIdentitySuffixes = []string{"_FQDN", "_GATEWAY", "_IP_ADDRESS", "_HOST", "_ENDPOINT", "_NODE"}
+
 func hclIdentityKey(key string) bool {
 	upper := strings.ToUpper(key)
-	return IsPIIKey(upper) || chartPIIKeys[chartKeyName(key)] ||
-		upper == "FQDN" || strings.HasSuffix(upper, "_FQDN") ||
-		upper == "GATEWAY" || strings.HasSuffix(upper, "_GATEWAY") ||
-		strings.HasSuffix(upper, "_IP_ADDRESS")
+	if IsPIIKey(upper) || chartPIIKeys[chartKeyName(key)] || hclIdentityNames[chartKeyName(key)] {
+		return true
+	}
+	if upper == "FQDN" || upper == "GATEWAY" {
+		return true
+	}
+	for _, suffix := range hclIdentitySuffixes {
+		if strings.HasSuffix(upper, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // HCL is parsed without an evaluation context: variable traversals and function
@@ -48,8 +75,18 @@ func scanHCLShape(path string) (GuardResult, error) {
 	}
 	lines := strings.Split(string(source), "\n")
 	seen := map[int]bool{}
-	judge := func(key string, expr hclsyntax.Expression) {
+	var judge func(string, hclsyntax.Expression)
+	judge = func(key string, expr hclsyntax.Expression) {
 		if !hclIdentityKey(key) {
+			return
+		}
+		// dns_servers = [local.config.DNS_SERVER_IP, "10.23.1.1"] evaluates to
+		// nothing as a whole, because one element is an unresolved traversal.
+		// Judging each element keeps the literal visible.
+		if list, ok := expr.(*hclsyntax.TupleConsExpr); ok {
+			for _, element := range list.Exprs {
+				judge(key, element)
+			}
 			return
 		}
 		value, diags := expr.Value(nil)
@@ -58,7 +95,11 @@ func scanHCLShape(path string) (GuardResult, error) {
 		}
 		text := value.AsString()
 		kind := classifyHostValue(text)
-		if ip, _, err := net.ParseCIDR(text); err == nil && isRoutableHostIP(ip.String()) {
+		// A host address carrying a netmask (10.23.1.4/24) is still a host
+		// address. A network address (10.244.0.0/16) is not: shape cannot tell
+		// the operator's LAN from Kind's fork-invariant pod network, which is
+		// why classifyHostValue leaves every CIDR to the value rule.
+		if ip, network, err := net.ParseCIDR(text); err == nil && !ip.Equal(network.IP) && isRoutableHostIP(ip.String()) {
 			kind = "routable host IP with prefix"
 		}
 		if IsTemplateFile(path) {
