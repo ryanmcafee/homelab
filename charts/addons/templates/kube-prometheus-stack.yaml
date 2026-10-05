@@ -556,6 +556,15 @@ spec:
                     annotations:
                       summary: 'Fewer than two etcd members are reachable'
                       description: 'Only {{`{{ $value }}`}} etcd member(s) answered the metrics scrape for 5m. At 1 the cluster is one loss from losing quorum; at 0 the control plane is already down. See docs/runbooks/control-plane-storage.md.'
+                  # 60m outlasts `homelab talos recreate`'s own 2m + 20m + 15m waits plus the terragrunt apply.
+                  - alert: HomelabEtcdMembersBelowExpected
+                    expr: 'sum(up{job="kube-etcd"} == bool 1) < count(up{job="kube-etcd"}) and sum(up{job="kube-etcd"} == bool 1) >= 2'
+                    for: 60m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'etcd has been below its configured member count for 1h'
+                      description: 'Only {{`{{ $value }}`}} of the configured kube-etcd targets have answered the metrics scrape for 1h. Quorum holds, but one more loss stops the control plane. Usually a node replacement that never rejoined; see docs/runbooks/talos-upgrade.md#scenario-4-node-replacement-failed-mid-flight.'
                   {{- end }}
                   - alert: HomelabPostgresClusterDown
                     expr: 'max by (namespace, cluster) (cnpg_collector_up) == 0'
