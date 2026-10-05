@@ -181,7 +181,11 @@ kubectl get secret gitops-secrets -n argocd -o yaml
    or its templates is not live until `task tf:apply:component COMPONENT=gitops-bootstrap`
    runs; until then the committed placeholder `example.com` wins and the ArgoCD
    Ingress reads `argocd.example.com`. `task verify:prod` (`prod/argocd/domain`)
-   fails while that is the case
+   fails while that is the case. `var.repo_url` (`GITOPS_REPO_URL`) rides along
+   as the Helm parameter `global.repoUrl` for the same reason: the fork's own
+   repository is not committed either, and every child Application inherits it,
+   so until this module is applied the placeholder `REPLACEME-user` wins and
+   ArgoCD cannot clone at all
 4. **GitOps Chart** reads metadata and deploys addons/apps
 5. **ArgoCD** manages all subsequent deployments
 

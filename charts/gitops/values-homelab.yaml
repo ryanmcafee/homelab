@@ -15,8 +15,11 @@ global:
   # mirrors this with --set global.domain=<config DOMAIN>.
   domain: example.com
 
-  # Git repository containing chart sources
-  repoUrl: https://github.com/ryanmcafee/homelab.git
+  # Placeholder only, same as global.domain above: Terraform injects the fork's
+  # own GITOPS_REPO_URL as the helm parameter global.repoUrl and every child
+  # Application inherits it. Level 0 mirrors this with
+  # --set global.repoUrl=<config GITOPS_REPO_URL>.
+  repoUrl: https://github.com/REPLACEME-user/homelab.git
 
   # Target revision (branch/tag/commit)
   targetRevision: main
