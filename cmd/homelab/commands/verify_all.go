@@ -137,6 +137,12 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 				result.Add(verify.RunbookCoverage(repoRoot, rendered)...)
 			}
 
+			// Every routable address the render ships came from the ConfigSet
+			// (forkability/addresses). Reads the render directory rather than
+			// the parsed manifests: an address hard-coded in a _values/ or
+			// _inherited/ file reaches the cluster the same way.
+			result.Add(verify.ForkAbilityAddresses(repoRoot, dir, envs)...)
+
 			// 3. Golden snapshots (compare only; `verify snapshot --update` rewrites).
 			snapshotDir := filepath.Join(repoRoot, "tests", "snapshots")
 			if checks, err := verify.Snapshot(out.Files, snapshotDir, false); err != nil {

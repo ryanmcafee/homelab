@@ -71,20 +71,37 @@ specified-and-not-implemented; it may **not** be listed with no status (ADR-033)
 
 | # | Check | When | What it catches | Status |
 |---|---|---|---|---|
-| 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic (`DOMAIN: example.invalid`, RFC 5737 addresses), then grep the rendered output for any value from the real environment. Paired with `homelab config guard` over the repository's own source. | Level-0 static verification, every PR | A literal that escaped the ConfigSet | **Specified, not implemented** |
+| 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic, then assert that no literal in the rendered output arrived from anywhere but the ConfigSet. Paired with `homelab config guard` over the repository's own source. | Level-0 static verification, every PR | A literal that escaped the ConfigSet | **Implemented for the hostname and address families; the email and cloud-identifier families are not built.** Hostnames: `tests/policy/hostname.rego`, since before this row existed. Addresses: `forkability/addresses` in `internal/verify/forkability.go`, 2026-09-28 — passing on `main`, and observed failing on an injected literal (see [Current status](#current-status)) |
 | 2 | **`homelab.yaml.example` completeness.** Every key the render **or the bootstrap** requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Specified, not implemented — and fails on `main` today** |
 | 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron, on demand, **and every pull request that changes the surface 3a executes** — enforced by the `Fork-ability check 3a change gate` job in [`verify.yml`](../../.github/workflows/verify.yml); two discharge routes, see [Current status](#current-status) | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — cold `up` + `wait` `18m55s`-`23m04s` across 3 runs, 2026-09-25 to 2026-09-29 |
 | 3b | **The production bootstrap on foreign hardware.** A filled-in ConfigSet and `task setup -- --environment homelab`, on a machine holding none of the maintainer's credentials **and not in this cluster's topology**. | Before a declared platform milestone | Undeclared physical prerequisites, secret-store and identity assumptions, anything the Kind path cannot reach, a shape that only this cluster has | **Never executed** |
 | 4 | **Bootstrap key resolution.** The bootstrap resolves every operator-specific value from the ConfigSet and exits non-zero naming the missing key — every missing key, not the first one. | Runtime, in the Go CLI; exercised by 3b | A value the bootstrap needs that no render requires, so checks 1–2 never see it | **Specified, not implemented** |
 
 Checks 1 and 2 are static and belong in the existing level-0 gate, so a violation fails a pull
-request rather than being found by a stranger months later. Neither is built yet:
-`internal/verify/` has no fork-ability module, and there is no synthetic ConfigSet to render
-against — `configuration/environments/` holds only `defaults.yaml`, `homelab.yaml.example` and
-`localdev.yaml`. `localdev.yaml` is the nearest thing and is the right starting point for the
-synthetic environment, but it uses `homelab.local` and `127.0.0.x` rather than the
-`example.invalid` and RFC 5737 values check 1 specifies. Tracked in
-[homelab#360](https://github.com/ryanmcafee/homelab/issues/360).
+request rather than being found by a stranger months later. Check 2 is not built. Check 1 is
+partly built, and the shape it took differs from what this section assumed:
+
+- **The separate synthetic ConfigSet turned out to be unnecessary.** Level 0 already renders
+  `homelab` from `homelab.yaml.example`, never from `homelab.yaml` — so a synthetic render is what
+  it has always produced. What was missing was the assertion over its output, not the input.
+  [homelab#360](https://github.com/ryanmcafee/homelab/issues/360) asked for the input.
+- **"Grep for any value from the real environment" cannot be the rule, because CI does not have
+  the real environment.** `homelab.yaml` is gitignored, so the denylist it implies does not exist
+  on a runner. The rule that survives is its inverse and needs nothing secret: every identifying
+  literal in the render must trace to a ConfigSet value, and one that traces to nothing is the
+  leak. It also fails safely — a fork with different values gets the same verdict.
+- **Two of the four families are covered, and they are covered in different places.** Hostnames
+  have been held by `tests/policy/hostname.rego` since before this document: every
+  HTTPRoute/Gateway/Certificate/DNSEndpoint host, and every host in an Application's inline Helm
+  values, must end with the environment's own domain. That file exempts IP literals by name, and
+  `forkability/addresses` closes exactly that exemption. **Email addresses and cloud account /
+  project / subscription identifiers are still unchecked** — the list under
+  [What it forbids](#what-it-forbids-concretely) names them and nothing enforces them.
+
+The seam this leaves is worth stating so the two gates are not over-claimed. Check 1 reads
+**rendered Helm output**. The Terragrunt, `.tf` and `.hcl` surface is
+[homelab#330](https://github.com/ryanmcafee/homelab/issues/330)'s coverage, and a Helm-render gate
+structurally cannot see it. Neither check makes the other redundant.
 
 Check 4 is mechanical too, but it runs inside the Go CLI rather than in level 0, and 3b is what
 exercises it. It is not built either: ADR-037 records that the resolver it needs already exists —
@@ -106,6 +123,19 @@ for 3b, whose prerequisites are physical and cannot be faked in CI.
 
 Dated, because a check's status is a claim about the past and decays.
 
+- **1 (addresses) — automated 2026-09-28, and watched failing before it was believed.** Against
+  `main` the check passes: 132 rendered files, every routable address tracing to one of 45 ConfigSet
+  values or the 9-entry public allowlist. A pass on first run is the correct result here and not
+  evidence the gate works, so it was proven the other way — replacing the templated `targetPortal`
+  in `charts/addons/templates/democratic-csi-iscsi.yaml` with a literal `192.168.7.50:3260` turned
+  level 0 red with `192.168.7.50 is hard-coded at homelab/addons.yaml:1501`, and reverting it
+  returned 273 checks green. **Note which injections it does *not* catch, because that is the
+  honest boundary:** the same literal written into `charts/addons/values.yaml` is overridden by the
+  environment's values and never renders, and one written into `charts/addons/values-localdev.yaml`
+  is caught earlier by `render/localdev/_committed-values`, because that file is generated by
+  `homelab config export`. This check sees what ships, so an injection that does not ship does not
+  fail it — and an injected value that *is* generated is somebody else's gate. Re-prove on any
+  change to the scanner's allowlist or its image-tag rule.
 - **3a — automated and passing: cold time to first success `18m55s`-`23m04s`, measured across
   three runs from 2026-09-25 to 2026-09-29.** `.github/workflows/fork-path-cold.yml` restores no
   cache and saves none, and fails if a cache directory exists. Added in
