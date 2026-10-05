@@ -935,24 +935,31 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        prs="$(gh pr list --repo "${GITHUB_REPOSITORY:-ryanmcafee/homelab}" --state open --limit 100 \
-          --json headRefName,body \
-          --jq '[.[] | select(.headRefName | startswith("renovate/"))]')"
+        repo="${GITHUB_REPOSITORY:-ryanmcafee/homelab}"
+        # gh api --paginate fetches every page; jq -s reads the page arrays as
+        # one input. Only the base repository's Renovate branches can establish
+        # the deployed version. A fork PR with the same ref cannot impersonate one.
+        prs="$(gh api --paginate "repos/${repo}/pulls?state=open&per_page=100" |
+          jq -s --arg repo "$repo" '[.[][] |
+            select(.head.ref | startswith("renovate/")) |
+            select(.head.repo.full_name == $repo) |
+            {number: .number, headRefName: .head.ref, headSha: .head.sha, body: .body}]')"
         # In the workflow this gate runs only on a renovate/* head, so the PR it is
         # running on is itself open and must appear in that listing. When it does
-        # not, the listing is wrong rather than empty -- truncated at the limit, or
-        # read with a token that lacks pull-requests:read and so returns [] with a
-        # 200 -- and the notice below would then report an unmeasured deployment as
-        # if it were pre-44. Fail on the head that is actually under test.
+        # not, the listing is wrong or the head is a fork. Fail on the exact
+        # head SHA under test, including if the PR was updated during this job.
         if [ -n "${GITHUB_HEAD_REF:-}" ] &&
-          ! printf '%s' "$prs" | jq -e --arg head "$GITHUB_HEAD_REF" 'any(.[]; .headRefName == $head)' > /dev/null; then
-          echo "renovate-regen/deployed-major: the open renovate/* PR listing does not contain ${GITHUB_HEAD_REF}, the head this gate is running on, so the deployed Renovate version was not read at all. An empty or truncated listing is not evidence of a pre-44 deployment. Check the pull-requests:read permission and the --limit above." >&2
+          ! printf '%s' "$prs" | jq -e --arg head "$GITHUB_HEAD_REF" \
+            --arg sha "${GITHUB_EXPECTED_HEAD_SHA:-}" \
+            --argjson number "${GITHUB_EXPECTED_PR_NUMBER:-0}" \
+            'any(.[]; .headRefName == $head and ($sha == "" or .headSha == $sha) and ($number == 0 or .number == $number))' > /dev/null; then
+          echo "renovate-regen/deployed-major: the open same-repository renovate/* PR listing does not contain ${GITHUB_HEAD_REF} at the expected head SHA, so the deployed Renovate version was not read. Check the PR state, head SHA, repository ownership, and pull-requests:read permission. Fork heads fail closed." >&2
           exit 1
         fi
         bodies="$(printf '%s' "$prs" | jq -r '[.[].body] | join("\n")')"
         if [ -z "$bodies" ]; then
-          echo "::notice title=No Renovate PRs open::nothing advertises a renovate-debug blob, so the deployed major cannot be read this run"
-          exit 0
+          echo "renovate-regen/deployed-major: no same-repository Renovate PR body is available, so the deployed version cannot be proven." >&2
+          exit 1
         fi
         printf '%s' "$bodies" | bun scripts/renovate-regen.ts --deployed-major {{.CLI_ARGS}}
 
