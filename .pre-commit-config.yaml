@@ -36,12 +36,21 @@ repos:
         language: system
         pass_filenames: true
         types: [text]
-        files: ^(Taskfile\.yml|charts/.*/values-homelab\.yaml|(configuration|scripts|docs|\.github|ansible|terragrunt|talos|packer)/.*\.(yaml|yml|json|md|ts|svg|hcl|tf|tftpl)(\.(example|template|sample|dist|tpl))?)$
+        files: ^(Taskfile\.yml|charts/.*/values-homelab\.yaml|(configuration|scripts|docs|\.github|ansible|terragrunt|talos|packer)/.*\.(yaml|yml|json|md|ts|svg|hcl|tf|tfvars|tftpl)(\.(example|template|sample|dist|tpl))?)$
         exclude: |
           (?x)(
             ^configuration/environments/homelab\.yaml$|
+            ^docs/project_notes/|
+            (^|/)(\.claude|\.serena|\.agents)/|
             \.generated\.
           )
+
+      - id: config-regressions
+        name: Config guard and address-role regressions
+        entry: go test ./internal/config ./cmd/homelab/commands -run 'Test.*(Guard|Pool|AddressRole|ConfigValidate)'
+        language: system
+        pass_filenames: false
+        files: ^(internal/config/|cmd/homelab/commands/config|configuration/schema/|\.pre-commit-config\.yaml$)
 
       - id: cmp-version-bump
         name: Auto-bump CMP version

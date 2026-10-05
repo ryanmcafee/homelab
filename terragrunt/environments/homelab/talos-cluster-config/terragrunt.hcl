@@ -94,7 +94,7 @@ inputs = {
 
   # DNS records for Kubernetes API
   dns_entries = [
-    { fqdn = "k8s.home.lab", type = "A", host = include.env.locals.vip_endpoint },
-    { fqdn = "k8s.${include.env.locals.base_fqdn}", type = "A", host = include.env.locals.vip_endpoint }
+    for domain in compact([include.env.locals.local_dns_domain, include.env.locals.base_fqdn]) :
+    { fqdn = "k8s.${domain}", type = "A", host = include.env.locals.vip_endpoint }
   ]
 }
