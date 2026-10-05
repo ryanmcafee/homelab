@@ -48,6 +48,15 @@ is point 4, including a test that runs the checker against the committed record.
 merge-result run reports without blocking, so the collision stops the merge at the rebase
 rather than at the merge button (ADR-039, `docs/runbooks/verification.md`).
 
+The configuration schema is gated the same way, and it shows what point 4 looks like when the
+gate must be strict in one position and lenient in another. `config/schema-fields` at
+level 0 strict-decodes every `configuration/schema/*.schema.yaml`, so a misspelled `requred:`
+fails; `LoadSchemaDir` at runtime keeps ignoring an unknown field, so a fork whose binary
+predates its schema files still resolves. `TestSchemaFieldsRejectsWhatTheResolverAccepts` is
+point 4 and holds both at once: one fixture, two assertions, opposite expectations. A test that
+asserted only the gate would let the rejected strict-everywhere design pass, and one that
+asserted only the resolver would let the typo back in.
+
 Consumer-side: each consumer of an event type keeps a fixture of the event it expects and
 asserts it validates against the published schema. That is what catches "the producer's
 additive change was additive for the schema but not for my parser".

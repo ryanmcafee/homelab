@@ -165,7 +165,13 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 			// 6. The event contract in contracts/events/ (ADR-026, ADR-030).
 			result.Add(verify.EventContract(ctx, runner, repoRoot))
 
-			// 7. Cluster-backed levels. Every check reads the Kind cluster
+			// 7. Schema field names. Reads the schema files, not the
+			// render: a misspelled `requred:` is dropped by the lenient
+			// resolver, so the key stops being required and nothing trips.
+			// Strict here only, where binary and schema share a commit.
+			result.Add(verify.SchemaFields(repoRoot)...)
+
+			// 8. Cluster-backed levels. Every check reads the Kind cluster
 			// through the same Runner, so the fake in tests covers them too.
 			if level >= levelDryRun {
 				cluster := verify.ClusterOptions{
