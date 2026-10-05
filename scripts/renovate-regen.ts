@@ -490,11 +490,17 @@ export function generatedOnlyError(changed: string[]): string | null {
   ].join("\n");
 }
 
-async function run(cmd: string[], quiet = false, trim = true): Promise<string> {
+async function run(
+  cmd: string[],
+  quiet = false,
+  trim = true,
+  env?: Record<string, string>,
+): Promise<string> {
   const p = Bun.spawn(cmd, {
     stdin: "inherit",
     stdout: quiet ? "pipe" : "inherit",
     stderr: "pipe",
+    ...(env ? { env: { ...process.env, ...env } } : {}),
   });
   const [stdout, stderr, code] = await Promise.all([
     new Response(p.stdout).text(),
@@ -504,6 +510,20 @@ async function run(cmd: string[], quiet = false, trim = true): Promise<string> {
   if (code !== 0)
     throw new Error(`Command failed: ${cmd.join(" ")}\n${stderr}`);
   return trim ? stdout.trim() : stdout;
+}
+
+/** Refuse a commit before staging when the managed Git identity is pinned. */
+export function commitPreflightError(
+  ident: string,
+  expectedEmail: string,
+): string | null {
+  const actual = /<([^<>]+)>/.exec(ident)?.[1];
+  if (actual === expectedEmail) return null;
+  return (
+    "renovate-regen/commit-identity: Git would commit as " +
+    `${actual ?? "an unreadable identity"}, not ${expectedEmail}. ` +
+    "Regeneration stopped before staging or committing. Use the governed API commit path in docs/runbooks/verification.md when a managed Git wrapper pins the committer."
+  );
 }
 
 async function capture(cmd: string[]): Promise<string> {
@@ -627,17 +647,27 @@ async function main(): Promise<void> {
     return;
   }
 
-  await run(["git", "add", "--", ...changed]);
-  // Both forms, deliberately. `-c user.*` is what sets the *committer*, which
-  // Renovate reads as well as the author; `--author` is the only form that
-  // survives a wrapper pinning GIT_AUTHOR_EMAIL. Neither alone is sufficient,
-  // and where the committer is pinned too, commitIdentityError() says so.
-  await run([
+  // Probe through the same managed git entrypoint before any commit mutation.
+  // A wrapper may pin GIT_COMMITTER_EMAIL after stripping inherited overrides.
+  const gitIdentityArgs = [
     "git",
     "-c",
     `user.name=${identity.name}`,
     "-c",
     `user.email=${identity.email}`,
+  ];
+  const preflightError = commitPreflightError(
+    await capture([...gitIdentityArgs, "var", "GIT_COMMITTER_IDENT"]),
+    identity.email,
+  );
+  if (preflightError) {
+    console.error(red(preflightError));
+    process.exit(1);
+  }
+
+  await run(["git", "add", "--", ...changed]);
+  await run([
+    ...gitIdentityArgs,
     "commit",
     "--author",
     `${identity.name} <${identity.email}>`,
