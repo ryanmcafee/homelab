@@ -214,6 +214,8 @@ charts:
   argo-workflows: "1.0.18"
   # renovate: datasource=helm depName=argo-rollouts registryUrl=https://argoproj.github.io/argo-helm
   argo-rollouts: "2.43.2"
+  # renovate: datasource=helm depName=argo-events registryUrl=https://argoproj.github.io/argo-helm
+  argo-events: "2.4.27"
   # renovate: datasource=helm depName=nats registryUrl=https://nats-io.github.io/k8s/helm/charts/
   nats: "2.15.0"
   # NACK ships the jetstream.nats.io CRDs (Stream, Consumer) that charts/nats-config
@@ -301,6 +303,12 @@ images:
   # Grafana plugin, installed by the kube-prometheus-stack Grafana at startup.
   # renovate: datasource=github-releases depName=grafana/clickhouse-datasource
   grafana-clickhouse-datasource: "v4.21.3"
+  # NATS on the Argo Events trigger bus. Deliberately un-annotated for Renovate:
+  # this is not a free image tag but a key the argo-events chart's
+  # controller-config maps to an image, so it may only move to a version that
+  # chart declares in configs.jetstream.versions. Bump it with the argo-events
+  # chart; a Renovate bump on its own would render clean and fail at reconcile.
+  argo-events-bus-nats: "2.10.29"
 tools:
   # talos and kubernetes are the TARGET (Renovate bumps them). What the cluster runs is
   # terragrunt/environments/homelab/env.hcl; while it lags, the lag is registered with a

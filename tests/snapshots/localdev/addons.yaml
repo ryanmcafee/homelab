@@ -15,6 +15,21 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 
 ---
+# Source: addons/templates/argo-events.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argo-events
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+
+---
 # Source: addons/templates/argo-rollouts.yaml
 apiVersion: v1
 kind: Namespace
@@ -415,6 +430,11 @@ spec:
               type: RuntimeDefault
 
 ---
+# Source: addons/templates/argo-events.yaml
+# Argo Events - the trigger bus (docs/event-backbone.md)
+# Sync Waves: 12 controller + webhook + CRDs, 13 the EventBus instance
+
+---
 # Source: addons/templates/argo-rollouts.yaml
 # Argo Rollouts - Progressive Delivery (canary + automated rollback)
 # Sync Wave: 2 (Rollout/AnalysisTemplate CRDs before any workload that uses them)
@@ -481,6 +501,117 @@ spec:
       namespace: agent-access
       jsonPointers:
         - /data
+
+---
+# Source: addons/templates/argo-events.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-events
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-events
+    targetRevision: 2.4.27
+    helm:
+      releaseName: argo-events
+      values: |
+        crds:
+          install: true
+          keep: true
+        webhook:
+          enabled: true
+        controller:
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 25m
+              memory: 64Mi
+        configs:
+          jetstream:
+            streamConfig:
+              # Argo Events reuses the bus pod count as its stream replica
+              # count, and a stream asking for more replicas than there are
+              # servers never becomes ready. The chart default is 3.
+              replicas: 1
+              maxAge: 72h
+              # Bytes. The chart default `1GB` is read by viper's GetInt64 and
+              # becomes 0, so an EventBus that sets no streamConfig of its own
+              # inherits an unbounded stream.
+              maxBytes: 268435456
+              maxMsgs: 1000000
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-events
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/argo-events.yaml
+# The EventBus instance. Separate Application because the argoproj.io CRDs it
+# uses are installed by the Application above.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-events-config
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/argo-events-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+      # Bus sizing comes from this parent so a single-node fork changes one
+      # configuration value, not a committed chart.
+      valuesObject:
+        replicas: 1
+        version: "2.10.29"
+        maxAge: 72h
+        maxBytes: 268435456
+        maxMsgs: 1000000
+        storage:
+          className: local-path
+          size: 1Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-events
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
 
 ---
 # Source: addons/templates/argo-rollouts.yaml
