@@ -136,3 +136,41 @@ Each entry should include:
 - Update status if work gets blocked or resumed
 - Don't duplicate issue details - link to source of truth
 - Clean out very old entries periodically (3+ months)
+
+### 2026-09-25 - Clean-machine toolchain bootstrap (issue #331)
+
+- PR: https://github.com/ryanmcafee/homelab/pull/353; branch: `fix/mcaa-28-clean-toolchain`.
+- Added Python/pipx/Node runtime pins, preserved mise install diagnostics, and added a cold-container CI gate with the local `task toolchain:check` entrypoint (committed HEAD).
+- Reproducibility: explicit backend runtimes and checksum-pinned mise. Fail fast, fail loud: missing runtime and installer stderr regressions. Least-privilege CI: read-only contents, no persisted checkout credentials, no credentials/cache/Docker socket passed into the test container.
+- Local install and tier-detection checks passed; first cold-container CI run passed in 117 s. CI exposed subset installs missing the newly pinned runtime selection; all five pipx workflow consumers now select `python pipx` explicitly. Architecture/security review and final-head CI/QA remain required before merge.
+
+### 2026-09-25: Cold-bootstrap CI execution boundary (PR #353)
+
+- Security handoff MCAA-44: remove host mise/Task execution and stream committed HEAD directly to an uncached Docker build; retain read-only token and credential-free checkout.
+- Pin the official Ubuntu manifest digest, preserve mise checksum-before-execution, and add parsed policy tests with negative fixtures. Local task wrappers require trusted checkouts; update instructions are in readme.md.
+- Regression evidence and final cold-build timing are recorded on MCAA-44 and PR #353.
+
+### 2026-09-25 - Retained cold-bootstrap negative fixture (PR #353)
+
+- Added the missing end-to-end regression check to `Dockerfile.toolchain`, before any valid tool installation. It strips runtime declarations only from a temporary copy and uses an isolated HOME.
+- The real pipx backend must fail and name the missing dependency; unexpected success and unrelated failures fail the gate with a diagnostic. The original config then exercises the successful cold install.
+- Run both with `task toolchain:check` (committed HEAD, Docker required). No credentials or new infrastructure are needed. Hosted CI supplies container verification because this agent has no Docker runtime.
+
+### 2026-09-28 - MCAA-606: rebase PR #353 to restore bootstrap CI
+
+- Rebased the six toolchain commits onto freshly fetched `origin/main`; no open PRs targeted the branch. Preserved both sides of the additive `bugs.md` conflict and upstream runtime pins.
+- Focused validation: 24 toolchain policy cases pass (including known-bad fixtures; 49 ms), installer regression tests pass (0.014 s package / 4.7 s wall). No workflow behavior or check changed; runtime delta from this rebase is zero by design.
+- New head and bootstrap CI evidence are recorded in [MCAA-606](/MCAA/issues/MCAA-606). PR remains draft: https://github.com/ryanmcafee/homelab/pull/353.
+
+### 2026-09-29 - MCAA-642: guard-generated inventory on draft PR #353
+
+- Rebased onto `236f3be969dbb5553b3022629c93d1382208fd6f` (main through #500), retaining bootstrap instructions and main's distinction between Kind and production. `task docs:check -- --fix` reports 36 addons, 16 applications, 88 production Applications, 59 in the Kind loop, 21 suites and 17 route hosts; no generated correction was needed after conflict resolution.
+- Snapshot inventory: localdev addons/applications/gitops/bootstrap = 35/21/2/1; production = 55/26/3/4. Baseline changes come from advancing main, not manual count edits.
+- Level 0: 277 pass, zero fail, one documented preview-secret skip; 13.18 s wall / 11.164 s verifier. Docs guard: 15 good/bad fixture tests pass in 0.309 s wall. No check behavior changed, so no runtime delta is introduced by this rebase.
+- Preserved draft status, cold-install gate, codesearch dependency and architecture/security/QA approvals. New-head CI evidence and any blockers: [MCAA-642](/MCAA/issues/MCAA-642); PR: https://github.com/ryanmcafee/homelab/pull/353.
+
+### 2026-09-30 - MCAA-28: integrate merged public-registry guard fix
+
+- Rebased PR #353 onto `origin/main` after #518 merged. The guard's reviewed `ecr-public.aws.com` exception and its look-alike hostname regressions now run on the toolchain branch; no guard rule was loosened here.
+- Focused checks passed: `task config:guard` (216 tracked files), public/private hostname regressions, installer error regression, and `task toolchain:policy` (24 cases). Docker is unavailable in this worktree's runner, so the PR's cold-container and Kind jobs remain the exact-head verification path.
+- PR remains draft until cold install, validation, Kind level 2, and QA acceptance pass: https://github.com/ryanmcafee/homelab/pull/353.

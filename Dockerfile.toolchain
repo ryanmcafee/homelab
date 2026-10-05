@@ -1,0 +1,52 @@
+# Cold bootstrap gate. Run via task toolchain:check; never reuse build caches.
+# No language runtime, Docker socket, credentials or host tool cache is mounted.
+FROM ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git xz-utils unzip && rm -rf /var/lib/apt/lists/*
+RUN for tool in python python3 pipx node npm go bun task; do \
+      if command -v "$tool"; then echo "Unexpected preinstalled runtime: $tool" >&2; exit 1; fi; \
+    done
+
+# Keep the version and checksum together when updating mise.
+RUN curl -fLsS https://github.com/jdx/mise/releases/download/v2026.9.13/mise-v2026.9.13-linux-x64 \
+      -o /usr/local/bin/mise && \
+    echo 'a72f49916b33ba952ba398046c5cc91a58238f0b718fee1d938206ef2af21c6d  /usr/local/bin/mise' | sha256sum -c - && \
+    chmod +x /usr/local/bin/mise
+
+WORKDIR /repo
+# CI and the trusted local wrapper supply only committed files via git archive.
+COPY . .
+# Fail fast, fail loud: exercise the real pipx backend without its declared
+# runtimes before the good install can populate any tool cache. Only the copy
+# is damaged; an isolated HOME keeps fixture state out of the positive gate.
+RUN set -eu; fixture="$(mktemp -d)"; \
+    mkdir -p "$fixture/home"; \
+    sed -E '/^(python|pipx|node)[[:space:]]*=/d' mise.toml > "$fixture/mise.toml"; \
+    (cd "$fixture"; export HOME="$fixture/home"; mise trust; \
+      result=0; mise install -y pipx:ansible-core > install.stdout 2> install.stderr || result=$?; \
+      cat install.stdout; cat install.stderr >&2; \
+      if [ "$result" -eq 0 ]; then \
+        echo 'Negative fixture unexpectedly installed ansible-core without backend runtimes' >&2; exit 1; \
+      fi; \
+      if ! grep -Fq 'pipx is required to install pipx:ansible-core but was not found' install.stderr; then \
+        echo 'Negative fixture failed without naming the missing pipx backend; inspect stderr above' >&2; exit 1; \
+      fi; \
+      echo "Negative fixture passed: real mise rejected missing pipx backend (exit $result)"); \
+    rm -rf "$fixture"
+RUN mise trust && mise install -y
+RUN mise exec -- task install-tools && \
+    missing="$(mise ls --missing)" && \
+    if [ -n "$missing" ]; then printf 'Tools still missing:\n%s\n' "$missing" >&2; exit 1; fi
+RUN mise exec -- task toolchain:policy
+RUN mise exec -- go test ./cmd/homelab/commands -run 'TestInstallTools|TestBootstrap'
+
+# With no Docker daemon, setup must reach tier detection and give its documented
+# prerequisite fix. Full Kind deployment is covered by the existing Kind CI.
+RUN set +e; mise exec -- task setup -- --yes --environment localdev > /setup.log 2>&1; \
+    result=$?; set -e; cat /setup.log; \
+    test "$result" -ne 0 && \
+    grep -q 'Using environment: localdev' /setup.log && \
+    grep -q 'prerequisite checks failed for localdev' /setup.log && \
+    grep -q 'docker info' /setup.log && \
+    ! grep -q 'mise installation failed' /setup.log
