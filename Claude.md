@@ -258,6 +258,13 @@ charts:
   unifi-port-forward: "1.1.1"
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
+  # OCI-only and cosign-signed keyless (docs/apps/openclaw.md). Verify a bump before
+  # trusting the tag; the release workflow identity is the only accepted signer:
+  #   cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  #     --certificate-identity https://github.com/paperclipinc/openclaw-operator/.github/workflows/release.yaml@refs/tags/v<version> \
+  #     ghcr.io/paperclipinc/charts/openclaw-operator:<version>
+  # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/openclaw-operator
+  openclaw-operator: "0.40.0"
   # One key for base, istiod, cni and ztunnel: the four Istio charts must run the same release.
   # renovate: datasource=helm depName=istiod registryUrl=https://blob.istio.io/istio-release/charts
   istio: "1.31.1"
@@ -291,6 +298,10 @@ images:
   # Master build for paperclipai/paperclip#13515; move back to the first release tag that contains it.
   # renovate: datasource=docker depName=ghcr.io/paperclipai/paperclip
   paperclip: "sha-d3e0f0a"
+  # OpenClaw agent image (charts/openclaw). The CRD rejects an Instance without a tag
+  # or digest, and the registry publishes release tags without the leading "v".
+  # renovate: datasource=docker depName=ghcr.io/openclaw/openclaw
+  openclaw: "2026.9.6"
   # Runtime of the paperclip agent health exporter (charts/paperclip files/paperclip-exporter.ts).
   # renovate: datasource=docker depName=oven/bun
   bun: "1.4.2-alpine"
