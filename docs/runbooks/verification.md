@@ -320,10 +320,11 @@ name otherwise (kube-prometheus-stack's `grafana`); a values.yaml whose only top
 is underscore-prefixed is unwrapped (istio's `_internal_defaults_do_not_set`); and an
 upstream default of `{}` or null declares everything below it, so `resources: {}` accepts
 `resources.limits.cpu`. What those cannot settle goes in
-`tests/gitops/upstream-values-allowlist.yaml`, keyed by chart and path prefix, with a
-reason — and an entry that stops matching anything fails the gate, so a key upstream has
-since declared cannot sit there forever. An allowlist entry is never the place for a key
-the chart does not read: that is the defect the gate exists to find.
+`tests/gitops/upstream-values-allowlist.yaml`, keyed by repository URL, chart name,
+pinned revision and path prefix, with a reason. A chart bump requires reviewing its
+entries against the new revision; an entry that stops matching fails the gate, so a key
+upstream has since declared cannot sit there forever. An allowlist entry is never the
+place for a key the chart does not read: that is the defect the gate exists to find.
 
 **Automerge gate.** On `renovate/*` branches the job sets the commit status
 `upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
