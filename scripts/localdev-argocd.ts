@@ -111,6 +111,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from "./lib/yaml.ts";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { join, normalize, resolve } from "node:path";
 import { isAddrInUse, isNotFound } from "./lib/errors.ts";
+import { registryProxyUrl, registryUpstreams } from "./localdev-kind.ts";
 
 // ============================================================================
 // Logging
@@ -1851,11 +1852,17 @@ interface RunResult {
 
 async function run(
   cmd: string[],
-  opts: { cwd?: string; quiet?: boolean; env?: Record<string, string> } = {},
+  opts: {
+    cwd?: string;
+    quiet?: boolean;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+  } = {},
 ): Promise<RunResult> {
   try {
     const p = Bun.spawn(cmd, {
       cwd: opts.cwd,
+      timeout: opts.timeoutMs,
       env: opts.env ? { ...process.env, ...opts.env } : undefined,
       stdin: "inherit",
       stdout: "pipe",
@@ -2451,6 +2458,12 @@ async function cmdInstall(args: Args, repoRoot: string): Promise<number> {
   const code = await runInherit(helm, repoRoot);
   if (code !== 0) {
     log.error(`helm upgrade --install exited ${code}`);
+    // Never replace the original Helm error/exit with a diagnostic failure.
+    try {
+      await diagnoseBootstrap();
+    } catch (err) {
+      log.warn(`bootstrap diagnostics failed: ${String(err)}`);
+    }
     return 1;
   }
   log.ok("ArgoCD installed");
@@ -3571,6 +3584,134 @@ export function formatResourceStatus(stdout: string): string {
     return "(the resource reports no .status)";
   }
   return headTail(JSON.stringify(status, null, 2), STATUS_HEAD, STATUS_TAIL);
+}
+
+/** Bootstrap can fail before any Application exists: diagnose the namespace directly.
+ * Keep per-pod events untruncated so a later BackOff does not hide the original
+ * kubelet Failed event. Only images/states are printed, never pod environment.
+ */
+async function diagnoseBootstrap(): Promise<void> {
+  console.log(
+    `\n===== diagnose: ArgoCD bootstrap failed (${KUBE_CONTEXT}/${ARGOCD_NAMESPACE}) =====`,
+  );
+  const diagnostic = async (cmd: string[]): Promise<RunResult> => {
+    try {
+      const result = await run(cmd, { timeoutMs: 15_000 });
+      if (result.code !== 0) {
+        console.log(
+          `(diagnostic exited ${result.code}: ${fmtCmd(cmd)}: ${result.stderr.trim()})`,
+        );
+      }
+      return result;
+    } catch (err) {
+      console.log(`(diagnostic failed: ${fmtCmd(cmd)}: ${String(err)})`);
+      return { code: 1, stdout: "", stderr: String(err) };
+    }
+  };
+  type BootstrapPod = PodSummary & {
+    spec?: { containers?: unknown[]; initContainers?: unknown[] };
+    status?: PodSummary["status"] & {
+      conditions?: { type?: string; status?: string }[];
+    };
+  };
+  const list = await diagnostic(
+    kubectl("get", "pods", "-n", ARGOCD_NAMESPACE, "-o", "json"),
+  );
+  let pods: BootstrapPod[] = [];
+  try {
+    const items = JSON.parse(list.stdout).items;
+    if (!Array.isArray(items)) throw new Error("missing items array");
+    pods = items;
+  } catch {
+    console.log(
+      "(bootstrap pod list unavailable or invalid; collecting namespace events)",
+    );
+    const events = await diagnostic(
+      kubectl(
+        "get",
+        "events",
+        "-n",
+        ARGOCD_NAMESPACE,
+        "--sort-by=.lastTimestamp",
+      ),
+    );
+    console.log(events.stdout.trim() || "(no events available)");
+  }
+  for (const pod of pods) {
+    const name = pod.metadata?.name;
+    const ready = pod.status?.conditions?.find(
+      (c) => c.type === "Ready",
+    )?.status;
+    if (!name || ready === "True") continue;
+    console.log(
+      `\n--- pod ${ARGOCD_NAMESPACE}/${name} (${pod.status?.phase ?? "Unknown"}): images and container states ---`,
+    );
+    // This is the same API data as spec.containers[*].image / containerStatuses[*].state
+    // jsonpaths, including init containers, without a second racing pod read.
+    const images = (containers: unknown[] = []) =>
+      containers.map((c) => {
+        const container = c as { name?: string; image?: string };
+        return { name: container.name, image: container.image };
+      });
+    console.log(
+      JSON.stringify(
+        {
+          containers: images(pod.spec?.containers),
+          initContainers: images(pod.spec?.initContainers),
+          containerStatuses: pod.status?.containerStatuses ?? [],
+          initContainerStatuses: pod.status?.initContainerStatuses ?? [],
+        },
+        null,
+        2,
+      ),
+    );
+    console.log(`\n--- pod ${ARGOCD_NAMESPACE}/${name}: events ---`);
+    const events = await diagnostic(
+      kubectl(
+        "get",
+        "events",
+        "-n",
+        ARGOCD_NAMESPACE,
+        "--field-selector",
+        `involvedObject.name=${name}`,
+        "--sort-by=.lastTimestamp",
+      ),
+    );
+    console.log(events.stdout.trim() || "(no events available)");
+  }
+  // Use configured mirror URLs rather than duplicating hosts (forks can change them).
+  // Probe all nodes: a pod may not yet be scheduled, and node DNS can differ.
+  const nodes = await diagnostic(
+    kubectl(
+      "get",
+      "nodes",
+      "-o",
+      'jsonpath={range .items[*]}{.metadata.name}{"\\n"}{end}',
+    ),
+  );
+  for (const node of nodes.stdout.trim().split(/\s+/).filter(Boolean)) {
+    for (const upstream of registryUpstreams) {
+      const url = `${registryProxyUrl(upstream.name)}/v2/`;
+      console.log(
+        `\n--- node ${node}: mirror ${upstream.host} via ${url} (reachability only) ---`,
+      );
+      const probe = await diagnostic([
+        "docker",
+        "exec",
+        node,
+        "curl",
+        "--silent",
+        "--show-error",
+        "--connect-timeout",
+        "3",
+        "--max-time",
+        "5",
+        "--include",
+        url,
+      ]);
+      console.log(probe.stdout.trim() || "(no HTTP response)");
+    }
+  }
 }
 
 async function diagnoseEvents(ns: string): Promise<void> {
