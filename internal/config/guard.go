@@ -73,12 +73,7 @@ func isNonIdentifyingValue(v string) bool {
 		}
 	}
 	// A host this repository commits on purpose is not a leak when it appears.
-	for _, safe := range committedSafeHosts {
-		if host == safe || strings.HasSuffix(host, "."+safe) {
-			return true
-		}
-	}
-	return false
+	return isCommittedSafeHost(host)
 }
 
 // BuildGuardPatterns extracts PII-sensitive values from a resolved config as guard patterns.
@@ -599,6 +594,29 @@ var committedSafeHosts = []string{
 	"ecr-public.aws.com",
 }
 
+// exactSafeHosts are committed-safe hosts excused as that exact host only;
+// their subdomains are still reported.
+var exactSafeHosts = []string{
+	// The linuxserver registry, proxied by the localdev pull-through cache.
+	"lscr.io",
+}
+
+// isCommittedSafeHost reports whether host is an allowlisted public host:
+// a committedSafeHosts entry or its subdomain, or an exactSafeHosts entry.
+func isCommittedSafeHost(host string) bool {
+	for _, safe := range exactSafeHosts {
+		if host == safe {
+			return true
+		}
+	}
+	for _, safe := range committedSafeHosts {
+		if host == safe || strings.HasSuffix(host, "."+safe) {
+			return true
+		}
+	}
+	return false
+}
+
 // templateFileSuffixes mark a file whose values are placeholders by
 // construction.
 var templateFileSuffixes = []string{".example", ".template", ".sample", ".dist"}
@@ -784,10 +802,8 @@ func isRealHostname(v string) bool {
 			return false
 		}
 	}
-	for _, safe := range committedSafeHosts {
-		if host == safe || strings.HasSuffix(host, "."+safe) {
-			return false
-		}
+	if isCommittedSafeHost(host) {
+		return false
 	}
 	// Require a plausible alphabetic TLD, so a version string or a filename
 	// does not read as a domain.
