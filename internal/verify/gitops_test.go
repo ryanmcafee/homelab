@@ -122,7 +122,10 @@ func testRegistry() *GitOpsRegistry {
 		HugeCRDCharts:    []string{"cert-manager"},
 		SystemNamespaces: []string{"argocd", "kube-system"},
 		KnownSecrets:     []KnownSecret{{Name: "sops-age-key", Namespace: "argocd", Reason: "created by ksops"}},
-		OutputRefKeys:    []OutputRefKey{{Key: "privateKeySecretRef", Reason: "cert-manager writes the ACME account key"}},
+		OutputRefKeys: []OutputRefKey{
+			{Key: "privateKeySecretRef", Reason: "cert-manager writes the ACME account key"},
+			{Key: "secretName", Path: "notifications.secretName", Reason: "the name the child chart gives the OnePasswordItem it renders"},
+		},
 	}
 }
 
@@ -1076,6 +1079,127 @@ spec:
 			wantStatus: StatusFail,
 			wantFind:   "unifi-credentials",
 		},
+		{
+			// A bare secretName outside a secret: parent, as the LiteLLM chart
+			// spells its master key.
+			name:       "secret-refs catch a bare secretName in helm values",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": valuesApp("litellm", "13", "litellm", "        masterKey:\n          secretName: litellm-master-key-secret\n          secretKey: master-key\n"),
+			},
+			wantStatus: StatusFail,
+			wantFind:   "masterKey.secretName",
+		},
+		{
+			name:       "secret-refs accept a bare secretName with a rendered producer",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications", "litellm-dependencies"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": valuesApp("litellm", "13", "litellm", "        masterKey:\n          secretName: litellm-master-key-secret\n") +
+					appDoc("litellm-dependencies", "11", "charts/litellm-dependencies", "litellm"),
+				"litellm-dependencies": onePasswordItem("litellm-master-key-secret", "litellm", "vaults/homelab/items/litellm-master-key"),
+			},
+			wantStatus: StatusPass,
+		},
+		{
+			// passwordSecret ends in Secret, not SecretRef, and carries the
+			// name under a nested map: the CloudNativePG spelling.
+			name:       "secret-refs catch a Secret-suffixed key holding a name map",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": valuesApp("litellm", "13", "litellm",
+					"        database:\n          writer:\n            passwordSecret:\n              name: litellm-db-app\n              passwordKey: password\n"),
+			},
+			wantStatus: StatusFail,
+			wantFind:   "litellm-db-app",
+		},
+		{
+			name:       "secret-refs accept a Secret-suffixed name map with a rendered producer",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications", "litellm-dependencies"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": valuesApp("litellm", "13", "litellm",
+					"        database:\n          writer:\n            passwordSecret:\n              name: litellm-db-app\n") +
+					appDoc("litellm-dependencies", "11", "charts/litellm-dependencies", "litellm"),
+				"litellm-dependencies": "---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: litellm-db-app\n  namespace: litellm\n",
+			},
+			wantStatus: StatusPass,
+		},
+		{
+			// envSecrets is a list of Secret names, so every entry is a
+			// reference — including the second one.
+			name:       "secret-refs catch every name in a Secrets-suffixed list",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications", "litellm-dependencies"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": valuesApp("litellm", "13", "litellm",
+					"        gateway:\n          envSecrets:\n            - litellm-salt-key\n            - litellm-api-keys\n") +
+					appDoc("litellm-dependencies", "11", "charts/litellm-dependencies", "litellm"),
+				"litellm-dependencies": onePasswordItem("litellm-salt-key", "litellm", "vaults/homelab/items/litellm-salt-key"),
+			},
+			wantStatus: StatusFail,
+			wantFind:   "litellm-api-keys",
+		},
+		{
+			// imagePullSecrets is a list of maps, a different reference shape
+			// that this key's contract does not cover.
+			name:       "secret-refs ignore a Secrets-suffixed list of maps",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": valuesApp("litellm", "13", "litellm", "        imagePullSecrets:\n          - name: regcred\n"),
+			},
+			wantStatus: StatusPass,
+			wantDetail: "0 secret references, 0 rendered producers",
+		},
+		{
+			// A path-scoped outputRefKeys entry still exempts a generic key:
+			// notifications.secretName names the OnePasswordItem the child
+			// chart renders, not a Secret the Application reads.
+			name:       "secret-refs honour a path-scoped output ref key",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": valuesApp("prometheus-config", "8", "monitoring",
+					"        alertmanager:\n          notifications:\n            secretName: alertmanager-notifications\n            onePasswordItemPath: \"\"\n"),
+			},
+			wantStatus: StatusPass,
+			wantDetail: "0 secret references, 0 rendered producers",
+		},
+		{
+			// A Certificate's spec.secretName is cert-manager's output, so it
+			// is not collected at all — not merely satisfied by itself.
+			name:       "secret-refs ignore Certificate spec.secretName",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications", "tls"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": appDoc("tls", "3", "charts/tls", "envoy-gateway-system"),
+				"tls": `
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway-wildcard-tls
+  namespace: envoy-gateway-system
+spec:
+  secretName: gateway-wildcard-tls
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+`,
+			},
+			wantStatus: StatusPass,
+			wantDetail: "0 secret references, 1 rendered producers",
+		},
 
 		// ---------------- namespaces ----------------
 		{
@@ -1301,6 +1425,18 @@ func appDoc(name, wave, path, destNS string) string {
 		"\"\nspec:\n  source:\n" + src +
 		"  destination:\n    namespace: " + destNS +
 		"\n  syncPolicy:\n    syncOptions: [CreateNamespace=true, ServerSideApply=true]\n"
+}
+
+// valuesApp builds an Application for a remote chart whose Secret references
+// live in an inline helm.values block. values must already be indented to the
+// eight spaces the block sits at.
+func valuesApp(name, wave, destNS, values string) string {
+	return "---\napiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: " + name +
+		"\n  namespace: argocd\n  annotations:\n    argocd.argoproj.io/sync-wave: \"" + wave +
+		"\"\nspec:\n  source:\n    repoURL: https://example.com/charts\n    chart: " + name +
+		"\n    helm:\n      values: |\n" + values +
+		"  destination:\n    namespace: " + destNS +
+		"\n  syncPolicy:\n    syncOptions: [CreateNamespace=true]\n"
 }
 
 // onePasswordItem builds an OnePasswordItem. An empty namespace leaves
@@ -1751,6 +1887,52 @@ func TestLoadGitOpsRegistryRejectsKnownSecretWithoutReason(t *testing.T) {
 	}
 	if _, err := LoadGitOpsRegistry(root); err == nil {
 		t.Fatal("expected an error for a known secret without a reason")
+	}
+}
+
+// TestLoadGitOpsRegistryRejectsInertOutputRefPath: a path that does not end in
+// the key matches nothing, so the exception would sit in the file looking like
+// it exempts a reference while the rule still reported it.
+func TestLoadGitOpsRegistryRejectsInertOutputRefPath(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "tests", "gitops")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "outputRefKeys:\n  - key: secretName\n    path: notifications.secretRef\n    reason: typo\n"
+	if err := os.WriteFile(filepath.Join(dir, "known-secrets.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadGitOpsRegistry(root); err == nil {
+		t.Fatal("expected an error for an outputRefKeys path that cannot match its key")
+	}
+}
+
+func TestOutputRefKeyMatches(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry OutputRefKey
+		key   string
+		path  string
+		want  bool
+	}{
+		{"key only matches anywhere", OutputRefKey{Key: "privateKeySecretRef"}, "privateKeySecretRef", "spec.acme.privateKeySecretRef", true},
+		{"key only rejects another key", OutputRefKey{Key: "privateKeySecretRef"}, "secretName", "spec.secretName", false},
+		{"path matches a suffix", OutputRefKey{Key: "secretName", Path: "notifications.secretName"},
+			"secretName", "spec.source.helm.values.alertmanager.notifications.secretName", true},
+		{"path matches the whole path", OutputRefKey{Key: "secretName", Path: "notifications.secretName"},
+			"secretName", "notifications.secretName", true},
+		{"path rejects another parent", OutputRefKey{Key: "secretName", Path: "notifications.secretName"},
+			"secretName", "spec.source.helm.values.masterKey.secretName", false},
+		{"path rejects a partial segment", OutputRefKey{Key: "secretName", Path: "notifications.secretName"},
+			"secretName", "spec.pushnotifications.secretName", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.entry.Matches(tc.key, tc.path); got != tc.want {
+				t.Errorf("Matches(%q, %q) = %v, want %v", tc.key, tc.path, got, tc.want)
+			}
+		})
 	}
 }
 
