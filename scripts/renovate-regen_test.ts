@@ -24,21 +24,29 @@ import {
   assertStringIncludes,
   assertThrows,
 } from "./lib/assert.ts";
+import { FIXABLE_FILES as DOCS_CHECK_FILES } from "./docs-check.ts";
 import {
+  BOT_UNCOMMITTED_PATHS,
   branchGuardError,
   commitIdentityFindings,
   COMMITTER_READ_FROM_MAJOR,
   committerIsRead,
   deployedMajorFindings,
   changedPaths,
+  GENERATED_PATHS,
   generatedOnlyError,
   identityParityError,
   parseGitIgnoredAuthors,
   parseRegenIdentity,
+  parseWorkflowCommitScope,
+  parseWorkflowRegenSteps,
   readChangedPaths,
   readDeployedRenovate,
+  readRunBlock,
+  REGEN_STEPS,
   RENOVATE_CONFIG_PATH,
   WORKFLOW_PATH,
+  workflowParityErrors,
 } from "./renovate-regen.ts";
 
 const WORKFLOW_FIXTURE = `
@@ -175,6 +183,246 @@ test("the repository's own regeneration identity is one Renovate ignores", () =>
       `gitIgnoredAuthors entry ${author} is not a generic bot address; a fork cannot inherit it`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// Workflow parity: the bot path and the local remedy regenerate one set
+// ---------------------------------------------------------------------------
+
+/**
+ * The bot and `task renovate:regen` are two implementations of one contract in
+ * two languages. Until these tests, nothing compared them, and the difference
+ * was silent: the local remedy ran `docs:check --fix` and committed `readme.md`
+ * and `docs/`, the workflow did neither, and `verify.yml`'s `policy` job runs
+ * `task docs:check` on every PR including Renovate's. Measured on this
+ * repository at 2d8c0af: a `charts.cilium` bump alone leaves `readme.md`'s badge
+ * region stale, and the `tests/snapshots` the bot already commits leave
+ * `docs/applications.md`'s addons table stale. Both fail `docs:check`, which
+ * `platformAutomerge: false` then waits on forever.
+ */
+const PARITY_WORKFLOW_FIXTURE = [
+  "jobs:",
+  "  regenerate:",
+  "    steps:",
+  "      - name: Regenerate",
+  "        run: |",
+  "          task config:export:localdev",
+  "          task test:snapshot -- --update",
+  "",
+  "      - name: Commit and push as the regeneration bot",
+  "        run: |",
+  '          paths="tests/snapshots readme.md"',
+  "          other=\"$(git status --porcelain | awk '{print $2}' | while read -r f; do",
+  '            case "$f" in tests/snapshots/*|readme.md) ;; *) echo "$f" ;; esac',
+  '          done)"',
+].join("\n");
+
+const PARITY_STEPS_FIXTURE = [
+  { cmd: ["task", "config:export:localdev"] },
+  { cmd: ["task", "test:snapshot", "--", "--update"] },
+];
+const PARITY_PATHS_FIXTURE = ["tests/snapshots/", "readme.md"];
+
+test("workflowParityErrors accepts a workflow that matches the script", () => {
+  assertEquals(
+    workflowParityErrors(
+      PARITY_WORKFLOW_FIXTURE,
+      PARITY_STEPS_FIXTURE,
+      PARITY_PATHS_FIXTURE,
+      {},
+    ),
+    [],
+  );
+});
+
+test("workflowParityErrors catches a regeneration step the bot does not run", () => {
+  const errors = workflowParityErrors(
+    PARITY_WORKFLOW_FIXTURE,
+    [...PARITY_STEPS_FIXTURE, { cmd: ["task", "docs:check", "--", "--fix"] }],
+    PARITY_PATHS_FIXTURE,
+    {},
+  );
+  assertEquals(errors.length, 1);
+  assertStringIncludes(errors[0], "renovate-regen/workflow-parity");
+  assertStringIncludes(errors[0], "task docs:check -- --fix");
+});
+
+test("workflowParityErrors catches a step run in the wrong order", () => {
+  const errors = workflowParityErrors(
+    PARITY_WORKFLOW_FIXTURE,
+    [...PARITY_STEPS_FIXTURE].reverse(),
+    PARITY_PATHS_FIXTURE,
+    {},
+  );
+  assertEquals(errors.length, 1);
+  assertStringIncludes(errors[0], "does not run the same steps");
+});
+
+test("workflowParityErrors catches a generated path the bot never commits", () => {
+  const errors = workflowParityErrors(
+    PARITY_WORKFLOW_FIXTURE,
+    PARITY_STEPS_FIXTURE,
+    [...PARITY_PATHS_FIXTURE, "docs/"],
+    {},
+  );
+  assertEquals(errors.length, 1);
+  assertStringIncludes(errors[0], "missing docs");
+});
+
+test("a path excluded with a stated reason is not drift", () => {
+  assertEquals(
+    workflowParityErrors(
+      PARITY_WORKFLOW_FIXTURE,
+      PARITY_STEPS_FIXTURE,
+      [...PARITY_PATHS_FIXTURE, ".github/homelab.svg"],
+      { ".github/homelab.svg": "--fix cannot regenerate the counter steps" },
+    ),
+    [],
+  );
+});
+
+test("an exclusion for a path that is not generated is stale, not an exemption", () => {
+  const errors = workflowParityErrors(
+    PARITY_WORKFLOW_FIXTURE,
+    PARITY_STEPS_FIXTURE,
+    PARITY_PATHS_FIXTURE,
+    { "charts/addons/values.yaml": "no longer regenerated" },
+  );
+  assertStringIncludes(errors[0], "charts/addons/values.yaml");
+  assertStringIncludes(errors[0], "stale exemption");
+});
+
+test("workflowParityErrors catches an allowlist that lags its own paths", () => {
+  const drifted = PARITY_WORKFLOW_FIXTURE.replace(
+    "tests/snapshots/*|readme.md",
+    "tests/snapshots/*",
+  );
+  const errors = workflowParityErrors(
+    drifted,
+    PARITY_STEPS_FIXTURE,
+    PARITY_PATHS_FIXTURE,
+    {},
+  );
+  assertEquals(errors.length, 1);
+  assertStringIncludes(errors[0], "allowlist does not match");
+  assertStringIncludes(errors[0], "missing readme.md");
+});
+
+test("docs, docs/ and docs/* are the same directory to the parity gate", () => {
+  const workflow = PARITY_WORKFLOW_FIXTURE.replace(
+    'paths="tests/snapshots readme.md"',
+    'paths="tests/snapshots readme.md docs"',
+  ).replace(
+    "tests/snapshots/*|readme.md",
+    "tests/snapshots/*|readme.md|docs/*",
+  );
+  assertEquals(
+    workflowParityErrors(
+      workflow,
+      PARITY_STEPS_FIXTURE,
+      [...PARITY_PATHS_FIXTURE, "docs/"],
+      {},
+    ),
+    [],
+  );
+});
+
+test("parseWorkflowRegenSteps ignores commented-out steps", () => {
+  // A gate whose matcher counts its own explanatory comment inspects nothing.
+  const commented = PARITY_WORKFLOW_FIXTURE.replace(
+    "          task test:snapshot -- --update",
+    "          # task docs:check -- --fix is deliberately not run here\n          task test:snapshot -- --update",
+  );
+  assertEquals(parseWorkflowRegenSteps(commented), [
+    ["task", "config:export:localdev"],
+    ["task", "test:snapshot", "--", "--update"],
+  ]);
+});
+
+test("the parity parsers fail closed when the workflow is restructured", () => {
+  // Renaming a step must break the gate loudly; a parser that returns nothing
+  // would report parity against nothing and pass.
+  assertThrows(() =>
+    readRunBlock(
+      PARITY_WORKFLOW_FIXTURE.replace("- name: Regenerate", "- name: Regen"),
+      "Regenerate",
+    ),
+  );
+  assertThrows(() =>
+    parseWorkflowRegenSteps(
+      PARITY_WORKFLOW_FIXTURE.replace(
+        /^ {10}task .*$/gm,
+        "          echo noop",
+      ),
+    ),
+  );
+  assertThrows(() =>
+    parseWorkflowCommitScope(
+      PARITY_WORKFLOW_FIXTURE.replace(
+        'paths="tests/snapshots readme.md"',
+        "paths=''",
+      ),
+    ),
+  );
+  assertThrows(() =>
+    parseWorkflowCommitScope(
+      PARITY_WORKFLOW_FIXTURE.replace(/case "\$f" in [^)]*\)/, "true"),
+    ),
+  );
+});
+
+test("readRunBlock does not read past the step it was asked for", () => {
+  const body = readRunBlock(PARITY_WORKFLOW_FIXTURE, "Regenerate");
+  assert(
+    !body.includes("paths="),
+    `the Regenerate block leaked into the commit step:\n${body}`,
+  );
+});
+
+test("the repository's own bot path regenerates and commits what the script does", () => {
+  assertEquals(workflowParityErrors(readFileSync(WORKFLOW_PATH, "utf8")), []);
+  for (const [path, reason] of Object.entries(BOT_UNCOMMITTED_PATHS)) {
+    assert(
+      reason.length > 40,
+      `${path} is excluded from the bot's commit with no stated reason`,
+    );
+  }
+});
+
+test("every file docs:check can rewrite is one the bot commits or excludes", () => {
+  // The other direction of the same contract, derived rather than restated: a
+  // file added to docs-check.ts is a new drift vector on every Renovate PR, and
+  // must land in the bot's scope or be excluded on purpose.
+  const committed = parseWorkflowCommitScope(
+    readFileSync(WORKFLOW_PATH, "utf8"),
+  ).paths;
+  const excluded = Object.keys(BOT_UNCOMMITTED_PATHS);
+  assert(DOCS_CHECK_FILES.length > 0, "docs-check.ts declares no files");
+  for (const file of DOCS_CHECK_FILES) {
+    const covered =
+      committed.some((p) => file === p || file.startsWith(`${p}/`)) ||
+      excluded.includes(file);
+    assert(
+      covered,
+      `docs:check --fix can rewrite ${file}, but ${WORKFLOW_PATH} job regenerate neither commits it nor declares it in BOT_UNCOMMITTED_PATHS; a bump that moves it leaves verify.yml's policy job red with no bot remedy`,
+    );
+  }
+});
+
+test("the script's own regeneration steps cover every docs gate a bump moves", () => {
+  // Parity alone cannot catch a step deleted from both lists at once, so pin the
+  // two steps that exist because a bump moves generated docs.
+  const commands = REGEN_STEPS.map((s) => s.cmd.join(" "));
+  for (const required of ["task docs:check -- --fix", "task docs:embedme"]) {
+    assert(
+      commands.includes(required),
+      `REGEN_STEPS no longer runs \`${required}\`; a bump that moves its output has no remedy on either path`,
+    );
+  }
+  assert(
+    GENERATED_PATHS.includes("readme.md") && GENERATED_PATHS.includes("docs/"),
+    "readme.md and docs/ carry generated regions a chart bump moves and must stay in GENERATED_PATHS",
+  );
 });
 
 /**
