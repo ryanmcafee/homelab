@@ -200,6 +200,25 @@ Per node, and only for a node that has not come back:
 Rolling back only the etcd tuning is independent: drop `controlplane_config_patches` and re-apply.
 The defaults (100 ms / 1000 ms) are safe, just less tolerant of disk stalls.
 
+## etcd quorum and metrics alerts
+
+Two alerts watch etcd, and they mean different things. Check which one fired before acting.
+
+| Alert | Severity | Means | Do this |
+|---|---|---|---|
+| `HomelabEtcdQuorumAtRisk` | critical, 5 m | Fewer than two members answered the scrape. The annotation's count is how many are left: **1** is one loss from losing quorum, **0** means the control plane is already down | Recover members before anything else: `talosctl -n <CPn_IP> service etcd status` on each control plane, then the fsync question in [Diagnose a recurrence](#diagnose-a-recurrence) |
+| `EtcdMetricsAbsent` | warning, 15 m | No `kube-etcd` target is up. This also matches the targets disappearing from Prometheus entirely, which is a scrape problem rather than an etcd outage | Confirm etcd is actually running first. If it is, check `cluster.etcd.extraArgs.listen-metrics-urls` on the control planes, then the static `kube-etcd` job in `prometheus.prometheusSpec.additionalScrapeConfigs` (`charts/addons/templates/kube-prometheus-stack.yaml`). Its targets are `kubeEtcd.endpoints` on `kubeEtcd.port` (2381), rendered from the control-plane addresses in `configuration/templates/helm-addons.tmpl`; there is no etcd ServiceMonitor |
+
+A real total outage fires both: the critical at 5 m and the warning at 15 m. Both notify, because
+the Alertmanager inhibit rule only mutes a warning that shares the critical's `alertname` and
+`namespace`, and these two alerts have different names. A `EtcdMetricsAbsent` arriving *alone* is
+the scrape-configuration case.
+
+`HomelabEtcdQuorumAtRisk` counts healthy members with `sum(up{job="kube-etcd"} == bool 1)`. The
+filtered `count(up == 1)` form it replaced matched no series once every member was down, so the
+alert evaluated to no data and stayed silent on total loss — the one failure that stops the control
+plane outright. `tests/alerts/homelab/etcd-quorum.test.yaml` is the regression test.
+
 ## Diagnose a recurrence
 
 If the API goes away again, these four answers separate the three plausible causes in a couple of
