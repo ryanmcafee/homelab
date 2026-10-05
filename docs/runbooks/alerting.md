@@ -115,18 +115,30 @@ leaves it alone; the snapshot in `tests/snapshots/homelab/addons.yaml` shows the
 
 ## Rules
 
-The chart's `defaultRules` stay on (node, kubelet, volumes, targets, etcd once scraped) with one
-exception: `CPUThrottlingHigh` is disabled in `defaultRules.disabled` and re-stated below with a
-floor under its denominator. The chart's version divides throttled CFS periods by the periods a
-container ran in *at all*, so a container that is 99 % idle reads as badly throttled off a handful
-of samples; that is how 16 alerts stood on democratic-csi for three months while the drivers used
-12m of CPU. Homelab rules live in `additionalPrometheusRulesMap`:
+The chart's `defaultRules` stay on (node, kubelet, volumes, targets, etcd once scraped) with two
+exceptions, both disabled in `defaultRules.disabled` and re-stated below:
+
+- `CPUThrottlingHigh` gets a floor under its denominator. The chart's version divides throttled CFS
+  periods by the periods a container ran in *at all*, so a container that is 99 % idle reads as
+  badly throttled off a handful of samples; that is how 16 alerts stood on democratic-csi for three
+  months while the drivers used 12m of CPU.
+- `etcdHighNumberOfFailedGRPCRequests` leaves out `MemberPromote`. A Talos control plane joins etcd
+  as a learner and retries `MemberPromote` until it is in sync with the leader; etcd answers the
+  early tries with `FailedPrecondition`. The ratio is per gRPC method and `MemberPromote` is called
+  only a few times per join, so two expected rejections read as 100 % failed and paged as critical
+  on every control-plane rebuild. Every other method keeps the chart's thresholds. When it fires,
+  the `grpc_method` and `grpc_code` of `grpc_server_handled_total{job="kube-etcd"}` name what is
+  failing; check `etcd_server_has_leader`, `talosctl -n <node> etcd status` and
+  [control-plane-storage.md](./control-plane-storage.md) for slow-disk causes.
+
+Homelab rules live in `additionalPrometheusRulesMap`:
 
 | Group | Alert | Severity | Fires when |
 |---|---|---|---|
 | homelab-control-plane | `KubeAPIServerErrorsHigh` | critical | apiserver 5xx > 0.5/s for 2 m |
 | homelab-control-plane | `NodeDiskWriteLatencyHigh` | warning | sda write latency > 50 ms for 10 m |
 | homelab-control-plane | `EtcdMetricsAbsent` | warning | no `kube-etcd` target up for 15 m |
+| homelab-control-plane | `etcdHighNumberOfFailedGRPCRequests` | warning / critical | >1 % for 10 m / >5 % for 5 m of etcd gRPC calls failed, per method, excluding `MemberPromote` |
 | homelab-infrastructure | `HomelabNodeNotReady` | critical | a node NotReady for 5 m |
 | homelab-infrastructure | `HomelabNodeUnderPressure` | warning | Memory/Disk/PID pressure for 10 m |
 | homelab-infrastructure | `HomelabEtcdQuorumAtRisk` | critical | fewer than 2 etcd members up for 5 m |
