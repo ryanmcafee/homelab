@@ -1720,9 +1720,11 @@ spec:
 
 ---
 # Source: paperclip/templates/exporter.yaml
-# Progressive delivery: a new exporter image reaches half the traffic, the
-# canary-http-health ClusterAnalysisTemplate probes paperclip-exporter-canary, and a
-# failed probe aborts back to the stable ReplicaSet without an operator.
+# Progressive delivery: setWeight is a replica proportion, not a traffic share --
+# there is no trafficRouting. A new exporter image runs as a canary pod reached
+# only by paperclip-exporter-canary, canary-http-health probes it, and a failed probe
+# aborts back to the stable ReplicaSet without an operator.
+# Guarantees: docs/progressive-delivery.md.
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:

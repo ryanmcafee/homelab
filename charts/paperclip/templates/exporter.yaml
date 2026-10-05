@@ -13,9 +13,11 @@ data:
   paperclip-exporter.ts: |-
     {{- $script | nindent 4 }}
 ---
-# Progressive delivery: a new exporter image reaches half the traffic, the
-# canary-http-health ClusterAnalysisTemplate probes {{ $name }}-canary, and a
-# failed probe aborts back to the stable ReplicaSet without an operator.
+# Progressive delivery: setWeight is a replica proportion, not a traffic share --
+# there is no trafficRouting. A new exporter image runs as a canary pod reached
+# only by {{ $name }}-canary, canary-http-health probes it, and a failed probe
+# aborts back to the stable ReplicaSet without an operator.
+# Guarantees: docs/progressive-delivery.md.
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
