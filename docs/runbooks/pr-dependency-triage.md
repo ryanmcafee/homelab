@@ -28,3 +28,7 @@ workflow with its own `GITHUB_TOKEN`; no account-specific secret, App, or host
 name is needed. The fork must permit Actions and allow the declared token
 permission under its repository or organization policy. A policy that caps the
 token at read-only makes the label write fail visibly with HTTP 403.
+
+Run `task test:scripts -- scripts/pr-dependency-triage_test.ts` to check the
+trusted workflow grant, root/blocked/orphan/fork outcomes, rejection of an
+invalid targeted PR number, and fatal behavior for a denied label write.
