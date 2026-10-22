@@ -163,4 +163,4 @@ Each entry should include:
 - PR: https://github.com/ryanmcafee/homelab/pull/487; implementation commit `bbf81af`.
 - Diagnosis now selects Healthy/Succeeded/OutOfSync Applications, prints the failing `status.sync.status` field and sync detail, and collects their destination namespace diagnostics.
 - Regression demonstrated before the fix: OutOfSync failed and Synced passed. After: both pass; all 139 ArgoCD script tests pass (53 ms); TypeScript and level 0 pass (271 checks, 1 intentional skip, 10.177 s).
-- QA follow-up MCAA-470 owns real Kind level-2 sync-failure evidence and final CI verification. No production mutation. Ready-path API count is unchanged; drift runs the existing namespace collector (live duration pending QA).
+- QA verified the real CI Diagnostics path on MCAA-470: two Healthy/Succeeded/OutOfSync Applications named `status.sync.status` and yielded namespace evidence; Synced controls stayed quiet. ADR-012 allows sync-only drift in Kind level 2. No production mutation. Ready-path API count is unchanged; drift runs the existing namespace collector (~1.57 s for 57 Applications in QA's Kind run).
