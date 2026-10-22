@@ -867,16 +867,54 @@ tasks:
       # copied into tests/, so a test can never assert about an expression that
       # is not deployed. promtool check rules covers every group; the unit tests
       # in tests/alerts cover the ones whose thresholds carry a decision.
+      #
+      # Both environments are checked. localdev renders a subset, so reading it
+      # alone left the homelab-only rules (etcd, Cilium, Hubble, the GitHub and
+      # triage exporters) with no promtool coverage at all. homelab renders from
+      # homelab.yaml.example, the same PII-free ConfigSet level 0 uses.
       - |
         set -euo pipefail
+        promtool="$(command -v promtool)"
+        root="$PWD"
         out="$(mktemp -d)"
         trap 'rm -rf "$out"' EXIT
-        helm template addons charts/addons -f charts/addons/values-localdev.yaml \
-          | yq -r 'select(.kind=="Application" and .metadata.name=="kube-prometheus-stack") | .spec.source.helm.values' \
-          | yq -r '{"groups": [.additionalPrometheusRulesMap[].groups[]]}' > "$out/rules.yaml"
-        promtool check rules "$out/rules.yaml"
-        cp tests/alerts/*.test.yaml "$out/"
-        cd "$out" && promtool test rules ./*.test.yaml
+        envs="localdev homelab"
+        # Dropping an environment from the list above would leave its fixtures
+        # unrun and this task still green, so every tests/alerts/<env>/ must
+        # name an environment that is actually checked.
+        for dir in "$root"/tests/alerts/*/; do
+          [ -d "$dir" ] || continue
+          name="$(basename "$dir")"
+          case " $envs " in
+            *" $name "*) ;;
+            *) echo "tests/alerts/$name/ has fixtures but $name is not checked" >&2; exit 1 ;;
+          esac
+        done
+        go run ./cmd/homelab config export --set homelab \
+          --env-file configuration/environments/homelab.yaml.example \
+          --format helm-addons --stdout > "$out/values-homelab.yaml"
+        for env in $envs; do
+          values="charts/addons/values-localdev.yaml"
+          [ "$env" = homelab ] && values="$out/values-homelab.yaml"
+          helm template addons charts/addons -f "$values" \
+            | yq -r 'select(.kind=="Application" and .metadata.name=="kube-prometheus-stack") | .spec.source.helm.values' \
+            | yq -r '{"groups": [.additionalPrometheusRulesMap[].groups[]]}' > "$out/$env-rules.yaml"
+          # A render that produced no alerts would pass every check below and
+          # would keep passing for every alert added later.
+          count="$(yq -r '[.groups[].rules[] | select(has("alert"))] | length' "$out/$env-rules.yaml")"
+          if [ "$count" -eq 0 ]; then
+            echo "no alerting rules rendered for $env" >&2
+            exit 1
+          fi
+          echo "== $env: $count alerting rules"
+          "$promtool" check rules "$out/$env-rules.yaml"
+          # tests/alerts/ holds fixtures for rules both environments render;
+          # tests/alerts/<env>/ holds the ones only that environment ships.
+          ( cd "$out" && rm -f ./*.test.yaml && cp "$env-rules.yaml" rules.yaml \
+            && cp "$root"/tests/alerts/*.test.yaml . \
+            && if [ -d "$root/tests/alerts/$env" ]; then cp "$root/tests/alerts/$env"/*.test.yaml .; fi \
+            && "$promtool" test rules ./*.test.yaml )
+        done
 
   test:e2e:
     desc: Declarative Kind e2e tests (chainsaw) against the running localdev cluster (task test:e2e -- --test-dir tests/e2e/plex)

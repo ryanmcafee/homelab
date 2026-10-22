@@ -126,10 +126,10 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 |---|---|---|---|
 | homelab-control-plane | `KubeAPIServerErrorsHigh` | critical | apiserver 5xx > 0.5/s for 2 m |
 | homelab-control-plane | `NodeDiskWriteLatencyHigh` | warning | sda write latency > 50 ms for 10 m |
-| homelab-control-plane | `EtcdMetricsAbsent` | warning | no `kube-etcd` target up for 15 m |
+| homelab-control-plane | `EtcdMetricsAbsent` | warning | no `kube-etcd` target up for 15 m, including the targets disappearing entirely ([control-plane-storage.md](./control-plane-storage.md)) |
 | homelab-infrastructure | `HomelabNodeNotReady` | critical | a node NotReady for 5 m |
 | homelab-infrastructure | `HomelabNodeUnderPressure` | warning | Memory/Disk/PID pressure for 10 m |
-| homelab-infrastructure | `HomelabEtcdQuorumAtRisk` | critical | fewer than 2 etcd members up for 5 m |
+| homelab-infrastructure | `HomelabEtcdQuorumAtRisk` | critical | fewer than 2 etcd members up for 5 m, zero included ([control-plane-storage.md](./control-plane-storage.md)) |
 | homelab-infrastructure | `HomelabPostgresClusterDown` | critical | a CloudNativePG cluster reports no PostgreSQL up for 5 m |
 | homelab-infrastructure | `HomelabArgoCDApplicationDegraded` | warning | an Application is Degraded/Missing/Unknown for 15 m |
 | homelab-infrastructure | `HomelabCertificateExpiringSoon` | warning | a cert-manager Certificate expires in under 14 days for 1 h |

@@ -1,0 +1,123 @@
+# promtool unit tests for the etcd rules in
+# charts/addons/templates/kube-prometheus-stack.yaml
+# (docs/runbooks/control-plane-storage.md).
+#
+# These rules render for homelab only, so they had no promtool coverage until
+# `task test:alerts` started reading the homelab render as well as localdev.
+#
+# HomelabEtcdQuorumAtRisk counts healthy members with `sum(up == bool 1)` rather
+# than `count(up == 1)`. The filtered form matches no series once every member is
+# down, so the total-loss case evaluated to no data and the critical alert stayed
+# silent on the one failure that stops the control plane outright. Case 3 is the
+# regression test for that; it fails against the `count(up == 1)` form.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 1. A healthy three-member cluster stays quiet. Without this a rule that
+  #    fires unconditionally would pass cases 2 and 3.
+  - interval: 1m
+    name: three healthy members alert on nothing
+    input_series:
+      - series: 'up{job="kube-etcd",instance="cp1"}'
+        values: '1+0x60'
+      - series: 'up{job="kube-etcd",instance="cp2"}'
+        values: '1+0x60'
+      - series: 'up{job="kube-etcd",instance="cp3"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: HomelabEtcdQuorumAtRisk
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: EtcdMetricsAbsent
+        exp_alerts: []
+
+  # 2. Two members lost, one still answering: quorum is one loss away. Bracketed
+  #    either side of the 5m `for` so the wait is asserted, not assumed.
+  - interval: 1m
+    name: two of three members lost
+    input_series:
+      - series: 'up{job="kube-etcd",instance="cp1"}'
+        values: '1+0x60'
+      - series: 'up{job="kube-etcd",instance="cp2"}'
+        values: '1x10 0+0x60'
+      - series: 'up{job="kube-etcd",instance="cp3"}'
+        values: '1x10 0+0x60'
+    alert_rule_test:
+      # 4m after the loss: inside the `for`, still silent.
+      - eval_time: 14m
+        alertname: HomelabEtcdQuorumAtRisk
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: HomelabEtcdQuorumAtRisk
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: 'Fewer than two etcd members are reachable'
+              description: 'Only 1 etcd member(s) answered the metrics scrape for 5m. At 1 the cluster is one loss from losing quorum; at 0 the control plane is already down. See docs/runbooks/control-plane-storage.md.'
+      # The targets are still being scraped, so this is not a metrics outage.
+      - eval_time: 20m
+        alertname: EtcdMetricsAbsent
+        exp_alerts: []
+
+  # 3. Every member down. The series still exist and report 0, so this is a real
+  #    etcd outage rather than a scrape failure, and it must page as critical.
+  - interval: 1m
+    name: all three members lost still pages critical
+    input_series:
+      - series: 'up{job="kube-etcd",instance="cp1"}'
+        values: '1x10 0+0x60'
+      - series: 'up{job="kube-etcd",instance="cp2"}'
+        values: '1x10 0+0x60'
+      - series: 'up{job="kube-etcd",instance="cp3"}'
+        values: '1x10 0+0x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: HomelabEtcdQuorumAtRisk
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: 'Fewer than two etcd members are reachable'
+              description: 'Only 0 etcd member(s) answered the metrics scrape for 5m. At 1 the cluster is one loss from losing quorum; at 0 the control plane is already down. See docs/runbooks/control-plane-storage.md.'
+      # EtcdMetricsAbsent is absent(up == 1), so every member reporting 0 matches
+      # it too and it joins at 15m. The critical above leads it by 10 minutes and
+      # inhibits it (docs/runbooks/alerting.md). Asserted both sides of the `for`
+      # so narrowing either rule onto the other's case shows up here.
+      - eval_time: 10m
+        alertname: EtcdMetricsAbsent
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: EtcdMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: 'etcd metrics are not being scraped'
+              description: 'No kube-etcd target has been up for 15m, so the etcd fsync and leader-change alerts are blind. Check cluster.etcd.extraArgs.listen-metrics-urls on the control planes; see docs/runbooks/control-plane-storage.md.'
+
+  # 4. The scrape targets disappear altogether: no `up` series at all. Quorum
+  #    cannot be counted here, so EtcdMetricsAbsent is the rule that must fire,
+  #    and it is the one that sends the operator at listen-metrics-urls.
+  - interval: 1m
+    name: no kube-etcd target at all
+    input_series:
+      - series: 'up{job="apiserver",instance="cp1"}'
+        values: '1+0x60'
+    alert_rule_test:
+      # Inside the 15m `for`.
+      - eval_time: 10m
+        alertname: EtcdMetricsAbsent
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: EtcdMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: 'etcd metrics are not being scraped'
+              description: 'No kube-etcd target has been up for 15m, so the etcd fsync and leader-change alerts are blind. Check cluster.etcd.extraArgs.listen-metrics-urls on the control planes; see docs/runbooks/control-plane-storage.md.'
