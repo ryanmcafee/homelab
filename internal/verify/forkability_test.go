@@ -300,6 +300,28 @@ func TestCheck2AcceptsReplacemeOrReservedValues(t *testing.T) {
 	}
 }
 
+// localdev.yaml runs unedited on the cold Kind path, so its values are real by
+// design; only presence and non-empty apply to it.
+func TestCheck2HoldsARunnableConfigSetToPresenceNotPlaceholders(t *testing.T) {
+	const localdevRel = "configuration/environments/localdev.yaml"
+	doc := `{"version":1,"tiers":[{"tier":"localdev","keys":[` +
+		key("DOMAIN", KeySourceSchema, ExampleRequired) + "," +
+		key("DUCKDNS_SUBDOMAIN", KeySourceSchema, ExampleRequired) + `]}]}`
+
+	for body, want := range map[string]Status{
+		"DUCKDNS_SUBDOMAIN: homelab-dev\nDOMAIN: homelab.local\n": StatusPass,
+		"DUCKDNS_SUBDOMAIN:\nDOMAIN: homelab.local\n":             StatusFail,
+		"DOMAIN: homelab.local\n":                                 StatusFail,
+	} {
+		root := repoWithExample(t, localdevRel, body)
+		c := statusOf(t, ForkAbilityCheck2(context.Background(), root, fakeProducer(doc)),
+			"forkability/example-completeness/localdev")
+		if c.Status != want {
+			t.Fatalf("localdev %q: want %s, got %s: %v", body, want, c.Status, c.Findings)
+		}
+	}
+}
+
 func TestCheck2FailsWhenAComputedKeyIsSetInTheExample(t *testing.T) {
 	root := repoWithExample(t, homelabExampleRel, "DOMAIN: REPLACEME-domain.com\nCLUSTER_NAME: homelab\n")
 	doc := docJSON(
