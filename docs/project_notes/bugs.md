@@ -585,4 +585,4 @@ These are documented errors with known solutions:
 - **Issue**: `localdev:diagnose` printed all-clear after level 2 rejected Healthy/Succeeded/OutOfSync.
 - **Cause**: `cmdDiagnose` called `isReady(app, false)` and returned before namespace collection.
 - **Fix**: Require sync readiness in diagnosis; print `status.sync.status` and full sync detail, then collect destination namespace evidence. Preserve the existing new-empty-chart exception.
-- **Verification**: Command regression fails for OutOfSync before the fix and passes after; Synced control stays quiet. Real Kind failure-path verification is tracked separately under MCAA-468.
+- **Verification**: Command regression fails for OutOfSync before the fix and passes after; Synced control stays quiet. QA verified the real CI Diagnostics entrypoint names drift and collects namespace evidence while Kind level 2 permits sync-only drift (ADR-012; MCAA-470).

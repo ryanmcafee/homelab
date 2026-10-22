@@ -504,8 +504,9 @@ helm get values cilium -n kube-system --kube-context kind-homelab-localdev
 
 ### Common Issues
 
-`task localdev:diagnose` always checks Healthy, Succeeded, and Synced, matching the
-level-2 sync expectation without requiring `--require-synced`. A healthy but
+`task localdev:diagnose` always checks Healthy, Succeeded, and Synced without
+requiring `--require-synced`. Kind level 2 intentionally checks health and operation
+state without requiring Synced (ADR-012). A healthy but
 OutOfSync Application prints `status.sync.status` (expected Synced), its complete
 `status.sync` detail, and collects its destination namespace events, workloads,
 and failing pod logs. New empty charts retain the existing readiness exception.
