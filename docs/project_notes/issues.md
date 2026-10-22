@@ -136,3 +136,13 @@ Each entry should include:
 - Update status if work gets blocked or resumed
 - Don't duplicate issue details - link to source of truth
 - Clean out very old entries periodically (3+ months)
+
+### 2026-09-29 — MCAA-611 bootstrap image-pull diagnostics
+
+- Branch: `fix/mcaa-611-bootstrap-diagnostics`, based on `9d5ad358231c73a6209f5d3ae467e794ca97588a`.
+- ArgoCD Helm failure now reports every not-Ready pod's requested images, init/regular container states and untruncated per-pod events, then probes configured registry mirrors from each Kind node. Commands are bounded and best-effort; the original Helm error and nonzero task result remain.
+- Reusable check: `task test:scripts -- scripts/localdev-bootstrap_test.ts`. The real install entrypoint runs against offline CLI fixtures: kubelet 429/full-image error, Ready=False despite ready containers, missing status, partial diagnostic failure, missing kubectl, invalid pod JSON, mirror URLs and pinned Kind context.
+- Red evidence on the unchanged base: 0 passed / 4 failed (missing pull reason, no node probe, diagnostic commands never called). Initial green: 4 passed / 0 failed; expanded coverage: 7 passed / 0 failed. No retries were needed for the assertions.
+- Level 0: 277 passed / 0 failed / 1 expected preview repository-secret skip. Full scripts initially: 565 passed / 0 failed. Biome and TypeScript pass via `bun x --no-install`; `task scripts:lint` is affected by the runner's nested-shell PATH reset (`biome: command not found`), even after locked dependency installation.
+- Live acceptance remains unverified: await a naturally occurring level-2 image-pull failure and inspect its kubelet event for registry/HTTP status. Do not rerun CI to manufacture this evidence. A `/v2/` mirror response demonstrates reachability only, not a successful upstream image pull.
+- Tooling limits: Serena MCP and `bd` are unavailable in this runner; the Paperclip issue and this log hold continuity. No production or registry configuration changed.
