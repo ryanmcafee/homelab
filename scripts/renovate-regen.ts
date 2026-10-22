@@ -64,10 +64,22 @@ export const GENERATED_PATHS = [
   "Claude.md",
 ];
 
+/**
+ * Generated paths the regeneration bot deliberately does not commit, and why.
+ * The parity gate reads this: an entry here is an exemption with a reason, and
+ * anything else missing from `upgrade.yml` is drift.
+ */
+export const BOT_UNCOMMITTED_PATHS: Record<string, string> = {
+  ".github/homelab.svg":
+    "every SVG literal docs:check can rewrite is a count of addons, applications or synced Applications, and the rest (the suite counter, the route hosts) it can only report; a version bump moves none of them, so a moved SVG on a renovate/* branch is a human change that belongs in a human-authored commit",
+};
+
 /** The regeneration steps, in dependency order: values and schemas feed the
- * snapshots, so the snapshots are regenerated last. Same set as `upgrade.yml`
- * job `regenerate`, plus `docs:check --fix`, which owns the readme version
- * badges and the addons table that a chart bump also moves. */
+ * snapshots, and docs:check reads the regenerated snapshots, so it runs after
+ * them. Same set, same order as `upgrade.yml` job `regenerate`; the parity test
+ * in renovate-regen_test.ts fails when the two drift apart. `docs:check --fix`
+ * owns the readme version badges and the addons table that a chart bump also
+ * moves. */
 export const REGEN_STEPS: { desc: string; cmd: string[] }[] = [
   { desc: "localdev values", cmd: ["task", "config:export:localdev"] },
   { desc: "vendored CRD schemas", cmd: ["task", "schemas:vendor"] },
@@ -169,6 +181,197 @@ export function identityParityError(
     "  regeneration commits carry the forker's address, so a personal entry only ever",
     "  works on one repository.",
   ].join("\n");
+}
+
+/**
+ * Read the body of a named step's `run: |` block out of the workflow.
+ *
+ * Fails closed rather than returning an empty body: a renamed step must break
+ * the parity gate loudly, because the alternative is a gate that inspects
+ * nothing and reports green.
+ */
+export function readRunBlock(workflowYaml: string, stepName: string): string {
+  const lines = workflowYaml.split("\n");
+  const start = lines.findIndex((l) => l.trim() === `- name: ${stepName}`);
+  if (start === -1) {
+    throw new Error(
+      `${WORKFLOW_PATH} has no step named "${stepName}"; the parity gate cannot read what the bot runs.`,
+    );
+  }
+  const nextStep = lines.findIndex(
+    (l, i) => i > start && /^\s*- name:/.test(l),
+  );
+  const end = nextStep === -1 ? lines.length : nextStep;
+  const runAt = lines.findIndex(
+    (l, i) => i > start && i < end && /^\s*run:\s*\|\s*$/.test(l),
+  );
+  if (runAt === -1) {
+    throw new Error(
+      `${WORKFLOW_PATH} step "${stepName}" has no block \`run: |\`; the parity gate cannot read what the bot runs.`,
+    );
+  }
+  const indent = (/^\s*/.exec(lines[runAt])?.[0].length ?? 0) + 2;
+  const body: string[] = [];
+  for (let i = runAt + 1; i < end; i++) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      body.push("");
+      continue;
+    }
+    if ((/^\s*/.exec(line)?.[0].length ?? 0) < indent) break;
+    body.push(line.slice(indent));
+  }
+  return body.join("\n");
+}
+
+/** The `task ...` invocations of the workflow's Regenerate step, in order. */
+export function parseWorkflowRegenSteps(workflowYaml: string): string[][] {
+  const steps = readRunBlock(workflowYaml, "Regenerate")
+    .split("\n")
+    .map((l) => l.replace(/(^|\s)#.*$/, "").trim())
+    .filter((l) => l.startsWith("task "))
+    .map((l) => l.split(/\s+/));
+  if (steps.length === 0) {
+    throw new Error(
+      `${WORKFLOW_PATH} step "Regenerate" runs no \`task\` command; the parity gate would compare against nothing.`,
+    );
+  }
+  return steps;
+}
+
+export interface WorkflowCommitScope {
+  /** The `paths=` pathspec the bot stages and commits. */
+  paths: string[];
+  /** The `case` patterns that decide which changed files are in scope. */
+  allowlist: string[];
+}
+
+const COMMIT_STEP_NAME = "Commit and push as the regeneration bot";
+
+/** The two independent path lists of the workflow's commit step. */
+export function parseWorkflowCommitScope(
+  workflowYaml: string,
+): WorkflowCommitScope {
+  const body = readRunBlock(workflowYaml, COMMIT_STEP_NAME);
+  const paths = /^\s*paths="([^"]*)"/m.exec(body);
+  if (!paths) {
+    throw new Error(
+      `${WORKFLOW_PATH} step "${COMMIT_STEP_NAME}" has no \`paths="…"\` assignment; the parity gate cannot read what the bot commits.`,
+    );
+  }
+  const allowlist = /case\s+"\$f"\s+in\s+([^)]*)\)/.exec(body);
+  if (!allowlist) {
+    throw new Error(
+      `${WORKFLOW_PATH} step "${COMMIT_STEP_NAME}" has no \`case "$f" in …)\` allowlist; the parity gate cannot read what the bot treats as in scope.`,
+    );
+  }
+  return {
+    paths: paths[1].split(/\s+/).filter(Boolean),
+    allowlist: allowlist[1]
+      .split("|")
+      .map((p) => p.trim())
+      .filter(Boolean),
+  };
+}
+
+/** `docs/`, `docs` and `docs/*` all name the same directory. */
+function normalizePath(path: string): string {
+  return path.replace(/\/\*$/, "").replace(/\/$/, "");
+}
+
+const PARITY_RULE = "renovate-regen/workflow-parity";
+
+function setDiff(actual: string[], expected: string[]): string | null {
+  const a = new Set(actual.map(normalizePath));
+  const e = new Set(expected.map(normalizePath));
+  const missing = [...e].filter((p) => !a.has(p));
+  const extra = [...a].filter((p) => !e.has(p));
+  if (missing.length === 0 && extra.length === 0) return null;
+  return [
+    missing.length ? `missing ${missing.join(", ")}` : "",
+    extra.length ? `unexpected ${extra.join(", ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
+/**
+ * Fail when the automated bot path and the local remedy disagree about what a
+ * bump regenerates.
+ *
+ * They are two implementations of one contract, in two languages, and nothing
+ * used to compare them. When `upgrade.yml` runs fewer steps or commits fewer
+ * paths than {@link REGEN_STEPS}/{@link GENERATED_PATHS}, the gates covering the
+ * difference go red on a Renovate PR with no automatic remedy, `platformAutomerge`
+ * never fires, and a human runs `task renovate:regen` by hand for every bump.
+ * Measured on this repository: a cilium chart bump alone moves the readme badge
+ * region, and the `tests/snapshots` the bot already commits move the
+ * `docs/applications.md` addons table - both failing `task docs:check` in
+ * verify.yml's `policy` job, which has no `paths:` filter and so runs on every
+ * Renovate PR.
+ *
+ * A deliberate difference is declared in {@link BOT_UNCOMMITTED_PATHS} with its
+ * reason, so an exemption has to be argued rather than merely happen.
+ */
+export function workflowParityErrors(
+  workflowYaml: string,
+  steps: { cmd: string[] }[] = REGEN_STEPS,
+  generatedPaths: string[] = GENERATED_PATHS,
+  uncommitted: Record<string, string> = BOT_UNCOMMITTED_PATHS,
+): string[] {
+  const errors: string[] = [];
+  const stale = Object.keys(uncommitted).filter(
+    (p) => !generatedPaths.map(normalizePath).includes(normalizePath(p)),
+  );
+  if (stale.length) {
+    errors.push(
+      `${PARITY_RULE}: BOT_UNCOMMITTED_PATHS exempts ${stale.join(", ")}, which is not a generated path. Drop the stale exemption.`,
+    );
+  }
+
+  const workflowSteps = parseWorkflowRegenSteps(workflowYaml)
+    .map((c) => c.join(" "))
+    .join("\n");
+  const localSteps = steps.map((s) => s.cmd.join(" ")).join("\n");
+  if (workflowSteps !== localSteps) {
+    errors.push(
+      [
+        `${PARITY_RULE}: ${WORKFLOW_PATH} job regenerate does not run the same steps as REGEN_STEPS.`,
+        `  ${WORKFLOW_PATH}:      ${workflowSteps.split("\n").join(" | ")}`,
+        `  scripts/renovate-regen.ts: ${localSteps.split("\n").join(" | ")}`,
+        "  The bot regenerates less than the local remedy does, so whatever the missing step",
+        "  owns fails its gate on every Renovate PR with nothing to fix it. Add the step to the",
+        "  workflow, or drop it from REGEN_STEPS if it is genuinely not a bump artefact.",
+      ].join("\n"),
+    );
+  }
+
+  const expectedPaths = generatedPaths.filter(
+    (p) =>
+      !Object.keys(uncommitted).map(normalizePath).includes(normalizePath(p)),
+  );
+  const scope = parseWorkflowCommitScope(workflowYaml);
+  const pathsDiff = setDiff(scope.paths, expectedPaths);
+  if (pathsDiff) {
+    errors.push(
+      [
+        `${PARITY_RULE}: ${WORKFLOW_PATH} commits a different path set than GENERATED_PATHS: ${pathsDiff}.`,
+        "  A regenerated file the bot does not stage is left dirty on the branch and its gate",
+        "  stays red. Add it to `paths=`, or declare it in BOT_UNCOMMITTED_PATHS with a reason.",
+      ].join("\n"),
+    );
+  }
+  const allowlistDiff = setDiff(scope.allowlist, scope.paths);
+  if (allowlistDiff) {
+    errors.push(
+      [
+        `${PARITY_RULE}: ${WORKFLOW_PATH} \`case\` allowlist does not match its own \`paths=\`: ${allowlistDiff}.`,
+        "  The allowlist decides which changed files are reported as out of scope. A path the bot",
+        "  commits but the allowlist omits is warned about in the same run that commits it.",
+      ].join("\n"),
+    );
+  }
+  return errors;
 }
 
 /** The bot identity signs generated files only, on a Renovate branch only. */
@@ -576,6 +779,15 @@ async function main(): Promise<void> {
   console.log(
     `${green("[OK]")} regeneration identity ${cyan(`${identity.name} <${identity.email}>`)} is in ${RENOVATE_CONFIG_PATH} gitIgnoredAuthors`,
   );
+
+  const parityErrors = workflowParityErrors(workflowYaml);
+  if (parityErrors.length) {
+    console.error(red(parityErrors.join("\n")));
+    process.exit(1);
+  }
+  console.log(
+    `${green("[OK]")} ${WORKFLOW_PATH} job regenerate runs ${cyan(String(REGEN_STEPS.length))} steps and commits ${cyan(String(GENERATED_PATHS.length - Object.keys(BOT_UNCOMMITTED_PATHS).length))} paths, matching this script`,
+  );
   if (checkOnly) return;
 
   const branch = await capture(["git", "rev-parse", "--abbrev-ref", "HEAD"]);
@@ -642,7 +854,7 @@ async function main(): Promise<void> {
     "--author",
     `${identity.name} <${identity.email}>`,
     "-m",
-    "chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets",
+    "chore(deps): regenerate snapshots, schemas, localdev values, embedded snippets and doc regions",
     "-m",
     `Generated by scripts/renovate-regen.ts on ${branch}. Author and committer are ${identity.email} so Renovate keeps rebasing this branch (.github/renovate.json5 gitIgnoredAuthors).`,
   ]);
