@@ -78,7 +78,7 @@ func scanAddresses(rel string, data []byte, sanctioned map[string]bool) []Addres
 			if _, ok := publicAddressAllowlist[addr]; ok {
 				continue
 			}
-			if isImageTag(line, loc[0]) || octetOverflow(addr) {
+			if isImageTag(line, loc[0]) || inLongerDottedNumber(line, loc[0], loc[1]) || octetOverflow(addr) {
 				continue
 			}
 			// Limited broadcast names no host, and Go's IsUnspecified covers
@@ -104,6 +104,16 @@ func isImageTag(line string, idx int) bool {
 	}
 	before := strings.TrimRight(line[:idx-1], " ")
 	return before != "" && !strings.ContainsAny(before[len(before)-1:], "0123456789")
+}
+
+// inLongerDottedNumber reports whether the quad at line[start:end] is only part
+// of a longer digit run, as in the version tag 1.43.5.11029.
+func inLongerDottedNumber(line string, start, end int) bool {
+	digitAt := func(i int) bool { return i >= 0 && i < len(line) && line[i] >= '0' && line[i] <= '9' }
+	if digitAt(end) || (end < len(line) && line[end] == '.' && digitAt(end+1)) {
+		return true
+	}
+	return digitAt(start-1) || (start > 0 && line[start-1] == '.' && digitAt(start-2))
 }
 
 // octetOverflow reports whether any octet exceeds 255, which net.ParseIP

@@ -102,6 +102,33 @@ func TestScanAddressesIgnoresAFourPartVersionWithAnOversizedOctet(t *testing.T) 
 	}
 }
 
+func TestScanAddressesIgnoresAQuadInsideALongerDottedNumber(t *testing.T) {
+	// The plex tag 1.43.5.11029-6bf8af3f0 starts with the valid quad 1.43.5.110.
+	for _, render := range []string{
+		"tag: 1.43.5.11029-6bf8af3f0\n",
+		"tag: \"1.43.5.11029-6bf8af3f0\"\n",
+		"version: 2.1.43.5.110\n",
+		"version: 1.43.5.110.7\n",
+	} {
+		if leaks := scanAddresses("homelab/applications.yaml", []byte(render), sanctionedSet()); len(leaks) != 0 {
+			t.Errorf("%q: want no leaks for a longer dotted number, got %+v", render, leaks)
+		}
+	}
+}
+
+func TestScanAddressesStillFlagsAnAddressBeforePunctuation(t *testing.T) {
+	for _, render := range []string{
+		"# reach 10.20.30.40.\n",
+		"cidr: 10.20.30.40/32\n",
+		"hosts: 10.20.30.40,10.20.30.41\n",
+	} {
+		leaks := scanAddresses("homelab/addons.yaml", []byte(render), sanctionedSet())
+		if len(leaks) == 0 || leaks[0].Address != "10.20.30.40" {
+			t.Errorf("%q: want 10.20.30.40 flagged, got %+v", render, leaks)
+		}
+	}
+}
+
 func TestScanAddressesReportsEachAddressOncePerFile(t *testing.T) {
 	// One hard-coded value in a shared chart must not bury the report under
 	// forty identical findings.
