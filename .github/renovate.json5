@@ -187,8 +187,7 @@
         'configuration/versions.yaml',
       ],
       schedule: [
-        'after 10pm every weekday',
-        'every weekend',
+        'after 3am every weekday',
       ],
     },
     // pms-docker tags are <major>.<minor>.<patch>.<build>-<commit>; the commit is no compatibility suffix.
