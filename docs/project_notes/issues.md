@@ -13,6 +13,10 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-28 - Paperclip CPU limit 2 -> 4 cores for concurrent agent runs
+- **Status**: PR open from branch `triage/cputhrottlinghigh-dd84a884` (alert triage); paperclip-0 restarts once on sync, so merge when no agent runs are active
+- **Description**: `CPUThrottlingHigh` on paperclip-0 (74.55% throttled at ~1.94/2 cores) because agent CLIs run as child processes and CPU tracks runs in flight; homelab limit raised to 4, request stays 500m. Details in `bugs.md` (2026-09-28)
+
 ### 2026-10-02 - Stop the same five files conflicting across most open PRs
 - **Status**: PR pending (branch `fix/pr-conflict-hotspots`); after merge, `task pr:refresh` each conflicting PR (stacked ones against their own base first)
 - **Description**: 29/86 open PRs conflicted, mostly in verification.md, readme.md/homelab.svg, bugs.md/issues.md and snapshots. `.gitattributes` unions the logs and the runbook; `task pr:refresh` (`scripts/pr-refresh.ts`) merges with the base's attributes, resolves generated and count-only conflicts, regenerates, runs level 0 and commits. Also fixes a glued heading in bugs.md and ignores `.serena/project.local.yml`.
