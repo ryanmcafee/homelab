@@ -84,6 +84,34 @@ func TestADRRecordFailsOnADuplicateNumber(t *testing.T) {
 	}
 }
 
+// Measured: a record topping out at 037 suggested 038 while two open branches
+// already held 038 and 039, so the author took 038 literally, went green
+// locally and collided at merge. The suggestion is a floor read from one file,
+// and the message has to say so and name the check that closes the gap.
+func TestADRNumbersFailureCallsTheSuggestionAFloorAndNamesTheCheck(t *testing.T) {
+	root := adrRecord(t, strings.Join([]string{
+		"### ADR-036: a (2026-09-25)",
+		"### ADR-037: b (2026-09-25)",
+		"### ADR-037: c (2026-09-25)",
+		"",
+	}, "\n"))
+
+	c := checkByName(t, adrResult(root), "decisions/adr-numbers")
+	if c.Status != StatusFail {
+		t.Fatalf("want fail, got %s", c.Status)
+	}
+	for _, want := range []string{
+		"ADR-038",
+		"floor read from this file alone",
+		"cannot see unmerged branches",
+		"check the open pull requests",
+	} {
+		if !strings.Contains(c.Detail, want) {
+			t.Errorf("detail does not say %q: %q", want, c.Detail)
+		}
+	}
+}
+
 func TestADRRecordReportsEveryDuplicateNumberOnce(t *testing.T) {
 	root := adrRecord(t, strings.Join([]string{
 		"### ADR-034: a (2026-09-25)",
