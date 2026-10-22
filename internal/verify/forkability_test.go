@@ -259,6 +259,8 @@ func TestCheck2FailsOnARealLookingRequiredValue(t *testing.T) {
 		"https://github.com/someone/homelab",
 		"homelab-dev",
 		"admin@gmail.com",
+		"REPLACEMEevil.com",
+		"https://github.com/replacemeuser/homelab",
 	} {
 		root := repoWithExample(t, homelabExampleRel, "DOMAIN: "+value+"\n")
 		doc := docJSON(key("DOMAIN", KeySourceSchema, ExampleRequired), "")
@@ -278,6 +280,7 @@ func TestCheck2AcceptsReplacemeOrReservedValues(t *testing.T) {
 	for _, value := range []string{
 		"REPLACEME-domain.com",
 		"replaceme-domain.com",
+		"REPLACEME",
 		"https://github.com/REPLACEME-user/homelab",
 		"admin@REPLACEME-domain.com",
 		"\"198.51.100.10\"",
