@@ -52,7 +52,7 @@ charts:
   # renovate: datasource=helm depName=nack registryUrl=https://nats-io.github.io/k8s/helm/charts/
   nack: "0.35.0"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
-  plex-media-server: "1.6.0"
+  plex-media-server: "1.9.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
   sonarr: "25.6.3"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/radarr
@@ -113,6 +113,8 @@ images:
   # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);
   # bump it with every change under triage-agent/ so main publishes a new tag.
   triage-agent: "0.1.1"
+  # renovate: datasource=docker depName=plexinc/pms-docker
+  plex: "1.43.5.11029-6bf8af3f0"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node

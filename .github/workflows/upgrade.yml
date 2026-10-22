@@ -15,7 +15,8 @@ name: Upgrade verification
 #               custom resource still validates against the new CRDs. Nothing is
 #               committed. The report is the sticky `upgrade-diff` comment. On
 #               renovate/* heads the job sets the `upgrade/automerge-gate`
-#               commit status: success only when no rendered manifest changed,
+#               commit status: success only when no rendered manifest changed
+#               (outside the Applications in tests/gitops/upgrade-automerge.yaml),
 #               revalidation passed and no Application sets a helm value its
 #               chart does not declare. Renovate (platformAutomerge false)
 #               automerges only when every status is green.
@@ -57,6 +58,7 @@ on:
       # has to run it, and tests/snapshots is where it reads the values from.
       - 'scripts/upstream-values-check.ts'
       - 'tests/gitops/upstream-values-allowlist.yaml'
+      - 'tests/gitops/upgrade-automerge.yaml'
       - 'tests/snapshots/**'
 
 concurrency:
@@ -210,8 +212,9 @@ jobs:
           echo "pass=$pass" >> "$GITHUB_OUTPUT"
 
       # success only when every upgrade/* check passed with an "unchanged"
-      # detail (upgrade/base aside), revalidation passed and no Application
-      # sets a key its chart does not declare. A manifest diff, a skipped
+      # detail (upgrade/base aside; upgrade/<env>/<app> may differ for an
+      # Application in tests/gitops/upgrade-automerge.yaml), revalidation passed
+      # and no Application sets a key its chart does not declare. A manifest diff, a skipped
       # comparison, a failed render or a renamed key all block automerge.
       - name: Automerge gate decision
         id: gate
@@ -221,10 +224,11 @@ jobs:
           VALUES: ${{ steps.values.outputs.pass }}
         run: |
           state=failure
+          allowed=$(yq -o json '[.applications[].name]' tests/gitops/upgrade-automerge.yaml)
           if ! jq -e '(.checks | length) > 0' upgrade.json > /dev/null 2>&1; then
             description="upgrade verification did not complete - automerge blocked"
-          elif ! jq -e '[.checks[] | select(.name | startswith("upgrade/")) | select(.name != "upgrade/base")]
-                         | all(.status == "pass" and (.detail | startswith("unchanged")))' upgrade.json > /dev/null; then
+          elif ! jq -e --argjson allowed "$allowed" '[.checks[] | select(.name | startswith("upgrade/")) | select(.name != "upgrade/base")]
+                         | all(.status == "pass" and ((.detail | startswith("unchanged")) or ((.name | split("/")[2]) as $app | any($allowed[]; . == $app))))' upgrade.json > /dev/null; then
             description="rendered manifests changed - human review required, automerge blocked"
           elif [ "$REVALIDATED" != "true" ]; then
             description="CRD revalidation failed - automerge blocked"

@@ -1403,8 +1403,6 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "12"
-    homelab.local/policy-exempt: "image-latest"
-    homelab.local/policy-exempt-reason: "Upstream plexinc/pms-docker publishes no numbered release tags; tracking :latest is the documented, intentional deployment model for Plex."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -1412,7 +1410,7 @@ spec:
   source:
     repoURL: https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
     chart: plex-media-server
-    targetRevision: 1.6.0
+    targetRevision: 1.9.0
     helm:
       releaseName: plex
       values: |
@@ -1420,7 +1418,7 @@ spec:
           pullPolicy: IfNotPresent
           registry: index.docker.io
           repository: plexinc/pms-docker
-          tag: latest
+          tag: 1.43.5.11029-6bf8af3f0
         extraEnv:
           ADVERTISE_IP: https://plex.homelab.local:443
           CHANGE_CONFIG_DIR_OWNERSHIP: "false"
