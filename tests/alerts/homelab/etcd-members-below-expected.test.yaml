@@ -1,0 +1,114 @@
+# promtool unit tests for HomelabEtcdMembersBelowExpected in
+# charts/addons/templates/kube-prometheus-stack.yaml
+# (docs/runbooks/talos-upgrade.md, Scenario 4).
+#
+# The rule catches etcd sitting one member short with quorum intact, the state a
+# `homelab talos recreate` leaves behind when the replacement never rejoins. The
+# expected count is the number of configured kube-etcd targets, not a literal 3.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 1. A healthy three-member cluster stays quiet.
+  - interval: 1m
+    name: three healthy members stay quiet
+    input_series:
+      - series: 'up{job="kube-etcd",instance="cp1"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp2"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp3"}'
+        values: '1+0x120'
+    alert_rule_test:
+      - eval_time: 120m
+        alertname: HomelabEtcdMembersBelowExpected
+        exp_alerts: []
+
+  # 2. A replacement that never rejoined: one member down from 10m onward.
+  #    Bracketed either side of the 60m `for`.
+  - interval: 1m
+    name: one member missing for an hour warns
+    input_series:
+      - series: 'up{job="kube-etcd",instance="cp1"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp2"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp3"}'
+        values: '1x10 0+0x110'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: HomelabEtcdMembersBelowExpected
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: HomelabEtcdMembersBelowExpected
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: 'etcd has been below its configured member count for 1h'
+              description: 'Only 2 of the configured kube-etcd targets have answered the metrics scrape for 1h. Quorum holds, but one more loss stops the control plane. Usually a node replacement that never rejoined; see docs/runbooks/talos-upgrade.md#scenario-4-node-replacement-failed-mid-flight.'
+      - eval_time: 75m
+        alertname: HomelabEtcdQuorumAtRisk
+        exp_alerts: []
+
+  # 3. A routine replacement at the command's worst case: 40m at two members,
+  #    then the member rejoins. Nothing should fire.
+  - interval: 1m
+    name: a slow but successful replacement stays quiet
+    input_series:
+      - series: 'up{job="kube-etcd",instance="cp1"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp2"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp3"}'
+        values: '1x10 0x40 1+0x70'
+    alert_rule_test:
+      - eval_time: 49m
+        alertname: HomelabEtcdMembersBelowExpected
+        exp_alerts: []
+      - eval_time: 120m
+        alertname: HomelabEtcdMembersBelowExpected
+        exp_alerts: []
+
+  # 4. Below quorum-safe: HomelabEtcdQuorumAtRisk pages, and this warning stays
+  #    out of the way instead of firing a second alert for the same outage.
+  - interval: 1m
+    name: two members lost leaves it to the critical
+    input_series:
+      - series: 'up{job="kube-etcd",instance="cp1"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp2"}'
+        values: '1x10 0+0x110'
+      - series: 'up{job="kube-etcd",instance="cp3"}'
+        values: '1x10 0+0x110'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: HomelabEtcdMembersBelowExpected
+        exp_alerts: []
+
+  # 5. A fork with five control planes: 4 of 5 is below expected even though
+  #    it is more than three. Fails against a hard-coded `< 3`.
+  - interval: 1m
+    name: four of five members warns
+    input_series:
+      - series: 'up{job="kube-etcd",instance="cp1"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp2"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp3"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp4"}'
+        values: '1+0x120'
+      - series: 'up{job="kube-etcd",instance="cp5"}'
+        values: '1x10 0+0x110'
+    alert_rule_test:
+      - eval_time: 75m
+        alertname: HomelabEtcdMembersBelowExpected
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: 'etcd has been below its configured member count for 1h'
+              description: 'Only 4 of the configured kube-etcd targets have answered the metrics scrape for 1h. Quorum holds, but one more loss stops the control plane. Usually a node replacement that never rejoined; see docs/runbooks/talos-upgrade.md#scenario-4-node-replacement-failed-mid-flight.'

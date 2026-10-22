@@ -373,6 +373,9 @@ apply failed — the cluster is left with one member fewer than it should have. 
 **degraded but healthy**: three-member etcd tolerates one absent member. Do not panic-remove
 anything else.
 
+`HomelabEtcdMembersBelowExpected` (warning) fires when etcd has sat in this state for an hour,
+longer than a slow but successful replacement takes.
+
 First, find out where it stopped. The member list is the source of truth, not the log:
 
 ```bash

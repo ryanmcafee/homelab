@@ -130,6 +130,7 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-infrastructure | `HomelabNodeNotReady` | critical | a node NotReady for 5 m |
 | homelab-infrastructure | `HomelabNodeUnderPressure` | warning | Memory/Disk/PID pressure for 10 m |
 | homelab-infrastructure | `HomelabEtcdQuorumAtRisk` | critical | fewer than 2 etcd members up for 5 m, zero included ([control-plane-storage.md](./control-plane-storage.md)) |
+| homelab-infrastructure | `HomelabEtcdMembersBelowExpected` | warning | at least 2 but fewer than the configured `kube-etcd` targets up for 60 m, longer than a routine `homelab talos recreate` ([talos-upgrade.md](./talos-upgrade.md#scenario-4-node-replacement-failed-mid-flight)) |
 | homelab-infrastructure | `HomelabPostgresClusterDown` | critical | a CloudNativePG cluster reports no PostgreSQL up for 5 m |
 | homelab-infrastructure | `HomelabArgoCDApplicationDegraded` | warning | an Application is Degraded/Missing/Unknown for 15 m |
 | homelab-infrastructure | `HomelabCertificateExpiringSoon` | warning | a cert-manager Certificate expires in under 14 days for 1 h |
