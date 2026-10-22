@@ -947,6 +947,8 @@ kube-prometheus-stack:
   defaultRules:
     disabled:
       CPUThrottlingHigh: true
+      # Replaced by the homelab copy without MemberPromote (template comment).
+      etcdHighNumberOfFailedGRPCRequests: true
 
   kubeStateMetrics:
     enabled: true

@@ -1923,10 +1923,13 @@ spec:
         # periods the container ran in at all, with no floor under the
         # denominator, so a container that is 99 % idle reads as badly throttled
         # off a handful of samples. Turned off here; the tuned copy with that
-        # floor is in additionalPrometheusRulesMap below.
+        # floor is in additionalPrometheusRulesMap below. The same goes for
+        # etcdHighNumberOfFailedGRPCRequests, re-stated below without
+        # MemberPromote.
         defaultRules:
           disabled:
             CPUThrottlingHigh: true
+            etcdHighNumberOfFailedGRPCRequests: true
 
         # No kube-proxy where Cilium replaces it: the chart's scrape Service would
         # select nothing and KubeProxyDown would fire forever. Disabling the
@@ -1984,6 +1987,33 @@ spec:
                     annotations:
                       summary: 'Average sda write latency on {{ $labels.instance }} is above 50ms'
                       description: 'The system disk of {{ $labels.instance }} has averaged more than 50ms per write for 10m. On the control planes this starves etcd fsync; see docs/runbooks/control-plane-storage.md.'
+                  # etcdHighNumberOfFailedGRPCRequests, re-stated from the chart's
+                  # etcd mixin with MemberPromote left out (defaultRules.disabled
+                  # turns the chart's own copy off). A Talos control plane joins
+                  # etcd as a learner and retries MemberPromote until it is in
+                  # sync with the leader, and etcd answers the early tries with
+                  # FailedPrecondition. The ratio is per method and MemberPromote
+                  # is called only a few times per join, so those expected answers
+                  # read as 100 % failed and paged as critical on every
+                  # control-plane rebuild. Every other method keeps the chart's
+                  # thresholds. Not gated on kubeEtcd.endpoints: in Kind the
+                  # expression matches nothing, as the chart's etcd rules do.
+                  - alert: etcdHighNumberOfFailedGRPCRequests
+                    expr: '100 * sum(rate(grpc_server_handled_total{job=~".*etcd.*", grpc_method!="MemberPromote", grpc_code=~"Unknown|FailedPrecondition|ResourceExhausted|Internal|Unavailable|DataLoss|DeadlineExceeded"}[5m])) without (grpc_type, grpc_code) / sum(rate(grpc_server_handled_total{job=~".*etcd.*", grpc_method!="MemberPromote"}[5m])) without (grpc_type, grpc_code) > 1'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'etcd cluster has high number of failed grpc requests.'
+                      description: 'etcd cluster "{{ $labels.job }}": {{ $value }}% of requests for {{ $labels.grpc_method }} failed on etcd instance {{ $labels.instance }}.'
+                  - alert: etcdHighNumberOfFailedGRPCRequests
+                    expr: '100 * sum(rate(grpc_server_handled_total{job=~".*etcd.*", grpc_method!="MemberPromote", grpc_code=~"Unknown|FailedPrecondition|ResourceExhausted|Internal|Unavailable|DataLoss|DeadlineExceeded"}[5m])) without (grpc_type, grpc_code) / sum(rate(grpc_server_handled_total{job=~".*etcd.*", grpc_method!="MemberPromote"}[5m])) without (grpc_type, grpc_code) > 5'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'etcd cluster has high number of failed grpc requests.'
+                      description: 'etcd cluster "{{ $labels.job }}": {{ $value }}% of requests for {{ $labels.grpc_method }} failed on etcd instance {{ $labels.instance }}.'
           # Critical infrastructure alerts routed by severity (docs/runbooks/alerting.md).
           # The chart's defaultRules already cover full disks and volumes
           # (NodeFilesystemAlmostOutOfSpace, KubePersistentVolumeFillingUp), pods
