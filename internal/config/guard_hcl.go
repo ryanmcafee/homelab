@@ -58,7 +58,7 @@ func scanHCLShape(path string) (GuardResult, error) {
 		}
 		text := value.AsString()
 		kind := classifyHostValue(text)
-		if ip, _, err := net.ParseCIDR(text); err == nil && isRoutableHostIP(ip.String()) {
+		if ip, _, err := net.ParseCIDR(text); err == nil && IsRoutableHostIP(ip.String()) {
 			kind = "routable host IP with prefix"
 		}
 		if IsTemplateFile(path) {

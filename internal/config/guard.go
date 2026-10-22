@@ -777,7 +777,7 @@ func hostOf(v string) string {
 // isRealHostname reports whether a value names a host, domain or mailbox that
 // could identify real infrastructure. Documentation placeholders, reserved
 // suffixes and the committed-safe allowlist are excluded. IP addresses are
-// handled by isRoutableHostIP instead.
+// handled by IsRoutableHostIP instead.
 func isRealHostname(v string) bool {
 	host := hostOf(v)
 	if host == "" || !strings.Contains(host, ".") {
@@ -928,7 +928,7 @@ var flowMapPair = regexp.MustCompile(`([A-Za-z][A-Za-z0-9_./-]*)\s*:\s*(\[[^\]]*
 // wrapping an address (`https://192.0.2.1`) is judged on its address.
 func classifyHostValue(value string) string {
 	// A CIDR names a network, not a host. The config rule never flags one
-	// (isRoutableHostIP cannot parse it) and isExamplePlaceholder handles it
+	// (IsRoutableHostIP cannot parse it) and isExamplePlaceholder handles it
 	// on its own, so this rule agrees rather than reducing it to its address.
 	if _, _, err := net.ParseCIDR(strings.TrimSpace(value)); err == nil {
 		return ""
