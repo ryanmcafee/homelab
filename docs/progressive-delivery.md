@@ -19,16 +19,19 @@ the Kind loop at level 2 (`tests/e2e/argo-rollouts`).
 sequenceDiagram
     participant A as ArgoCD
     participant R as Rollouts controller
+    participant S as stable Service
     participant C as canary Service
     participant J as probe Job
     A->>R: Rollout spec, new pod template
     R->>R: setWeight 50 - canary ReplicaSet to half the replicas
     R->>C: pin canaryService selector to the canary pod-template-hash
+    R->>S: pin stableService selector to the stable pod-template-hash
     R->>J: AnalysisRun - canary-http-health
     J->>C: curl -fsS http://<canary>/healthz (3 measurements, 15s apart)
     alt every measurement exits 0
         J-->>R: AnalysisRun Successful
         R->>R: setWeight 100 - canary becomes stable
+        R->>S: repoint stableService at the new pod-template-hash
     else any measurement exits non-zero
         J-->>R: AnalysisRun Failed
         R->>R: abort - scale the canary to zero, stable keeps serving
@@ -49,9 +52,18 @@ Steps, in order: `setWeight: 50` -> `analysis` -> `setWeight: 100`.
   aborts a good revision; the alternative is shipping a broken one.
 - **Rollback is not a redeploy.** The stable ReplicaSet was never scaled to zero, so aborting
   is a scale-down of the canary. There is no window in which no pod serves.
-- **Promotion is not atomic across pods.** Between `setWeight: 50` and `setWeight: 100` both
-  revisions serve the stable Service. A revision that cannot coexist with its predecessor
-  needs `blueGreen`, not `canary`.
+- **The canary is probed, not exposed.** Naming `stableService` makes the controller patch a
+  `rollouts-pod-template-hash` selector onto that Service pinned to the stable ReplicaSet, so
+  between `setWeight: 50` and `setWeight: 100` the canary pods are not endpoints of the stable
+  Service and the analysis probe on `canaryService` is their only caller. `tests/e2e/argo-rollouts`
+  measures this mid-canary and fails if the selector loses the hash or gains a canary endpoint.
+- **`setWeight` is a replica proportion, not a traffic share.** There is no `trafficRouting`, so
+  the number decides how many pods run the new revision, not how requests are split.
+  `paperclip-exporter` runs `replicas: 1`, where 50% is not representable in whole pods.
+- **Both revisions run at once as pods, which is what a workload has to tolerate.** The stable and
+  canary ReplicaSets are up together during the canary window. A revision that cannot share a
+  database, a stream or a consumer group with its predecessor needs `blueGreen`, not `canary`:
+  pinning the stable Service keeps requests off the canary, not the canary off a shared backend.
 - **An aborted Rollout stays `Degraded` with `status.abort: true`** until a new revision is
   pushed. It does not retry the same image.
 
@@ -90,6 +102,10 @@ kubectl argo rollouts get rollout paperclip-exporter -n paperclip --watch
 kubectl get rollout paperclip-exporter -n paperclip -o jsonpath='{.status.phase} {.status.abort}{"\n"}'
 kubectl get analysisrun -n paperclip -o custom-columns=NAME:.metadata.name,PHASE:.status.phase
 kubectl describe rollout paperclip-exporter -n paperclip   # events carry the abort reason
+
+# which revision the stable Service is pinned to, and which pods it actually reaches
+kubectl get svc paperclip-exporter -n paperclip -o jsonpath='{.spec.selector}{"\n"}'
+kubectl get endpoints paperclip-exporter -n paperclip -o jsonpath='{.subsets[*].addresses[*].ip}{"\n"}'
 ```
 
 An abort reads `Rollout aborted update to revision N: Metric "canary-http-health" assessed
@@ -107,6 +123,13 @@ aborted by a `Failed` AnalysisRun, with the stable Service still answering 200.
 The failure case is exercised, not read off the config: the broken revision listens on 8081
 while the Services target 8080, so its pods pass their own readiness probe and still fail the
 canary probe.
+
+The `canary-promotion` step also measures the stable Service inside the canary window, because
+the pinning above is controller behaviour a chart bump could change silently. It waits until the
+Rollout's `status.stableRS` differs from `status.currentPodHash` with a Ready canary pod and an
+in-flight AnalysisRun, then prints the selector, the endpoint addresses and every pod's hash, and
+fails if the selector is not the stable hash or if a canary pod IP is one of the endpoints. Never
+landing in that window is a failure too, so the step cannot pass without measuring anything.
 
 ## Giving a new workload a canary
 

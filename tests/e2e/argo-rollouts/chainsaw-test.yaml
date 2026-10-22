@@ -11,7 +11,8 @@ spec:
     proves both halves of the contract against that same template: a good revision is promoted
     after a Successful AnalysisRun, and a revision whose pods are Ready but do not serve the
     Service port is aborted back to the stable ReplicaSet by a Failed AnalysisRun — no operator
-    and no kubectl rollback. The stable Service answers 200 throughout the abort.
+    and no kubectl rollback. The stable Service answers 200 throughout the abort, and mid-canary
+    it is measured to be pinned to the stable ReplicaSet rather than spanning both revisions.
   steps:
     - name: rollouts-healthy
       description: The argo-rollouts and argo-rollouts-config Applications are Healthy and Succeeded.
@@ -213,8 +214,11 @@ spec:
 
     - name: canary-promotion
       description: >-
-        A second, healthy revision walks setWeight 50 -> analysis -> setWeight 100. The AnalysisRun
-        the step creates reaches Successful and the new ReplicaSet becomes the stable one.
+        A second, healthy revision walks setWeight 50 -> analysis -> setWeight 100. Mid-canary,
+        while the AnalysisRun is in flight, the stable Service is measured: its selector carries a
+        rollouts-pod-template-hash pinned to the stable ReplicaSet and no canary pod IP is one of
+        its endpoints, so the canary is probed and not exposed. The AnalysisRun then reaches
+        Successful and the new ReplicaSet becomes the stable one.
       timeouts:
         assert: 8m
       try:
@@ -284,6 +288,75 @@ spec:
                           limits:
                             cpu: 100m
                             memory: 64Mi
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              # Snapshot the stable Service while revision 2 sits on the analysis step:
+              # initialDelay 10s plus three probes 15s apart is the window to land in.
+              deadline=$(( $(date +%s) + 240 ))
+              while :; do
+                ro=$(kubectl get rollout canary-demo -n "$NAMESPACE" -o json)
+                stable=$(printf '%s' "$ro" | jq -r '.status.stableRS // ""')
+                canary=$(printf '%s' "$ro" | jq -r '.status.currentPodHash // ""')
+                pods=$(kubectl get pods -n "$NAMESPACE" -l app=canary-demo -o json)
+                ready=$(printf '%s' "$pods" | jq --arg h "$canary" '[.items[]
+                  | select(.metadata.labels["rollouts-pod-template-hash"] == $h)
+                  | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))]
+                  | length')
+                runs=$(kubectl get analysisrun -n "$NAMESPACE" -o json)
+                run=$(printf '%s' "$runs" | jq -r '[.items[]
+                  | select(.status.phase == "Pending" or .status.phase == "Running")]
+                  | .[0] | "\(.metadata.name // "") \(.status.phase // "")"')
+                svc=$(kubectl get svc canary-demo -n "$NAMESPACE" -o json)
+                eps=$(kubectl get endpoints canary-demo -n "$NAMESPACE" -o json)
+                if [ -n "$stable" ] && [ "$stable" != "$canary" ] && [ "$ready" -ge 1 ] \
+                   && [ "$run" != " " ]; then
+                  break
+                fi
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "never landed in the canary window, so nothing was measured:"
+                  echo "  stableRS=$stable currentPodHash=$canary readyCanaryPods=$ready"
+                  echo "  in-flight AnalysisRun='$run'"
+                  exit 1
+                fi
+                sleep 2
+              done
+
+              selector=$(printf '%s' "$svc" | jq -r '.spec.selector["rollouts-pod-template-hash"] // ""')
+              ips=$(printf '%s' "$eps" | jq -r '[.subsets[]?.addresses[]?.ip] | sort | join(" ")')
+              canary_ips=$(printf '%s' "$pods" | jq -r --arg h "$canary" '[.items[]
+                | select(.metadata.labels["rollouts-pod-template-hash"] == $h)
+                | .status.podIP // empty] | sort | join(" ")')
+
+              echo "canary window: AnalysisRun $run, stableRS=$stable currentPodHash=$canary"
+              echo "svc/canary-demo .spec.selector: $(printf '%s' "$svc" | jq -c '.spec.selector')"
+              echo "endpoints/canary-demo addresses: ${ips:-<none>}"
+              printf 'POD\tHASH\tIP\tREADY\n'
+              printf '%s' "$pods" | jq -r '.items[] | [.metadata.name,
+                .metadata.labels["rollouts-pod-template-hash"],
+                (.status.podIP // "-"),
+                (if any(.status.conditions[]?; .type == "Ready" and .status == "True")
+                 then "True" else "False" end)] | @tsv'
+
+              if [ -z "$selector" ]; then
+                echo "FAIL stable Service has no rollouts-pod-template-hash selector: it spans both revisions"
+                exit 1
+              fi
+              if [ "$selector" != "$stable" ]; then
+                echo "FAIL stable Service is pinned to $selector, not to the stable ReplicaSet $stable"
+                exit 1
+              fi
+              for ip in $canary_ips; do
+                case " $ips " in
+                  *" $ip "*)
+                    echo "FAIL canary pod IP $ip is an endpoint of the stable Service"
+                    exit 1
+                    ;;
+                esac
+              done
+              echo "measured: stable Service pinned to stable ReplicaSet $stable;" \
+                "canary IPs ($canary_ips) are not among its endpoints"
         - assert:
             resource:
               apiVersion: argoproj.io/v1alpha1
@@ -310,6 +383,14 @@ spec:
         - describe:
             apiVersion: argoproj.io/v1alpha1
             kind: AnalysisRun
+        - describe:
+            apiVersion: v1
+            kind: Service
+            name: canary-demo
+        - get:
+            apiVersion: v1
+            kind: Endpoints
+            name: canary-demo
 
     - name: automated-rollback
       description: >-
