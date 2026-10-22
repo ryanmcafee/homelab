@@ -524,7 +524,7 @@ func isSyntheticPlaceholder(value string) bool {
 		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-'
 	})
 	for _, token := range tokens {
-		if strings.HasPrefix(token, "replaceme") {
+		if strings.HasPrefix(token, "replaceme-") {
 			return true
 		}
 	}
