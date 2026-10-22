@@ -29,7 +29,7 @@ standing in for 1Password, TrueNAS and the UniFi gateway, and syncs the Applicat
 real hardware — fewer than the production total further down this page.
 
 ```bash
-task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → 63 Applications synced from your working tree
+task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → 64 Applications synced from your working tree
 task localdev:report    # what is Healthy, and what differs from main
 task localdev:down      # delete the cluster; the registry caches stay
 ```
@@ -68,7 +68,7 @@ with a confirmation at each phase. Nothing reaches `terragrunt apply` without th
 **Media** · plex · sonarr · radarr · prowlarr · nzbget · tautulli · lazylibrarian · flaresolverr
 **Platform** · argocd · grafana · argo-workflows · paperclip · cloudnative-pg · mosquitto · renovate
 
-39 addons and 17 applications, 93 ArgoCD Applications in all. The full table with chart versions,
+39 addons and 17 applications, 94 ArgoCD Applications in all. The full table with chart versions,
 Gateway and test coverage per app is generated in [`docs/applications.md`](docs/applications.md).
 
 ## Guardrails

@@ -1,10 +1,11 @@
 {{- /*
 LiteLLM (issue #424): OpenAI-compatible LLM gateway with its database on the
-existing CloudNativePG operator. This file carries the foundation waves only:
+existing CloudNativePG operator:
   wave 10  Namespace litellm
   wave 11  litellm-dependencies  charts/litellm-dependencies (OnePasswordItems -> Secrets litellm-master-key-secret, litellm-salt-key, litellm-api-keys; secret store only)
   wave 12  litellm-database      charts/litellm-database (postgresql.cnpg.io Cluster litellm-db -> Secret litellm-db-app)
-Waves 13 (the OCI chart) and 14 (HTTPRoutes + smoke) follow in the next change.
+  wave 13  litellm               OCI chart ghcr.io/berriai/litellm/chart/litellm (gateway, backend, ui, migrations Job)
+Wave 14 (HTTPRoutes + smoke) follows in the next change.
 Every value comes from the `litellm:` block of configuration/templates/helm-apps.tmpl;
 charts/applications/values.yaml only holds placeholders. Derived values reach the
 child charts through helm.valuesObject (ADR-010), so their committed values files
@@ -121,6 +122,191 @@ spec:
     # The Cluster CRD comes from the cloudnative-pg addon; if a sync lands before
     # the CRD is served the apply fails with "no matches for kind Cluster" and
     # this retries until the operator is up.
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# OCI Repository: ArgoCD only pulls OCI charts from a registry it has a
+# repository Secret for (rule gitops/<env>/repo-secrets). Anonymous pull, and
+# the url carries no oci:// prefix, like paperclipinc-oci.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: berriai-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+stringData:
+  name: berriai
+  type: helm
+  url: {{ $ll.proxy.chart.repo }}
+  enableOCI: "true"
+---
+# Proxy Application: the componentized chart. Only the pins, sizing and model
+# list come from configuration/ ($ll.proxy); everything below is a property of
+# the chart itself and of how this repo runs it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $ll.proxy.chart.repo }}
+    chart: {{ $ll.proxy.chart.name }}
+    targetRevision: {{ $ll.proxy.chart.version | quote }}
+    helm:
+      releaseName: litellm
+      values: |
+        # Without this the release name prefixes the chart name into
+        # litellm-litellm-gateway; wave 14's HTTPRoutes and the SRE alerts
+        # address litellm-gateway / litellm-backend / litellm-ui.
+        fullnameOverride: litellm
+        masterKey:
+          secretName: litellm-master-key-secret
+          secretKey: master-key
+        # CloudNativePG generates litellm-db-app (username, password) for the
+        # owner role of database litellm on Cluster litellm-db, so no database
+        # credential is templated here or stored in 1Password.
+        database:
+          writer:
+            host: litellm-db-rw.{{ $ll.namespace }}.svc.cluster.local
+            port: 5432
+            dbname: litellm
+            passwordSecret:
+              name: litellm-db-app
+              usernameKey: username
+              passwordKey: password
+        # ArgoCD applies the manifests, not Helm, so the Job runs as a PreSync
+        # hook: it re-runs on every sync even when nothing rendered changed.
+        # activeDeadlineSeconds bounds the whole Job across its retries, so a
+        # migration blocked on the database fails the sync instead of hanging
+        # it forever.
+        migrationJob:
+          enabled: true
+          hooks:
+            helm:
+              enabled: false
+            argocd:
+              enabled: true
+          activeDeadlineSeconds: 1800
+          image:
+            tag: {{ $ll.proxy.imageTag | quote }}
+          resources:
+            {{- toYaml $ll.proxy.migrations.resources | nindent 12 }}
+        gateway:
+          image:
+            tag: {{ $ll.proxy.imageTag | quote }}
+          # LITELLM_SALT_KEY encrypts every provider credential the proxy
+          # stores in the database and the chart has no value for it, so both
+          # it and the provider keys arrive as whole-Secret envFrom. The
+          # 1Password field labels are therefore the env var names.
+          envSecrets:
+            - litellm-salt-key
+            - litellm-api-keys
+          # Managing models from the Admin UI requires the proxy to persist
+          # them rather than read a static config only.
+          extraEnv:
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+          config:
+            create: true
+            proxy_config:
+              model_list:
+                {{- toYaml $ll.proxy.models | nindent 16 }}
+          livenessProbe:
+            httpGet: {path: /health/liveliness, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /health/readiness, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+          # One replica, so redis stays off. Cross-pod rpm/tpm limits, spend
+          # tracking and the pod lock manager all need it once this scales out.
+          hpa:
+            enabled: false
+          # A metrics sidecar and its own ClusterIP Service, because the http
+          # port serves /metrics/ behind virtual-key auth. That port has no
+          # auth of its own, so wave 14 must keep it off any public route.
+          metricsServer:
+            enabled: true
+          serviceMonitor:
+            enabled: {{ $ll.proxy.serviceMonitor.enabled }}
+          resources:
+            {{- toYaml $ll.proxy.gateway.resources | nindent 12 }}
+        backend:
+          image:
+            tag: {{ $ll.proxy.imageTag | quote }}
+          envSecrets:
+            - litellm-salt-key
+          extraEnv:
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+          livenessProbe:
+            httpGet: {path: /health/liveliness, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /health/readiness, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+          hpa:
+            enabled: false
+          resources:
+            {{- toYaml $ll.proxy.backend.resources | nindent 12 }}
+        ui:
+          image:
+            tag: {{ $ll.proxy.imageTag | quote }}
+          # The dashboard is a static bundle: it calls the backend from the
+          # browser, so this is the routable host wave 14 publishes, not a
+          # cluster Service. The chart's own Ingress serves the management API
+          # at the host root, so wave 14's HTTPRoutes must match that split.
+          backendUrl: https://{{ $ll.hostname }}
+          hpa:
+            enabled: false
+          resources:
+            {{- toYaml $ll.proxy.ui.resources | nindent 12 }}
+        # None of the three components calls the Kubernetes API.
+        serviceAccounts:
+          gateway:
+            automount: false
+          backend:
+            automount: false
+          ui:
+            automount: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $ll.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The PreSync migration Job needs litellm-db-app and a reachable database;
+    # retry covers a sync that lands before CloudNativePG has finished
+    # bootstrapping the Cluster from wave 12.
     retry:
       limit: 5
       backoff:
