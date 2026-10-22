@@ -203,12 +203,12 @@ func statusOf(t *testing.T, checks []Check, name string) Check {
 }
 
 func TestCheck2PassesWhenExampleCoversEveryRequiredKey(t *testing.T) {
-	root := repoWithExample(t, homelabExampleRel, "BOOTSTRAP_ONLY_KEY: \"3\"\nCP_VIP: \"192.168.1.10\"\nDOMAIN: REPLACEME-domain.com\n")
+	root := repoWithExample(t, homelabExampleRel, "BOOTSTRAP_ONLY_KEY: REPLACEME-node\nCP_VIP: \"198.51.100.10\"\nDOMAIN: REPLACEME-domain.com\n")
 	doc := docJSON(
 		key("BOOTSTRAP_ONLY_KEY", KeySourceBootstrap, ExampleRequired)+","+
 			key("CP_VIP", KeySourceSchema, ExampleRequired)+","+
 			key("DOMAIN", KeySourceSchema, ExampleRequired),
-		`{"BOOTSTRAP_ONLY_KEY":"3"}`)
+		`{"BOOTSTRAP_ONLY_KEY":"REPLACEME-node"}`)
 
 	checks := ForkAbilityCheck2(context.Background(), root, fakeProducer(doc))
 
@@ -247,6 +247,53 @@ func TestCheck2FailsOnEmptyPlaceholder(t *testing.T) {
 		"forkability/example-completeness/homelab")
 	if c.Status != StatusFail {
 		t.Fatalf("expected fail, got %s", c.Status)
+	}
+}
+
+// A real-looking value is not a placeholder: a fork that forgets to change it
+// renders somebody else's infrastructure instead of failing loudly.
+func TestCheck2FailsOnARealLookingRequiredValue(t *testing.T) {
+	for _, value := range []string{
+		"github.com",
+		"192.168.1.10",
+		"https://github.com/someone/homelab",
+		"homelab-dev",
+		"admin@gmail.com",
+	} {
+		root := repoWithExample(t, homelabExampleRel, "DOMAIN: "+value+"\n")
+		doc := docJSON(key("DOMAIN", KeySourceSchema, ExampleRequired), "")
+
+		c := statusOf(t, ForkAbilityCheck2(context.Background(), root, fakeProducer(doc)),
+			"forkability/example-completeness/homelab")
+		if c.Status != StatusFail {
+			t.Fatalf("expected fail for DOMAIN: %s, got %s", value, c.Status)
+		}
+		if !strings.Contains(strings.Join(c.Findings, "\n"), "REPLACEME-") {
+			t.Fatalf("finding for %q does not name the REPLACEME- remedy: %v", value, c.Findings)
+		}
+	}
+}
+
+func TestCheck2AcceptsReplacemeOrReservedValues(t *testing.T) {
+	for _, value := range []string{
+		"REPLACEME-domain.com",
+		"replaceme-domain.com",
+		"https://github.com/REPLACEME-user/homelab",
+		"admin@REPLACEME-domain.com",
+		"\"198.51.100.10\"",
+		"\"198.51.100.0/24\"",
+		"\"127.0.0.1\"",
+		"homelab.local",
+		"example.invalid",
+	} {
+		root := repoWithExample(t, homelabExampleRel, "DOMAIN: "+value+"\n")
+		doc := docJSON(key("DOMAIN", KeySourceSchema, ExampleRequired), "")
+
+		c := statusOf(t, ForkAbilityCheck2(context.Background(), root, fakeProducer(doc)),
+			"forkability/example-completeness/homelab")
+		if c.Status != StatusPass {
+			t.Fatalf("expected pass for DOMAIN: %s, got %s: %v", value, c.Status, c.Findings)
+		}
 	}
 }
 
@@ -341,11 +388,13 @@ func TestParseRequiredKeysRejectsMalformedDocuments(t *testing.T) {
 		"no tiers":          `{"version":1,"tiers":[]}`,
 		"unknown version":   `{"version":2,"tiers":[{"tier":"homelab","keys":[` + key("DOMAIN", KeySourceSchema, ExampleRequired) + `]}]}`,
 		"tier with no keys": `{"version":1,"tiers":[{"tier":"homelab","keys":[]}]}`,
-		"unknown source":    docJSON(key("DOMAIN", "guessed", ExampleRequired), ""),
-		"unknown example":   docJSON(key("DOMAIN", KeySourceSchema, "maybe"), ""),
-		"unsorted keys":     docJSON(key("ZONE", KeySourceSchema, ExampleRequired)+","+key("DOMAIN", KeySourceSchema, ExampleRequired), ""),
-		"duplicate key":     docJSON(key("DOMAIN", KeySourceSchema, ExampleRequired)+","+key("DOMAIN", KeySourceSchema, ExampleRequired), ""),
-		"unknown field":     `{"version":1,"tiers":[{"tier":"homelab","keys":[],"surprise":true}]}`,
+		"no required keys": `{"version":1,"tiers":[{"tier":"homelab","keys":[` +
+			`{"name":"DOMAIN","required":false,"source":"schema","example":"optional","description":"d"}]}]}`,
+		"unknown source":  docJSON(key("DOMAIN", "guessed", ExampleRequired), ""),
+		"unknown example": docJSON(key("DOMAIN", KeySourceSchema, "maybe"), ""),
+		"unsorted keys":   docJSON(key("ZONE", KeySourceSchema, ExampleRequired)+","+key("DOMAIN", KeySourceSchema, ExampleRequired), ""),
+		"duplicate key":   docJSON(key("DOMAIN", KeySourceSchema, ExampleRequired)+","+key("DOMAIN", KeySourceSchema, ExampleRequired), ""),
+		"unknown field":   `{"version":1,"tiers":[{"tier":"homelab","keys":[],"surprise":true}]}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
