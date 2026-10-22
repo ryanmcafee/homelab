@@ -1843,7 +1843,7 @@ Exit codes:
 // ============================================================================
 // Shell helpers
 // ============================================================================
-interface RunResult {
+export interface RunResult {
   stdout: string;
   stderr: string;
   code: number;
@@ -3685,22 +3685,36 @@ async function diagnoseWorkloads(ns: string): Promise<void> {
   console.log((w.code === 0 ? w.stdout : w.stderr).trim() || "(none)");
 }
 
+/**
+ * One resource's diagnose block as lines. Pure so the elision a CI reader
+ * actually gets is asserted here rather than inferred from the helpers: the
+ * describe must be elided head+tail, never tail alone.
+ */
+export function resourceDiagnoseLines(
+  t: DescribeTarget,
+  status: RunResult,
+  describe: RunResult,
+): string[] {
+  const ref = `${t.group}/${t.kind} ${t.ns}/${t.name}`;
+  return [
+    `\n--- ${ref}: .status ---`,
+    (status.code === 0
+      ? formatResourceStatus(status.stdout)
+      : status.stderr.trim()) || "(no output)",
+    `\n--- ${ref}: describe head+tail ---`,
+    (describe.code === 0
+      ? headTail(describe.stdout, DESCRIBE_HEAD, DESCRIBE_TAIL)
+      : describe.stderr.trim()) || "(no output)",
+  ];
+}
+
 async function describeResources(targets: DescribeTarget[]): Promise<void> {
   for (const t of targets) {
-    const ref = `${t.group}/${t.kind} ${t.ns}/${t.name}`;
-    console.log(`\n--- ${ref}: .status ---`);
-    const s = await run(kubectl(...statusArgs(t)));
-    console.log(
-      (s.code === 0 ? formatResourceStatus(s.stdout) : s.stderr.trim()) ||
-        "(no output)",
-    );
-    console.log(`\n--- ${ref}: describe head+tail ---`);
-    const d = await run(kubectl(...describeArgs(t)));
-    console.log(
-      (d.code === 0
-        ? headTail(d.stdout, DESCRIBE_HEAD, DESCRIBE_TAIL)
-        : d.stderr.trim()) || "(no output)",
-    );
+    const status = await run(kubectl(...statusArgs(t)));
+    const describe = await run(kubectl(...describeArgs(t)));
+    for (const line of resourceDiagnoseLines(t, status, describe)) {
+      console.log(line);
+    }
   }
 }
 
