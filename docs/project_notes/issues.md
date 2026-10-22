@@ -41,6 +41,7 @@ Each entry should include:
 ### 2026-09-30 - Scope upstream values exceptions to pinned chart identity
 - **Status**: In review on branch `feat/mcaa-848-upstream-values-identity`
 - **Description**: MCAA-848 follows reviewer condition 4 on PR #483. All 48 allowlist entries now bind repository URL, chart name and pinned revision. Before and after: 82 Application sources, 42 pinned charts, 224 allowed findings, zero unused entries. Staged repository and revision mutations proved `upstream-values/undeclared-key`; a later argo-cd revision mutation showed the old false removal guidance and the new pin-aware re-review message with 13 findings. ADR-054 now records identity keying and chart-bump re-review for Principal Platform Architect review before merge.
+- **2026-10-22 rebase**: Fresh `main` contains 88 Application sources and 45 pinned charts. Plex moved from 1.6.0 to 1.9.0; before pin review the gate reported 2 `upstream-values/undeclared-key` findings and 1 unused entry. The 1.9.0 template still reads the key, so its entry was repinned. Afterward: 226 allowed findings, 0 undeclared, 0 unused, 0 pull errors. A staged unrelated-repository mutation reported the exact rule ID for both istio-base Applications, with 0 pull errors. Level 0: 296 passed, 0 failed, 1 environment skip.
 
 ### 2026-09-30 - Upstream Helm values declaration gate follow-up
 - **Status**: PR #483 open; rebased after PR #469 merged
