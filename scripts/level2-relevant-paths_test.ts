@@ -6,7 +6,9 @@ const script = `${import.meta.dir}/level2-relevant-paths.sh`;
 
 function classify(files: string[]): { code: number; output: string } {
   const result = Bun.spawnSync(["bash", script], {
-    stdin: new TextEncoder().encode(files.join("\n") + (files.length ? "\n" : "")),
+    stdin: new TextEncoder().encode(
+      files.join("\n") + (files.length ? "\n" : ""),
+    ),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -20,11 +22,23 @@ test("a docs-only or unrelated workflow PR skips level 2", () => {
 
 test("every current pull-request filter path runs level 2", () => {
   for (const path of [
-    "charts/app/values.yaml", "localdev/foo.yaml", "Tiltfile",
-    "scripts/check.ts", "configuration/versions.yaml", "tests/e2e/check.yaml",
-    "tests/health/check.yaml", "Taskfile.yml", "cmd/verify/main.go",
-    "internal/verify/check.go", "go.mod", "go.sum", "mise.toml",
-    "package.json", "bun.lock", "tsconfig.json", "biome.json",
+    "charts/app/values.yaml",
+    "localdev/foo.yaml",
+    "Tiltfile",
+    "scripts/check.ts",
+    "configuration/versions.yaml",
+    "tests/e2e/check.yaml",
+    "tests/health/check.yaml",
+    "Taskfile.yml",
+    "cmd/verify/main.go",
+    "internal/verify/check.go",
+    "go.mod",
+    "go.sum",
+    "mise.toml",
+    "package.json",
+    "bun.lock",
+    "tsconfig.json",
+    "biome.json",
     ".github/workflows/tilt-ci.yml",
   ]) {
     assertEquals(classify([path]), { code: 0, output: "true" });
