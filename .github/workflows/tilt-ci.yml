@@ -12,8 +12,9 @@ name: Verify (Kind, levels 1-2)
 #                                        into Kind, no ArgoCD); asserts Envoy Gateway + cert-manager
 #   yaml-lint    yamllint                charts/, localdev/, tests/e2e, tests/health
 #
-# kind-argocd is the required check: it has no continue-on-error, and a failing
-# Application, e2e test or dry run fails the pull request. Its Job Summary lists
+# kind-argocd is advisory today but can become required once its reliability
+# is proven: every PR publishes its check run. It has no continue-on-error, and
+# a failing Application, e2e test or dry run fails the job. Its Job Summary lists
 # every non-passing check and the verify-level2 artifact carries the full JSON.
 #
 # kind-argocd checks out the PR head commit (not the merge ref, which ArgoCD
@@ -36,29 +37,11 @@ name: Verify (Kind, levels 1-2)
 # reads versions.yaml with yq); kind needs no further setup.
 
 on:
+  # Every PR must publish the level-2 context. The job condition below skips
+  # irrelevant PRs while still publishing a skipped check run (ADR-039).
   pull_request:
-    paths:
-      - 'charts/**'
-      - 'localdev/**'
-      - 'Tiltfile'
-      - 'scripts/**'
-      - 'configuration/**'
-      - 'tests/e2e/**'
-      - 'tests/health/**'
-      - 'Taskfile.yml'
-      - 'cmd/**'
-      - 'internal/**'
-      - 'go.mod'
-      - 'go.sum'
-      - 'mise.toml'
-      - 'package.json'
-      - 'bun.lock'
-      - 'tsconfig.json'
-      - 'biome.json'
-      - '.github/workflows/tilt-ci.yml'
-  # Merge-group candidates deliberately bypass the PR paths filter: once a
-  # change reaches the final merge path, level 2 is the authoritative
-  # integration verdict.
+  # Merge-group candidates always run level 2: once a change reaches the final
+  # merge path, level 2 is the authoritative integration verdict.
   merge_group:
     types: [checks_requested]
   push:
@@ -100,11 +83,45 @@ env:
   KIND_CONTEXT: kind-homelab-localdev
 
 jobs:
+  changed-paths:
+    name: Classify level-2 paths
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      relevant: ${{ steps.classify.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      # Query the base repository's PR files API, so fork PRs use the same
+      # classification as same-repository PRs. gh exits nonzero on API errors.
+      - name: Read changed paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh api --paginate --jq '.[].filename' "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" > "$RUNNER_TEMP/level2-files.txt"
+      - name: Classify changed paths
+        id: classify
+        run: |
+          relevant="$(bash scripts/level2-relevant-paths.sh < "$RUNNER_TEMP/level2-files.txt")"
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+
   # ============================================================================
-  # Kind + ArgoCD loop: the required check
+  # Kind + ArgoCD loop: advisory today, eligible for a future required context
   # ============================================================================
   kind-argocd:
     name: Kind + ArgoCD loop (level 2)
+    needs: changed-paths
+    # A failed path lookup must never turn into a green skipped cluster check.
+    # Push and merge-group runs execute; an irrelevant PR publishes skipped.
+    if: >-
+      !cancelled() && (github.event_name != 'pull_request'
+        || needs.changed-paths.result != 'success'
+        || needs.changed-paths.outputs.relevant == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
