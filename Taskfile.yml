@@ -39,6 +39,24 @@ tasks:
       - mkdir -p .terraform.d/plugin-cache
       - bun install --frozen-lockfile
 
+  toolchain:policy:
+    desc: Check the cold-bootstrap execution boundary and its negative fixtures
+    deps: [bun:install]
+    cmds:
+      - bun scripts/toolchain-policy.ts
+      - bun test scripts/toolchain-policy_test.ts
+
+  # Trusted local checkouts only: mise and Task evaluate repository code on the host.
+  toolchain:check:
+    desc: Cold Linux toolchain bootstrap gate (Docker required; tests committed HEAD without host caches)
+    preconditions:
+      - sh: command -v docker
+        msg: "Install and start Docker, then rerun task toolchain:check."
+    cmds:
+      - |
+        set -o pipefail
+        git archive HEAD | docker build --no-cache --platform linux/amd64 --progress plain -f Dockerfile.toolchain -
+
   bun:install:
     desc: Install the script dependencies pinned in bun.lock (a no-op when node_modules is current)
     internal: true
