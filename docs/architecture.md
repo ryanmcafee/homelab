@@ -18,7 +18,9 @@ number below.
 This page describes the homelab as it is built today. The forward-looking platform baseline
 that homelab and the commercial platform share — the operator model, the CloudEvents/NATS
 contract, the shared SDK boundary, the BYO-\* seams, fork-ability and the boundary quality
-gates — lives in [`docs/contracts/`](contracts/README.md) (ADR-025 … ADR-031).
+gates — lives in [`docs/contracts/`](contracts/README.md) (ADR-025 … ADR-030). That page is prose;
+the machine-checkable schemas and fixtures are in [`contracts/`](../contracts) at the repository root.
+Neither is a prerequisite for forking and running this repository.
 
 ---
 
