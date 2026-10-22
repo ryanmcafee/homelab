@@ -668,6 +668,7 @@ fix a previously copied NAS or control-plane collision.
 `task config:guard` remains the full tracked-file entrypoint. Neither check needs
 cluster credentials. CI and the `config-regressions` pre-commit hook execute the
 same secret-free guard and pool regression tests.
+
 ### OpenClaw operator checks
 
 `task verify:text` includes the offline `gitops/<env>/openclaw-intent` check.
