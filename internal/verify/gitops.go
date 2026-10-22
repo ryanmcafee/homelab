@@ -823,8 +823,9 @@ func (s *skipTally) detail(unit string) string {
 }
 
 // secretRefCollector walks decoded manifest subtrees and accumulates every
-// consumer reference to a Secret. Ingress-style tls[].secretName is
-// deliberately not collected: cert-manager creates those on demand.
+// consumer reference to a Secret. Certificate.spec.secretName and
+// Ingress-style tls[].secretName are deliberately not collected:
+// cert-manager creates those on demand.
 type secretRefCollector struct {
 	reg  *GitOpsRegistry
 	refs []secretRef
@@ -836,17 +837,8 @@ func (c *secretRefCollector) walk(node any, path string, owner Doc, ns string) {
 		for _, key := range sortedKeys(v) {
 			child := v[key]
 			childPath := joinRefPath(path, key)
-			switch {
-			case c.isSecretRefKey(key), key == "existingSecret", key == "existingSecretName":
-				if n := refName(child); n != "" {
-					c.add(owner, ns, n, childPath)
-				}
-			case key == "secret":
-				if m, ok := child.(map[string]any); ok {
-					if sn, ok := m["secretName"].(string); ok && sn != "" {
-						c.add(owner, ns, sn, joinRefPath(childPath, "secretName"))
-					}
-				}
+			for _, name := range c.refNames(key, child, path, childPath, owner) {
+				c.add(owner, ns, name, childPath)
 			}
 			c.walk(child, childPath, owner, ns)
 		}
@@ -857,15 +849,98 @@ func (c *secretRefCollector) walk(node any, path string, owner Doc, ns string) {
 	}
 }
 
-// isSecretRefKey reports whether a map key names a Secret the object reads.
-// Kubernetes and its operators spell this a dozen ways — secretRef,
-// secretKeyRef, apiTokenSecretRef, tokenSecretRef — so anything ending in
-// SecretRef counts, minus the output keys the registry declares.
-func (c *secretRefCollector) isSecretRefKey(key string) bool {
-	if c.reg != nil && c.reg.IsOutputRefKey(key) {
-		return false
+// refNames reports the Secret names a map key references. Kubernetes and its
+// operators spell a consumer reference at least five ways, and all five are
+// collected here:
+//
+//	secretRef / secretKeyRef / anything ending in SecretRef, plus the
+//	existingSecret and existingSecretName Helm spellings — bare string or
+//	{name: …} map;
+//	a bare secretName holding a string, as in a Pod volume or masterKey;
+//	anything ending in Secret holding a {name: …} map, as in passwordSecret;
+//	anything ending in Secrets holding a list of strings, as in envSecrets.
+//
+// parent is the path of the map holding key, refPath the path of the reference
+// itself, and owner the document being walked. All three are needed to tell an
+// input from an output.
+func (c *secretRefCollector) refNames(key string, value any, parent, refPath string, owner Doc) []string {
+	if c.reg != nil && c.reg.IsOutputRef(key, strings.TrimPrefix(refPath, ".")) {
+		return nil
 	}
-	return key == "secretRef" || key == "secretKeyRef" || strings.HasSuffix(key, "SecretRef")
+	switch {
+	case key == "secretRef", key == "secretKeyRef", key == "existingSecret",
+		key == "existingSecretName", strings.HasSuffix(key, "SecretRef"):
+		if n := refName(value); n != "" {
+			return []string{n}
+		}
+	case key == "secretName":
+		if secretNameIsCertManagerOutput(parent, owner) {
+			return nil
+		}
+		if s, ok := value.(string); ok {
+			if n := strings.TrimSpace(s); n != "" {
+				return []string{n}
+			}
+		}
+	case strings.HasSuffix(key, "Secrets"):
+		return stringListNames(value)
+	case strings.HasSuffix(key, "Secret"):
+		if m, ok := value.(map[string]any); ok {
+			if n, ok := m["name"].(string); ok {
+				if n = strings.TrimSpace(n); n != "" {
+					return []string{n}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// secretNameIsCertManagerOutput reports whether a bare secretName names a
+// Secret cert-manager writes rather than one the object reads: a Certificate's
+// own spec.secretName, or an Ingress-style tls[].secretName.
+func secretNameIsCertManagerOutput(parent string, owner Doc) bool {
+	if owner.Kind() == "Certificate" && owner.Group() == "cert-manager.io" && parent == "spec" {
+		return true
+	}
+	return lastRefPathKey(parent) == "tls"
+}
+
+// stringListNames returns the trimmed entries of a list of strings, or nil for
+// any other shape. A list of maps is a different reference shape
+// (imagePullSecrets) and is not this key's contract.
+func stringListNames(value any) []string {
+	items, ok := value.([]any)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		s, ok := item.(string)
+		if !ok {
+			return nil
+		}
+		if n := strings.TrimSpace(s); n != "" {
+			names = append(names, n)
+		}
+	}
+	return names
+}
+
+// lastRefPathKey returns the final map key of a reference path, ignoring list
+// indices, so both tls.secretName and tls[0].secretName report "tls".
+func lastRefPathKey(path string) string {
+	for strings.HasSuffix(path, "]") {
+		open := strings.LastIndex(path, "[")
+		if open < 0 {
+			break
+		}
+		path = path[:open]
+	}
+	if dot := strings.LastIndex(path, "."); dot >= 0 {
+		return path[dot+1:]
+	}
+	return path
 }
 
 func (c *secretRefCollector) add(owner Doc, ns, name, where string) {

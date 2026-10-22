@@ -108,13 +108,29 @@ func (k KnownSecret) Matches(ns, name string) bool {
 	return k.Namespace == "" || k.Namespace == "*" || k.Namespace == ns
 }
 
-// OutputRefKey is a *SecretRef field a controller WRITES rather than reads. It
-// names a Secret that does not have to exist beforehand, so secret-refs must
-// not count it as a consumer reference. Reason is mandatory: each entry is a
-// hole in the rule and has to justify itself.
+// OutputRefKey is a reference field a controller or chart WRITES rather than
+// reads. It names a Secret that does not have to exist beforehand, so
+// secret-refs must not count it as a consumer reference. Reason is mandatory:
+// each entry is a hole in the rule and has to justify itself.
+//
+// Path narrows the entry to one reference path, which is what a generic key
+// such as secretName needs: bare secretName is a consumer nearly everywhere,
+// so exempting the key outright would delete most of the rule.
 type OutputRefKey struct {
 	Key    string `yaml:"key"`
+	Path   string `yaml:"path"`
 	Reason string `yaml:"reason"`
+}
+
+// Matches reports whether the entry covers a reference at refPath under key.
+func (o OutputRefKey) Matches(key, refPath string) bool {
+	if o.Key != key {
+		return false
+	}
+	if o.Path == "" {
+		return true
+	}
+	return refPath == o.Path || strings.HasSuffix(refPath, "."+o.Path)
 }
 
 // GitOpsRegistry is the declarative input to LintGitOps: the facts about the
@@ -211,6 +227,12 @@ func LoadGitOpsRegistry(repoRoot string) (*GitOpsRegistry, error) {
 		if strings.TrimSpace(ok.Reason) == "" {
 			return nil, fmt.Errorf("%s/known-secrets.yaml: outputRefKeys entry %q has no reason (every exception must be justified)", GitOpsRegistryDir, ok.Key)
 		}
+		// A path that does not end in the key can never match, which would
+		// leave the exception silently inert instead of exempting anything.
+		if p := strings.TrimSpace(ok.Path); p != "" && p != ok.Key && !strings.HasSuffix(p, "."+ok.Key) {
+			return nil, fmt.Errorf("%s/known-secrets.yaml: outputRefKeys entry %q has path %q, which does not end in the key and can never match",
+				GitOpsRegistryDir, ok.Key, ok.Path)
+		}
 		reg.OutputRefKeys = append(reg.OutputRefKeys, ok)
 	}
 
@@ -266,11 +288,11 @@ func (r *GitOpsRegistry) HugeCRDChartSet() map[string]bool {
 	return out
 }
 
-// IsOutputRefKey reports whether a *SecretRef map key names a Secret the
-// controller writes rather than reads.
-func (r *GitOpsRegistry) IsOutputRefKey(key string) bool {
+// IsOutputRef reports whether the reference at refPath under key names a
+// Secret the controller or chart writes rather than reads.
+func (r *GitOpsRegistry) IsOutputRef(key, refPath string) bool {
 	for _, o := range r.OutputRefKeys {
-		if o.Key == key {
+		if o.Matches(key, refPath) {
 			return true
 		}
 	}
