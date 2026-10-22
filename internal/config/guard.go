@@ -675,6 +675,9 @@ var examplePlaceholderHosts = []string{
 	"example.net",
 }
 
+// IsExamplePlaceholder exposes isExamplePlaceholder to fork-ability check 2.
+func IsExamplePlaceholder(value string) bool { return isExamplePlaceholder(value) }
+
 // isExamplePlaceholder reports whether a value is one of the documented
 // placeholders a template file is allowed to carry on a PII-shaped key.
 //

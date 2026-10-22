@@ -344,6 +344,9 @@ func ParseRequiredKeys(stdout []byte) (*RequiredKeysDoc, error) {
 		if len(tier.Keys) == 0 {
 			return nil, fmt.Errorf("tier %q declares no keys", tier.Tier)
 		}
+		if countRequired(tier.Keys) == 0 {
+			return nil, fmt.Errorf("tier %q declares no required keys", tier.Tier)
+		}
 		if err := validateKeys(tier.Tier, tier.Keys); err != nil {
 			return nil, err
 		}
@@ -463,6 +466,10 @@ func checkTierExample(repoRoot string, tier RequiredKeysTier) Check {
 				// fillable-in: the fork copies the file and renders nothing.
 				findings = append(findings, fmt.Sprintf(
 					"%s is present in %s with an empty value; it needs a REPLACEME- or synthetic placeholder", k.Name, rel))
+			case !isSyntheticPlaceholder(value):
+				findings = append(findings, fmt.Sprintf(
+					"%s is %q in %s, which is not a REPLACEME- or reserved (RFC 2606/5737) placeholder; a fork that keeps it renders that value",
+					k.Name, value, rel))
 			}
 		case ExampleForbidden:
 			if inExample {
@@ -508,6 +515,20 @@ func checkAssumptions(rel string, tier RequiredKeysTier, present map[string]stri
 		}
 	}
 	return findings
+}
+
+// isSyntheticPlaceholder reports whether an example:required value fails loudly
+// if a fork forgets it: a REPLACEME- token anywhere, or a guard placeholder.
+func isSyntheticPlaceholder(value string) bool {
+	tokens := strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-'
+	})
+	for _, token := range tokens {
+		if strings.HasPrefix(token, "replaceme") {
+			return true
+		}
+	}
+	return config.IsExamplePlaceholder(value)
 }
 
 func countRequired(keys []RequiredKey) int {
