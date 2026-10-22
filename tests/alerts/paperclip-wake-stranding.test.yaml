@@ -1,0 +1,94 @@
+# promtool unit tests for the wake-stranding rules in the homelab-paperclip group
+# of charts/addons/templates/kube-prometheus-stack.yaml
+# (docs/runbooks/paperclip-wake-stranding.md).
+#
+# Inputs follow the 2026-09-25 sweep, which found 10 open issues behind a wake
+# claimed by a dead run, 8 of them from same-second batch drops.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The 2026-09-25 batch: 10 stranded issues. Both tiers fire after for: 30m.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_issues_wake_stranded{company_id="mcaa",company="McAfee Consulting"}'
+        values: "10+0x60"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PaperclipIssueWakeStranded
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: PaperclipIssueWakeStranded
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipIssueWakeStranded
+              severity: warning
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "10 issues in McAfee Consulting carry a wake record claimed by a dead run"
+              description: "A sandbox drop left the ledger dirty and the issue row shows nothing. Name them with GET /api/issues/{id}/diagnostics/wakes, then probe each one; docs/runbooks/paperclip-wake-stranding.md."
+          - exp_labels:
+              alertname: PaperclipIssueWakeStranded
+              severity: critical
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "McAfee Consulting has 10 issues behind a dead run's wake claim: a batch drop"
+              description: "At least five open issues were hit by one drop. The record does not hold dispatch, but their deferred wakes are spent and never retried, so each needs a fresh one. Probe with a comment from any non-assignee before escalating; docs/runbooks/paperclip-wake-stranding.md."
+
+  # Four is below the batch floor: warning only.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_issues_wake_stranded{company_id="mcaa",company="McAfee Consulting"}'
+        values: "4+0x60"
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: PaperclipIssueWakeStranded
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipIssueWakeStranded
+              severity: warning
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "4 issues in McAfee Consulting carry a wake record claimed by a dead run"
+              description: "A sandbox drop left the ledger dirty and the issue row shows nothing. Name them with GET /api/issues/{id}/diagnostics/wakes, then probe each one; docs/runbooks/paperclip-wake-stranding.md."
+
+  # A clean ledger and a fresh sweep stay silent.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_issues_wake_stranded{company_id="mcaa",company="McAfee Consulting"}'
+        values: "0+0x60"
+      - series: 'paperclip_wake_sweep_age_seconds{company_id="mcaa",company="McAfee Consulting"}'
+        values: "600+0x60"
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: PaperclipIssueWakeStranded
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: PaperclipWakeSweepStale
+        exp_alerts: []
+
+  # A sweep 2000s old means the stranded count is frozen, not healthy.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_wake_sweep_age_seconds{company_id="mcaa",company="McAfee Consulting"}'
+        values: "2000+0x60"
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: PaperclipWakeSweepStale
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: PaperclipWakeSweepStale
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipWakeSweepStale
+              severity: warning
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "The Paperclip wake sweep for McAfee Consulting is 33m 20s old"
+              description: "paperclip_issues_wake_stranded is stale, so PaperclipIssueWakeStranded is reporting an old count. The exporter log names the failing request; docs/runbooks/paperclip-wake-stranding.md."
