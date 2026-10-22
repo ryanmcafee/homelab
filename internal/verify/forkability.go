@@ -383,6 +383,7 @@ func validateKeys(tier string, keys []RequiredKey) error {
 // exampleConfigSets maps a tier to the committed ConfigSet a fork starts from,
 // relative to the repository root. A tier the producer emits that is absent
 // here fails the check; that is the point of the producer emitting every tier.
+// Only a .example file is filled in by a fork, so only it must carry placeholders.
 var exampleConfigSets = map[string]string{
 	"homelab":  filepath.Join("configuration", "environments", "homelab.yaml.example"),
 	"localdev": filepath.Join("configuration", "environments", "localdev.yaml"),
@@ -447,6 +448,7 @@ func checkTierExample(repoRoot string, tier RequiredKeysTier) Check {
 		return FailCheck(name, start, "reading "+rel, err.Error())
 	}
 	present := parseConfigSetKeys(data)
+	forkFillsIn := strings.HasSuffix(rel, ".example")
 
 	var findings []string
 	for _, k := range tier.Keys {
@@ -466,7 +468,7 @@ func checkTierExample(repoRoot string, tier RequiredKeysTier) Check {
 				// fillable-in: the fork copies the file and renders nothing.
 				findings = append(findings, fmt.Sprintf(
 					"%s is present in %s with an empty value; it needs a REPLACEME- or synthetic placeholder", k.Name, rel))
-			case !isSyntheticPlaceholder(value):
+			case forkFillsIn && !isSyntheticPlaceholder(value):
 				findings = append(findings, fmt.Sprintf(
 					"%s is %q in %s, which is not a REPLACEME- or reserved (RFC 2606/5737) placeholder; a fork that keeps it renders that value",
 					k.Name, value, rel))
