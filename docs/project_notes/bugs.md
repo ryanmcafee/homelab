@@ -17,6 +17,7 @@ Each entry should include:
 - **Root Cause**: The Instance still carried `spec.auth.adminUser` (`helm-apps.tmpl` always passes `PAPERCLIP_ADMIN_EMAIL`, `instance.yaml` rendered `adminUser` whenever the e-mail was set). Operator 0.19.1 keeps reconciling the bootstrap Job for that spec and does not short-circuit on `status.bootstrap`, contrary to the assumption in the 2026-09-15 entry below; a re-run against the existing admin fails. The exact error line was not read (pod logs need kubectl)
 - **Solution**: `charts/paperclip` gained `admin.bootstrap` (default `true`); `adminUser` renders only when it is true and an e-mail is set. `helm-apps.tmpl` sets it `false` for homelab and `true` for Kind, whose database starts empty. A fresh homelab database needs `true` for one sync. The leftover failed Job may need a one-time removal after rollout if the operator does not garbage-collect it
 - **Prevention**: Drop one-shot bootstrap specs from operator CRs once they are done; do not assume an operator's seed Job is idempotent without watching it for a few reconcile periods
+
 ### 2026-09-30 - Kind cold-draw evidence test timed out on host commands (PR #535)
 - **Issue**: The no-cluster capture test used real `kubectl` and `docker`; CI timed out at five seconds without naming the stalled command.
 - **Cause**: `capture` had no command injection seam and `run` gave `Bun.spawnSync` no timeout.
