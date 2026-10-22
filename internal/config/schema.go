@@ -23,6 +23,14 @@ import (
 // thing. Errors wrapping this sentinel are surfaced, not skipped.
 var ErrInvalidKeyPattern = errors.New("invalid key pattern")
 
+// ErrSchemaExtension marks a schema file named with the wrong YAML extension.
+//
+// The schema directory has exactly one canonical extension, .schema.yaml.
+// Accepting .schema.yml as a second spelling would change a fork's resolved
+// key set without explaining why; ignoring it silently disables every key the
+// file declares. Rejecting it names the file and the rename that fixes it.
+var ErrSchemaExtension = errors.New("wrong schema file extension")
+
 // LoadSchemaFile loads and parses a single .schema.yaml file.
 func LoadSchemaFile(path string) (*SchemaFile, error) {
 	data, err := os.ReadFile(path)
@@ -102,7 +110,8 @@ func validateKeyPattern(pattern string, kp SchemaKeyPattern) error {
 	return nil
 }
 
-// LoadSchemaDir loads all .schema.yaml files from a directory and merges them into a single Schema.
+// LoadSchemaDir loads all .schema.yaml files from a directory and merges them
+// into a single Schema. A .schema.yml file is rejected rather than skipped.
 func LoadSchemaDir(dir string) (*Schema, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -116,7 +125,18 @@ func LoadSchemaDir(dir string) (*Schema, error) {
 	patternSource := make(map[string]string)
 
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".schema.yaml") {
+		if entry.IsDir() {
+			continue
+		}
+
+		// A .schema.yml file is a naming slip, not a bystander: skipping it
+		// would drop every key it declares, including required ones.
+		if strings.HasSuffix(entry.Name(), ".schema.yml") {
+			return nil, fmt.Errorf("%w: %s uses .schema.yml; rename it to %s.schema.yaml",
+				ErrSchemaExtension, entry.Name(), strings.TrimSuffix(entry.Name(), ".schema.yml"))
+		}
+
+		if !strings.HasSuffix(entry.Name(), ".schema.yaml") {
 			continue
 		}
 
