@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-10-22 - Passing Kind level-2 PR job cancelled during post-job cache save
+- **Issue**: PR #535 run 39841828820 reported `cancelled` after all 400 level-2 checks and 64 Application health checks passed; every job step, including artifact upload and cache save, reported success.
+- **Root Cause**: The job started at 19:38:57 UTC and completed at 20:24:02, five seconds beyond its 45-minute timeout. The registry cache post step uploaded 7.76 GB from 20:21:28 to 20:23:59; the required checks had completed at 20:21:09.
+- **Solution**: Give the required Kind job a 60-minute budget that includes post-job cache upload. Keep `task localdev:ci`, `task verify LEVEL=2`, reporting and artifacts unchanged.
+- **Prevention**: Budget Actions job time through post steps, not only through the last declared workflow step; large cache saves can turn passing verification into a cancelled check.
+
 ### 2026-09-30 - `paperclip-bootstrap` Job re-created every ~70 min after the admin exists
 - **Issue**: `KubeJobFailed` for `paperclip/paperclip-bootstrap` kept coming back. Over 7 days the operator re-created the admin-seed Job about every 70 minutes (~80 pods, 47 containers terminated `Error`, none `Completed`), each run ending `BackoffLimitExceeded` and re-mounting the RWO data volume on the pinned node. The server itself stayed healthy
 - **Root Cause**: The Instance still carried `spec.auth.adminUser` (`helm-apps.tmpl` always passes `PAPERCLIP_ADMIN_EMAIL`, `instance.yaml` rendered `adminUser` whenever the e-mail was set). Operator 0.19.1 keeps reconciling the bootstrap Job for that spec and does not short-circuit on `status.bootstrap`, contrary to the assumption in the 2026-09-15 entry below; a re-run against the existing admin fails. The exact error line was not read (pod logs need kubectl)

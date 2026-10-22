@@ -13,6 +13,10 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-10-22 - MCAA-1390: Keep passing PR #535 Kind verification within job budget
+- **Status**: CI rerun pending on PR #535.
+- **Description**: Run 39841828820 finished every level-2 check and post step but reached the 45-minute job limit during a 7.76 GB registry cache save. The required Kind job now has a 60-minute total budget, with verification and reporting unchanged. See `bugs.md` (2026-10-22).
+
 ### 2026-09-28 - Paperclip CPU limit 2 -> 4 cores for concurrent agent runs
 - **Status**: PR open from branch `triage/cputhrottlinghigh-dd84a884` (alert triage); paperclip-0 restarts once on sync, so merge when no agent runs are active
 - **Description**: `CPUThrottlingHigh` on paperclip-0 (74.55% throttled at ~1.94/2 cores) because agent CLIs run as child processes and CPU tracks runs in flight; homelab limit raised to 4, request stays 500m. Details in `bugs.md` (2026-09-28)
