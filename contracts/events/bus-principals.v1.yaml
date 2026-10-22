@@ -378,6 +378,10 @@ conformance:
     # key without adding the test does not pass.
     - id: no_wildcard_tenant_grant
       asserts: No principal publishes or subscribes on `pf.>` or any `pf.*.` form.
+    - id: nack_inbox_prefix_render_guard
+      asserts: >-
+        `charts/addons` refuses to render `nats.principalNkeys` while the pinned NACK cannot set
+        its inbox prefix, and no shipped values surface sets the test-only opt-in (ADR-055).
     - id: grant_within_producer_ownership
       asserts: >-
         Every `.ev`/`.rq`/`.wq` publish grant is a subject the registry assigns this component
@@ -479,3 +483,9 @@ conformance:
       asserts: >-
         Cold start on fresh synthetic credentials with no maintainer account, no identity service
         and no anonymous fallback. This is the fork-ability contract for the bus.
+    - id: stream_controller_private_inbox
+      asserts: >-
+        NACK, under its own declared key with `_INBOX.nack` and no `_INBOX.>` grant, reconciles a
+        Stream and a Consumer to Ready, and the server logs no subscription violation for the
+        `nack` user. Lifting `nack_inbox_prefix_render_guard` requires this green against the
+        rendered digests (ADR-055).

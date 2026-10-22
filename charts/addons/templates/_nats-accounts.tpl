@@ -138,6 +138,9 @@ account block and the credentials that make it usable in the same change.
 {{- include "addons.natsAssertSeedSource" . -}}
 {{- $nkeys := fromYaml (include "addons.natsPrincipalNkeys" .) -}}
 {{- if $nkeys -}}
+{{- if not .Values.nats.testOnlyAuthWithoutNackInbox -}}
+{{- fail (printf "nats.principalNkeys is set, but NACK chart %s cannot set its inbox prefix, so under nack's _INBOX.nack grant every JetStream reply is refused and no Stream or Consumer reconciles; bus authentication stays off until a NACK release that sets it is pinned (ADR-055)" .Values.nack.chart.version) -}}
+{{- end -}}
 {{- $contract := .Files.Get "files/nats-accounts.gen.yaml" | fromYaml -}}
 {{- if not $contract.principals -}}
 {{- fail "files/nats-accounts.gen.yaml has no principals; regenerate it with `bun scripts/render-nats-accounts.ts`" -}}
