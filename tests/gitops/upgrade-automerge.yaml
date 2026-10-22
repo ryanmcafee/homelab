@@ -1,0 +1,9 @@
+# Applications whose non-major Renovate bumps may automerge although their
+# rendered manifests change. The upgrade/automerge-gate (.github/workflows/upgrade.yml)
+# still requires a successful render, CRD revalidation and declared helm values,
+# and every other Application must render unchanged.
+applications:
+  - name: plex
+    reason: >-
+      Stateless media server whose upstream ships frequent minor and patch
+      releases; a bad release is rolled back by reverting the versions.yaml bump.

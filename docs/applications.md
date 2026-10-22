@@ -128,7 +128,7 @@ from the same chart (`namespaces.yaml`, `oci-repositories.yaml`).
 | `paperclip-database` | `charts/paperclip-database` | git | — | — | — |
 | `paperclip-dependencies` | `charts/paperclip-dependencies` | git | — | — | — |
 | `paperclip-operator` | `paperclip-operator` | 0.19.1 | — | — | — |
-| `plex` | `plex-media-server` | 1.6.0 | envoy-external: plex | plex | smoke-plex |
+| `plex` | `plex-media-server` | 1.9.0 | envoy-external: plex | plex | smoke-plex |
 | `plex-config` | `charts/plex-config` | git | — | — | — |
 | `prowlarr` | `prowlarr` | 21.7.3 | envoy-internal: prowlarr | prowlarr | smoke-prowlarr |
 | `prowlarr-config` | `charts/prowlarr-config` | git | — | — | — |

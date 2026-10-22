@@ -327,7 +327,8 @@ the chart does not read: that is the defect the gate exists to find.
 
 **Automerge gate.** On `renovate/*` branches the job sets the commit status
 `upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
-only when every `upgrade/*` check is `unchanged`, revalidation passed and no Application
+only when every `upgrade/*` check is `unchanged` (an Application listed in
+`tests/gitops/upgrade-automerge.yaml` may differ), revalidation passed and no Application
 sets a helm value its chart does not declare, otherwise
 `failure` ("rendered manifests changed — human review required, automerge blocked").
 `renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
@@ -336,7 +337,8 @@ elsewhere, always with `platformAutomerge: false`: Renovate merges itself, and o
 every status on the head commit is green. GitHub native auto-merge is never used because
 the `main` ruleset requires no status checks, so it would merge before CI ran. In practice
 a bump whose upstream render changes anything (an image tag, a CRD) waits for a human who
-reads the `upgrade-diff` comment.
+reads the `upgrade-diff` comment, except for those listed Applications (Plex), whose
+non-major bumps merge and ArgoCD syncs them once every other check is green.
 
 **Regeneration bot (optional).** A chart bump also needs the committed localdev values,
 `tests/schemas`, `tests/snapshots` and the `configuration/versions.yaml` block embedded in

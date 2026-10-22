@@ -176,9 +176,31 @@
         'every weekend',
       ],
     },
+    // One PR for the chart and image, out of the shared groups whose other diffs block automerge.
+    {
+      groupName: 'Plex',
+      matchPackageNames: [
+        'plex-media-server',
+        'plexinc/pms-docker',
+      ],
+      matchFileNames: [
+        'configuration/versions.yaml',
+      ],
+      schedule: [
+        'after 3am every weekday',
+      ],
+    },
+    // pms-docker tags are <major>.<minor>.<patch>.<build>-<commit>; the commit is no compatibility suffix.
+    {
+      matchPackageNames: [
+        'plexinc/pms-docker',
+      ],
+      versioning: 'regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\.(?<build>\\d+)-[0-9a-f]+$',
+    },
     // Non-major chart and image bumps in versions.yaml automerge only through
     // the upgrade gate: upgrade.yml sets the upgrade/automerge-gate commit
-    // status to failure whenever a rendered manifest changes or a custom
+    // status to failure whenever a rendered manifest changes (outside
+    // tests/gitops/upgrade-automerge.yaml) or a custom
     // resource no longer validates, and Renovate merges only when every status
     // is green. 0.x versions, majors (rule below), infrastructure tools,
     // kindest/node (tracks the Kubernetes version) and ksops stay manual.
@@ -202,7 +224,7 @@
       automergeType: 'pr',
       platformAutomerge: false,
       prBodyNotes: [
-        '**Upgrade gate:** `upgrade.yml` renders every upstream chart this PR changes at `main` and at this branch, posts the manifest diff as the `upgrade-diff` comment, re-vendors the CRD schemas and revalidates every custom resource. Renovate automerges only when the `upgrade/automerge-gate` status is green, which requires an empty rendered diff; any manifest change needs a human review. When the regeneration bot is configured it commits the snapshots, schemas and localdev values (see docs/runbooks/verification.md, "Renovate bumps").',
+        '**Upgrade gate:** `upgrade.yml` renders every upstream chart this PR changes at `main` and at this branch, posts the manifest diff as the `upgrade-diff` comment, re-vendors the CRD schemas and revalidates every custom resource. Renovate automerges only when the `upgrade/automerge-gate` status is green, which requires an empty rendered diff outside the Applications in `tests/gitops/upgrade-automerge.yaml`; any other manifest change needs a human review. When the regeneration bot is configured it commits the snapshots, schemas and localdev values (see docs/runbooks/verification.md, "Renovate bumps").',
       ],
     },
     {

@@ -74,7 +74,7 @@ plex:
   image:
     registry: index.docker.io
     repository: plexinc/pms-docker
-    tag: latest
+    tag: "{{ index .Versions.Images "plex" }}"
     pullPolicy: IfNotPresent
 
 {{- if eq .Values.GPU_VENDOR.Value "nvidia" }}
