@@ -561,7 +561,8 @@ These are documented errors with known solutions:
 ### 2026-09-30 - PR dependency triage label write returned 403
 - **Issue**: `pull_request_target` run 36656956730 failed on `PUT /repos/ryanmcafee/homelab/issues/511/labels` although the job log granted `Issues: write`.
 - **Diagnosis**: The workflow labels pull requests through the shared Issues endpoint. The response advertises `issues=write; pull_requests=write`, but the granted Issues scope did not authorize the operation in this run. Repository Actions permission settings could not be read by the current integration (403), so the exact server-side policy remains unconfirmed.
-- **Candidate fix**: PR #533 changes the job to only `pull-requests: write`, adds a one-PR dispatch guard, and documents fork behavior. Security signed off on the token scope. This integration gets 403 when dispatching the branch workflow, so a successful live label write is still required before calling this resolved.
+- **Solution**: Security-reviewed PR #533 merged the `pull-requests: write` grant, a one-PR dispatch guard, and fork behavior documentation. Post-merge run 36725989394 logged `PullRequests: write` and `#511: (none) -> review/ready`; GitHub records `github-actions[bot]` adding that label to #511 at 14:03 UTC. That run was later cancelled, but subsequent classifier runs completed successfully. The requested pre-merge targeted dispatch never occurred and must not be inferred from the post-merge evidence.
+- **Negative proof**: `scripts/pr-dependency-triage_test.ts` executes the workflow script against root/blocked/orphan/fork PRs and asserts that a simulated label-write 403 and malformed targeted PR number reject without a successful label write.
 - **Prevention**: Confirm effective token permissions in the job setup log and exercise a real write; a green static workflow check does not prove authorization.
 
 ### 2026-09-30 - PR dependency triage cancelled unrelated PR events
