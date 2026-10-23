@@ -38,5 +38,6 @@ spec:
     enablePodMonitor: true
   postgresql:
     parameters:
+      idle_in_transaction_session_timeout: 5min
       max_connections: "100"
       shared_buffers: 128MB
