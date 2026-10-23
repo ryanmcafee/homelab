@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ryanmcafee/homelab/internal/config"
 	"github.com/ryanmcafee/homelab/internal/logger"
 	"github.com/ryanmcafee/homelab/internal/utils"
 	"github.com/spf13/cobra"
@@ -339,6 +340,28 @@ func NewVerifyCmd() *cobra.Command {
 	return cmd
 }
 
+// gpuNodeAddress returns the address of the node carrying the GPU, which this
+// repository pins to worker 1 (schema `WORKER1_IP`, env.hcl's `gpu = ordinal ==
+// "1"`).
+//
+// A workerless ConfigSet is legal since MCAA-423, and it has no GPU node. The
+// two ways to reach that are worth telling apart in the message: no worker
+// addresses at all is a topology that cannot carry a GPU, while workers without
+// a first ordinal is a ConfigSet that numbered them from 2.
+func gpuNodeAddress(rc *config.ResolvedConfig) (string, error) {
+	if ip := rc.Values["WORKER1_IP"].Value; ip != "" {
+		return ip, nil
+	}
+	vendor := rc.Values["GPU_VENDOR"].Value
+	if len(rc.Workers) == 0 {
+		return "", fmt.Errorf("GPU_VENDOR is %q but this ConfigSet declares no worker addresses: "+
+			"a workerless cluster has no GPU node, so set GPU_VENDOR to \"none\" or add WORKER1_IP", vendor)
+	}
+	return "", fmt.Errorf("GPU_VENDOR is %q but WORKER1_IP is unset: "+
+		"the GPU is attached to worker 1, and this ConfigSet declares %d worker(s) starting at ordinal %d",
+		vendor, len(rc.Workers), rc.Workers[0].Ordinal)
+}
+
 func newVerifyGPUCmd() *cobra.Command {
 	var statusOnly bool
 
@@ -369,9 +392,9 @@ func newVerifyGPUCmd() *cobra.Command {
 			// (threat T-07-01 mitigated).
 			var node string
 			if vendor != "none" {
-				gpuIP := rc.Values["WORKER1_IP"].Value
-				if gpuIP == "" {
-					return fmt.Errorf("WORKER1_IP missing from resolved config")
+				gpuIP, gerr := gpuNodeAddress(rc)
+				if gerr != nil {
+					return gerr
 				}
 				n, rerr := resolveK8sNodeByIP(ctx, gpuIP)
 				if rerr != nil {
