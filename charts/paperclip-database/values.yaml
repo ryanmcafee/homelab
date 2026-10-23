@@ -53,3 +53,6 @@ postgresql:
   parameters:
     max_connections: "100"
     shared_buffers: 128MB
+    # End sessions the app leaves "idle in transaction" so their pool slots come
+    # back; leaked transactions otherwise exhaust the pool and hang /api/health.
+    idle_in_transaction_session_timeout: "5min"
