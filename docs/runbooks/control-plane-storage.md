@@ -99,9 +99,17 @@ It refuses to start without `--yes`, takes the etcd snapshot itself (`--snapshot
 `./etcd-snapshots`, gitignored because **an etcd snapshot contains every Kubernetes Secret in
 plaintext** — treat those files as credentials; `--skip-snapshot` to skip), throttles with `--bwlimit` (default 200000), polls `qm status` instead of
 `qm wait` and never issues `qm stop` unless `--force-stop` is passed, and stops the whole run at the
-first failure. Its etcd gate reads "matching RAFT INDEX" as "within `--raft-tolerance` (default 10)
-of the highest", because the three members are queried at slightly different moments on a cluster
-that keeps writing.
+first failure.
+
+Its etcd gates are `contracts/cluster/topology.v1.yaml` (ADR-035), not rules of its own. The
+quorum, the tolerated unavailability and the RAFT INDEX tolerance come from that file, and so does
+the predicate at each gate: `whole` before anything is touched, a fresh reading gated on
+`survivable` immediately before each `qm shutdown` with that node declared as the target, and
+`whole` again before moving on. The member set is etcd's own membership (`talosctl etcd members`)
+compared against the `CPn_IP` count, so a configured control plane etcd has no member for is caught
+rather than counted as present. `--raft-tolerance` (default 10, the contract's
+`health.raftIndexTolerance`) is why "matching RAFT INDEX" means "within 10 of the highest": the
+members are queried at slightly different moments on a cluster that keeps writing.
 
 Then wait for the cluster to be whole again **before the next node**:
 
