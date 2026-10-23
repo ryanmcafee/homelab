@@ -6,6 +6,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: EventBus
 metadata:
   name: default
+  namespace: argo-events
 spec:
   jetstream:
     version: "2.10.29"
@@ -22,3 +23,77 @@ spec:
       maxAge: 72h
       maxBytes: 268435456
       maxMsgs: 1000000
+
+---
+# Source: argo-events-config/templates/eventsource-selftest.yaml
+# Liveness probe for the trigger path, not a platform producer.
+#
+# A `calendar` source is internal to the cluster: it opens no listener and takes
+# no credential, so proving the path costs no trust boundary. A `webhook` source
+# would accept unauthenticated triggers, which needs Architect review first.
+#
+# It publishes to the Argo Events bus only. No `.ev`, `.wq` or `.dl` subject is
+# involved, so contracts/events/subjects.v1.yaml `no_core_nats_bridge` does not
+# apply here -- the platform bus reaches a Sensor through a named durable pull
+# consumer, which this is not.
+apiVersion: argoproj.io/v1alpha1
+kind: EventSource
+metadata:
+  name: trigger-selftest
+  namespace: argo-events
+spec:
+  # Resolves to the EventBus named `default` when omitted, but the whole point
+  # of this object is to prove which bus carries the trigger.
+  eventBusName: default
+  calendar:
+    tick:
+      interval: "20s"
+
+---
+# Source: argo-events-config/templates/sensor-selftest.yaml
+# The consuming half of the trigger-path probe. Proves EventSource -> EventBus
+# -> Sensor -> trigger, which no render or CR condition can show.
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: trigger-selftest
+  namespace: argo-events
+spec:
+  eventBusName: default
+  dependencies:
+    # eventName is the key under `calendar:` in the EventSource, not a free
+    # label: Argo Events matches the dependency on it.
+    - name: tick
+      eventSourceName: trigger-selftest
+      eventName: tick
+  triggers:
+    - template:
+        name: log-tick
+        # Left empty: the controller rewrites the spec and drops
+        # intervalSeconds: 0, so setting it keeps the Application OutOfSync.
+        log: {}
+      # Argo Events defaults this to false, which acks the message and runs the
+      # trigger in a goroutine -- at-most-once, and a failure is only logged
+      # (pkg/sensors/listener.go triggerActions). True makes the trigger a
+      # blocking call so the ack waits for it.
+      #
+      # It is also what makes dlqTrigger reachable at all: the DLQ is invoked
+      # from the DoWithRetry loop around triggerActions, and with atLeastOnce
+      # false that call returns nil immediately, so the error branch holding the
+      # DLQ can never be taken.
+      atLeastOnce: true
+      retryStrategy:
+        # Argo Events defaults to Backoff{Steps: 1} -- a single attempt, no
+        # retry -- whenever retryStrategy is unset.
+        steps: 3
+        duration: 5s
+        factor: 2
+      dlqTrigger:
+        # The dead-letter trigger carries its own atLeastOnce, also defaulting
+        # false. Without it the message is acked while the dead-letter write is
+        # still in flight and may yet fail (ADR-049). The admission webhook
+        # rejects the Sensor outright when it is missing.
+        atLeastOnce: true
+        template:
+          name: log-tick-dlq
+          log: {}

@@ -8,3 +8,6 @@ replicas: 1
 maxBytes: 256Mi
 storage:
   size: 1Gi
+# A 20s tick so a level-2 run observes several without extending the run.
+selfTest:
+  interval: 20s
