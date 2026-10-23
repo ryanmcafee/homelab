@@ -118,7 +118,8 @@ from the same chart (`namespaces.yaml`, `oci-repositories.yaml`).
 | `flaresolverr-config` | `charts/flaresolverr-config` | git | — | — | — |
 | `lazylibrarian` | `lazylibrarian` | 21.18.2 | envoy-internal: lazylibrarian | lazylibrarian | smoke-lazylibrarian |
 | `lazylibrarian-config` | `charts/lazylibrarian-config` | git | — | — | — |
-| `litellm` | `litellm` | 1.102.1 | — | — | — |
+| `litellm` | `litellm` | 1.102.1 | — | litellm | smoke-litellm |
+| `litellm-config` | `charts/litellm-config` | git | envoy-internal: litellm | — | — |
 | `litellm-database` | `charts/litellm-database` | git | — | — | — |
 | `litellm-dependencies` | `charts/litellm-dependencies` | git | — | — | — |
 | `mosquitto` | `mosquitto` | 17.17.2 | — | mosquitto | — |

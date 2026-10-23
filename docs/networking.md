@@ -237,6 +237,7 @@ Generated from `tests/snapshots/homelab/*.yaml` by `task docs:check -- --fix`
 | `grafana.<DOMAIN>` | envoy-internal | Chart | `kube-prometheus-stack` |
 | `hubble.<DOMAIN>` | envoy-internal | Chart | `cilium-config` |
 | `lazylibrarian.<DOMAIN>` | envoy-internal | Chart | `lazylibrarian` |
+| `litellm.<DOMAIN>` | envoy-internal | Chart | `litellm-config` |
 | `nzbget.<DOMAIN>` | envoy-internal | Chart | `nzbget` |
 | `otel.<DOMAIN>` | envoy-internal | Chart | `otel-collector-gateway` |
 | `otlp.<DOMAIN>` | envoy-internal | Chart | `otel-collector-gateway` |
