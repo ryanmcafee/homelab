@@ -1,4 +1,4 @@
-# ConfigSet "single-node" — a one-control-plane-node fork.
+# ConfigSet "single-node" — a one-control-plane-node, one-worker fork.
 #
 # This file is not this cluster's shape, and that is the point. Every other
 # committed ConfigSet declares three control-plane addresses, so until this
@@ -6,10 +6,15 @@
 # running one or five control planes was unexercised, and the fixed shape was
 # invisible to every check (ADR-035, MCAA-118).
 #
-# It states its topology by listing its control plane: one CP1_IP key, so one
-# member. There is deliberately no count key to contradict it. Adding CP2_IP and
-# CP3_IP here makes it a three-node cluster with no other edit; that is the
-# whole contract.
+# It states its topology by listing its nodes: one CP1_IP key, so one member;
+# one WORKER1_IP key, so one worker. There is deliberately no count key to
+# contradict either. Adding CP2_IP and CP3_IP here makes it a three-node control
+# plane with no other edit; adding WORKER2_IP adds a worker. That is the whole
+# contract.
+#
+# The worker half was three fixed required scalars until MCAA-68, so this file
+# had to declare three workers to validate at all — the file whose job is to
+# prove a fork is not stuck at this cluster's shape was itself stuck at it.
 #
 # A one-member control plane is PERMITTED and DEGRADED (topology.v1.yaml
 # `degradedCounts: [1]`): quorum is 1, maxUnavailable is 0, and no member
@@ -34,9 +39,8 @@ CP_VIP: "192.0.2.10"
 # The control plane, as a list. One key, one member.
 CP1_IP: "192.0.2.11"
 
+# The workers, as a list. One key, one worker.
 WORKER1_IP: "192.0.2.21"
-WORKER2_IP: "192.0.2.22"
-WORKER3_IP: "192.0.2.23"
 LB_POOL_START: "192.0.2.120"
 LB_POOL_END: "192.0.2.200"
 GATEWAY_EXTERNAL_STATIC_IP: "192.0.2.200"

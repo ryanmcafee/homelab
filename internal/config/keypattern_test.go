@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,11 +184,33 @@ func TestControlPlaneRoleRules(t *testing.T) {
 	})
 
 	t.Run("unknown role is rejected", func(t *testing.T) {
+		// A role the resolver has no derivation for must fail at load rather
+		// than be carried as an inert string: a typo'd role silently derives
+		// nothing, and nothing is exactly what an absent family looks like.
 		_, err := NewSchema(nil, map[string]SchemaKeyPattern{
-			`^CP([0-9]+)_IP$`: {Role: "worker-address"},
+			`^CP([0-9]+)_IP$`: {Role: "storage-address"},
 		})
 		if err == nil || !strings.Contains(err.Error(), "unknown role") {
 			t.Fatalf("unknown role was accepted or misreported: %v", err)
+		}
+	})
+
+	t.Run("worker role needs one capture group", func(t *testing.T) {
+		_, err := NewSchema(nil, map[string]SchemaKeyPattern{
+			`^WORKER[0-9]+_IP$`: {Role: RoleWorkerAddress},
+		})
+		if err == nil || !strings.Contains(err.Error(), "one capture group") {
+			t.Fatalf("captureless worker pattern was accepted or misreported: %v", err)
+		}
+	})
+
+	t.Run("two worker families is a load error", func(t *testing.T) {
+		_, err := NewSchema(nil, map[string]SchemaKeyPattern{
+			`^WORKER([0-9]+)_IP$`: {Role: RoleWorkerAddress},
+			`^NODE([0-9]+)_IP$`:   {Role: RoleWorkerAddress},
+		})
+		if err == nil {
+			t.Fatal("two worker address families were accepted — that is two answers to one question")
 		}
 	})
 
@@ -270,6 +293,148 @@ func TestDeriveControlPlaneFailsClosedOnIndeterminate(t *testing.T) {
 			t.Fatal("CP4_IP was admitted without being validated — the old 'unvalidated and unread' state")
 		}
 	})
+}
+
+// workerPatternSchema is cpPatternSchema's worker twin: one required first
+// member, the rest admitted by the family.
+func workerPatternSchema(t *testing.T) *Schema {
+	t.Helper()
+	s, err := NewSchema(
+		map[string]SchemaKey{
+			"WORKER1_IP": {Required: true, Pattern: `^(?:\d{1,3}\.){3}\d{1,3}$`},
+		},
+		map[string]SchemaKeyPattern{
+			`^WORKER([0-9]+)_IP$`: {
+				SchemaKey: SchemaKey{Pattern: `^(?:\d{1,3}\.){3}\d{1,3}$`},
+				Role:      RoleWorkerAddress,
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("building worker pattern schema: %v", err)
+	}
+	return s
+}
+
+// TestDeriveWorkersMatchesControlPlaneSemantics pins the one rule that carries
+// over and the one that does not. Indeterminate is still unsafe: a declared
+// worker key left blank must refuse rather than silently shrink the cluster by a
+// node. An empty match set is NOT an error here, because a cluster must have an
+// etcd member but need not have a worker — that minimum is WORKER1_IP's own
+// `required: true`, which validation reports by name.
+func TestDeriveWorkersMatchesControlPlaneSemantics(t *testing.T) {
+	s := workerPatternSchema(t)
+
+	t.Run("blank value refuses the whole set", func(t *testing.T) {
+		_, err := DeriveWorkers(s, map[string]string{
+			"WORKER1_IP": "192.0.2.21",
+			"WORKER2_IP": "   ",
+		})
+		if err == nil {
+			t.Fatal("a blank worker address resolved to a two-node set minus one, rather than refusing")
+		}
+		if !strings.Contains(err.Error(), "WORKER2_IP") {
+			t.Errorf("error %q does not name the indeterminate key", err)
+		}
+	})
+
+	t.Run("a non-contiguous set counts keys, not the highest ordinal", func(t *testing.T) {
+		members, err := DeriveWorkers(s, map[string]string{
+			"WORKER10_IP": "192.0.2.30",
+			"WORKER2_IP":  "192.0.2.22",
+			"WORKER1_IP":  "192.0.2.21",
+			"CP1_IP":      "192.0.2.11",
+		})
+		if err != nil {
+			t.Fatalf("deriving workers: %v", err)
+		}
+		var got []int
+		for _, m := range members {
+			got = append(got, m.Ordinal)
+		}
+		// Ascending by ORDINAL: sorted as strings WORKER10_IP comes before
+		// WORKER2_IP, and the inventory would render worker-10 second. CP1_IP
+		// must not be counted at all.
+		if want := []int{1, 2, 10}; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("derived ordinals %v, want %v", got, want)
+		}
+	})
+
+	t.Run("no matching key is an empty worker set, not an error", func(t *testing.T) {
+		members, err := DeriveWorkers(s, map[string]string{"CP1_IP": "192.0.2.11"})
+		if err != nil {
+			t.Fatalf("a workerless node set was refused by the resolver: %v", err)
+		}
+		if len(members) != 0 {
+			t.Fatalf("derived %d workers from a ConfigSet declaring none", len(members))
+		}
+		// ...and the schema, not the resolver, is what reports it.
+		if err := ValidateValues(s, map[string]string{"CP1_IP": "192.0.2.11"}); err == nil ||
+			!strings.Contains(err.Error(), "WORKER1_IP") {
+			t.Errorf("a missing WORKER1_IP was not reported by name at validation: %v", err)
+		}
+	})
+
+	t.Run("a non-address value is caught by the family's value pattern", func(t *testing.T) {
+		err := ValidateValues(s, map[string]string{"WORKER1_IP": "192.0.2.21", "WORKER4_IP": "REPLACEME"})
+		if err == nil {
+			t.Fatal("WORKER4_IP was admitted without being validated")
+		}
+	})
+}
+
+// TestWorkerAndControlPlaneFamiliesDoNotOverlap pins the anchors. An unanchored
+// worker pattern would also match a control-plane key on a schema where the two
+// families share a substring, and a node would be provisioned twice under two
+// names — the failure the CP anchors were chosen to prevent, in the second
+// family that now uses them.
+func TestWorkerAndControlPlaneFamiliesDoNotOverlap(t *testing.T) {
+	projectRoot := findProjectRootForTest(t)
+	schema, err := LoadSchemaDir(filepath.Join(projectRoot, "configuration", "schema"))
+	if err != nil {
+		t.Fatalf("loading schemas: %v", err)
+	}
+
+	cp, ok := schema.patternForRole(RoleControlPlaneAddress)
+	if !ok {
+		t.Fatal("schema declares no control-plane address family")
+	}
+	worker, ok := schema.patternForRole(RoleWorkerAddress)
+	if !ok {
+		t.Fatal("schema declares no worker address family")
+	}
+
+	for _, name := range []string{
+		"CP1_IP", "CP2_IP", "CP10_IP", "CP_VIP",
+		"WORKER1_IP", "WORKER2_IP", "WORKER10_IP",
+		"OLD_CP1_IP_BACKUP", "MY_WORKER1_IP", "WORKER1_IP_OLD",
+	} {
+		if cp.re.MatchString(name) && worker.re.MatchString(name) {
+			t.Errorf("key %q matches both the control-plane and worker families; it would be provisioned twice", name)
+		}
+	}
+
+	// The keys each family must claim, and the ones neither may.
+	for name, wantRole := range map[string]string{
+		"CP1_IP":            RoleControlPlaneAddress,
+		"CP10_IP":           RoleControlPlaneAddress,
+		"WORKER1_IP":        RoleWorkerAddress,
+		"WORKER10_IP":       RoleWorkerAddress,
+		"CP_VIP":            "",
+		"OLD_CP1_IP_BACKUP": "",
+		"MY_WORKER1_IP":     "",
+		"WORKER1_IP_OLD":    "",
+	} {
+		got := ""
+		if cp.re.MatchString(name) {
+			got = RoleControlPlaneAddress
+		} else if worker.re.MatchString(name) {
+			got = RoleWorkerAddress
+		}
+		if got != wantRole {
+			t.Errorf("key %q resolves to role %q, want %q", name, got, wantRole)
+		}
+	}
 }
 
 // TestSchemaWithoutKeyPatternsIsUnaffected pins that the construct is additive:
