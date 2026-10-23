@@ -268,6 +268,8 @@ charts:
   prometheus-blackbox-exporter: "11.18.0"
   # renovate: datasource=helm depName=prometheus-json-exporter registryUrl=https://prometheus-community.github.io/helm-charts
   prometheus-json-exporter: "0.20.1"
+  # renovate: datasource=helm depName=ecowitt-exporter registryUrl=https://djjudas21.github.io/charts
+  ecowitt-exporter: "2.2.2"
   # renovate: datasource=helm depName=kiali-server registryUrl=https://kiali.org/helm-charts
   kiali-server: "2.32.0"
   # renovate: datasource=helm depName=opentelemetry-collector registryUrl=https://open-telemetry.github.io/opentelemetry-helm-charts
@@ -286,6 +288,9 @@ images:
   plex: "1.43.5.11029-6bf8af3f0"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
+  # Chart 2.2.2 defaults to 2.2.0, which predates both freshness timestamps the homelab-iot rules read.
+  # renovate: datasource=docker depName=djjudas21/ecowitt-exporter
+  ecowitt-exporter: "2.3.0"
   # renovate: datasource=docker depName=kindest/node
   kind-node: "v1.36.1"
   # renovate: datasource=docker depName=versity/versitygw

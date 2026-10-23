@@ -34,6 +34,43 @@ keys:
     required: true
     default: "24h"
 
+  ECOWITT_ENABLED:
+    description: Whether the Ecowitt exporter and the IoT sensor alerts are deployed; off by default because a fork has no weather gateway to point at it (docs/runbooks/iot-sensors.md)
+    required: true
+    default: "false"
+    enum:
+      - "true"
+      - "false"
+
+  ECOWITT_SCRAPE_INTERVAL:
+    description: How often Prometheus scrapes the exporter; match the gateway's own upload interval so a scrape never lands between two pushes
+    required: true
+    default: "60s"
+
+  ECOWITT_GATEWAY_STALE_SECONDS:
+    description: Age of the newest gateway push that counts as stale; also the freshness threshold of the IoT data SLI. Default 900 is 15 missed pushes at the 60s upload interval
+    required: true
+    default: "900"
+
+  ECOWITT_SENSOR_STALE_SECONDS:
+    description: Age of an individual sensor's last report that counts as stale; higher than the gateway threshold because a single radio sensor drops and re-syncs on its own
+    required: true
+    default: "1800"
+
+  ECOWITT_EXPECTED_SENSORS:
+    description: Comma-separated sensor labels that must always be reporting (for example "soilmoisture1,soilbatt1"); empty declares none. Each one gets an EcowittSensorMissing alert, which is the only rule that can fire for a sensor that was already offline when the exporter started
+    required: false
+
+  ECOWITT_BATTERY_VOLTAGE_MIN:
+    description: Volts below which a soil or WS90 sensor battery raises a warning. A fresh alkaline AA reads about 1.6V and nominal is 1.5V, so the chart's own 1.5 default warns at the start of cell life; 1.2 leaves usable lead time
+    required: true
+    default: "1.2"
+
+  ECOWITT_SOIL_MOISTURE_MIN_PERCENT:
+    description: Soil moisture percentage below which a probe raises a warning; the one reading here that is a gardening threshold rather than a device fault
+    required: true
+    default: "20"
+
   TRIAGE_AGENT_ENABLED:
     description: Whether the alert triage agent runs; Alertmanager sends it every firing alert and it opens fix PRs through Argo Workflows (needs SECRETS_PROVIDER=onepassword for the Claude and GitHub tokens)
     required: true
