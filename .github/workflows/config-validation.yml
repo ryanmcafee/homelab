@@ -18,12 +18,9 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'terragrunt/**'
-      - 'scripts/**'
-      - 'docs/**'
-      - 'ansible/**'
-      - '.github/**'
+      - 'talos/**'
+      - 'packer/**'
       - '.pre-commit-config.yaml'
-      - 'Taskfile.yml'
   push:
     branches:
       - main
@@ -40,12 +37,9 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'terragrunt/**'
-      - 'scripts/**'
-      - 'docs/**'
-      - 'ansible/**'
-      - '.github/**'
+      - 'talos/**'
+      - 'packer/**'
       - '.pre-commit-config.yaml'
-      - 'Taskfile.yml'
 
 permissions:
   contents: read
