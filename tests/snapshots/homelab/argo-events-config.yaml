@@ -22,3 +22,24 @@ spec:
       maxAge: 72h
       maxBytes: 6442450944
       maxMsgs: 1000000
+
+---
+# Source: argo-events-config/templates/podmonitor.yaml
+# The EventBus StatefulSet runs prometheus-nats-exporter with -jsz=all on port
+# `metrics`, but Argo Events creates no monitor for it. The fixed job label is
+# what the homelab-argo-events-trigger-bus rules select on, independent of namespace.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: argo-events-trigger-bus
+spec:
+  selector:
+    matchLabels:
+      controller: eventbus-controller
+      eventbus-name: default
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: job
+          replacement: argo-events-trigger-bus
