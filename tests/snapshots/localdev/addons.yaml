@@ -2681,6 +2681,65 @@ spec:
                     annotations:
                       summary: 'PF_AUDIT is at its max_bytes ceiling and is refusing audit events sourced from PF_EVENTS'
                       description: 'PF_AUDIT is discard: new, so at the ceiling it refuses its own writes rather than stopping the bus (ADR-042). Refused events wait in PF_EVENTS and are lost from the audit trail once PF_EVENTS ages them out. docs/runbooks/jetstream-storage-budget.md.'
+          # The Argo Events trigger bus (docs/runbooks/argo-events-trigger-bus.md).
+          # retention: limits, discard: old, no DLQ: at maxAge, maxBytes or
+          # maxMsgs the oldest trigger is deleted whether or not a Sensor took it.
+          # Its exporter is 0.14.0, which has no nats_stream_limit_bytes, so the
+          # limits are rendered from the same values the EventBus is built from.
+          homelab-argo-events-trigger-bus:
+            groups:
+              - name: homelab-argo-events-trigger-bus
+                rules:
+                  - record: homelab:argo_events_consumer_ack_floor:authoritative
+                    expr: 'max by (stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq{job="argo-events-trigger-bus",is_consumer_leader="true"})'
+                  - record: homelab:argo_events_consumer_unprocessed:authoritative
+                    expr: 'max by (stream_name, consumer_name, namespace, job) (nats_consumer_num_pending{job="argo-events-trigger-bus",is_consumer_leader="true"} + nats_consumer_num_ack_pending{job="argo-events-trigger-bus",is_consumer_leader="true"})'
+                  # absent() fires on a series that never existed, so an exporter
+                  # that was never scraped is caught as well as one that stopped.
+                  - alert: ArgoEventsTriggerBusExporterDown
+                    expr: 'absent(up{job="argo-events-trigger-bus"} == 1)'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Nothing is scraping the Argo Events trigger bus exporter'
+                      description: 'No EventBus metrics sidecar has answered for 15m. Every trigger-bus alert is blind until it does, so triggers can age out unseen. `kubectl -n argo-events get pods -l eventbus-name=default` and the PodMonitor argo-events-trigger-bus. docs/runbooks/argo-events-trigger-bus.md.'
+                  - alert: ArgoEventsTriggerBusApproachingLimit
+                    expr: 'label_replace(max by (stream_name, namespace, job) (nats_stream_total_bytes{job="argo-events-trigger-bus",is_stream_leader="true"}) / 268435456, "limit", "maxBytes", "", "") > 0.75 or label_replace(max by (stream_name, namespace, job) (nats_stream_total_messages{job="argo-events-trigger-bus",is_stream_leader="true"}) / 1000000, "limit", "maxMsgs", "", "") > 0.75'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The trigger bus is at {{ $value | humanizePercentage }} of its {{ $labels.limit }}'
+                      description: 'At the limit the bus deletes its oldest triggers, consumed or not. Find the Sensor that stopped acking or the EventSource flooding the bus before raising the limit. docs/runbooks/argo-events-trigger-bus.md.'
+                  - alert: ArgoEventsTriggerBusApproachingLimit
+                    expr: 'label_replace(max by (stream_name, namespace, job) (nats_stream_total_bytes{job="argo-events-trigger-bus",is_stream_leader="true"}) / 268435456, "limit", "maxBytes", "", "") > 0.90 or label_replace(max by (stream_name, namespace, job) (nats_stream_total_messages{job="argo-events-trigger-bus",is_stream_leader="true"}) / 1000000, "limit", "maxMsgs", "", "") > 0.90'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'The trigger bus is at {{ $value | humanizePercentage }} of its {{ $labels.limit }}'
+                      description: 'discard: old is about to delete triggers. A Sensor still behind loses them with no DLQ and no error. docs/runbooks/argo-events-trigger-bus.md.'
+                  # On a limits stream the oldest message nears maxAge in normal
+                  # operation; loss is a consumer whose oldest unacked trigger does.
+                  # Ack floor frozen while work was pending for the whole window
+                  # means that trigger has waited at least the window.
+                  - alert: ArgoEventsTriggerUnprocessedNearMaxAge
+                    expr: 'changes(homelab:argo_events_consumer_ack_floor:authoritative[48h]) == 0 and min_over_time(homelab:argo_events_consumer_unprocessed:authoritative[48h]) > 0 and count_over_time(homelab:argo_events_consumer_ack_floor:authoritative[48h]) >= 47 * count_over_time(homelab:argo_events_consumer_ack_floor:authoritative[1h])'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Consumer {{ $labels.consumer_name }} has left a trigger unprocessed for 48h of the 72h maxAge'
+                      description: 'The consumer ack floor has not moved for 48h while triggers were pending. At 72h the bus deletes them unprocessed. Get the Sensor running and acking. docs/runbooks/argo-events-trigger-bus.md.'
+                  - alert: ArgoEventsTriggerUnprocessedNearMaxAge
+                    expr: 'changes(homelab:argo_events_consumer_ack_floor:authoritative[60h]) == 0 and min_over_time(homelab:argo_events_consumer_unprocessed:authoritative[60h]) > 0 and count_over_time(homelab:argo_events_consumer_ack_floor:authoritative[60h]) >= 59 * count_over_time(homelab:argo_events_consumer_ack_floor:authoritative[1h])'
+                    for: 15m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'Consumer {{ $labels.consumer_name }} has left a trigger unprocessed for 60h of the 72h maxAge'
+                      description: 'Under 12h before maxAge deletes these triggers with no DLQ. Get the Sensor acking now; if it cannot run in time, record what the pending triggers were. docs/runbooks/argo-events-trigger-bus.md.'
           # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
           # monitors and kube-state-metrics. ztunnel and istio-cni must run on
           # every node or enrolled pods there lose their traffic. The node agent

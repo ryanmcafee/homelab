@@ -192,6 +192,9 @@ Homelab rules live in `additionalPrometheusRulesMap`:
 | homelab-nats-jetstream | `JetStreamFileStoreMetricsAbsent` | warning | the exporter reported account storage in the last 6 h and no longer does, so the store is unwatched, for 30 m |
 | homelab-nats-jetstream | `JetStreamStreamApproachingMaxBytes` | warning / critical | one stream is above 75 % / 90 % of its own `max_bytes`, which the file-store alert cannot see |
 | homelab-nats-jetstream | `PFAuditRefusingWrites` | critical | `PF_AUDIT` is at its `max_bytes` ceiling with `last_seq` frozen and source lag above zero, so `discard: new` is refusing audit events waiting in `PF_EVENTS` |
+| homelab-argo-events-trigger-bus | `ArgoEventsTriggerBusExporterDown` | warning | the EventBus metrics sidecar has not answered for 15 m, or was never scraped, so the trigger bus is unwatched ([argo-events-trigger-bus.md](./argo-events-trigger-bus.md)) |
+| homelab-argo-events-trigger-bus | `ArgoEventsTriggerBusApproachingLimit` | warning / critical | the trigger bus stream is above 75 % / 90 % of `maxBytes` or `maxMsgs`, where `discard: old` deletes the oldest triggers |
+| homelab-argo-events-trigger-bus | `ArgoEventsTriggerUnprocessedNearMaxAge` | warning / critical | a Sensor consumer has left a trigger unacked for 2/3 / 5/6 of `maxAge`, which then deletes it with no DLQ |
 | homelab-github | `GitHubPullRequestNeedsReview` | info (own route) | an open pull request matched a review query for 5 m ([below](#github-pull-requests-that-need-review)) |
 | homelab-github | `GitHubPullRequestExporterFailing` | warning | a GitHub search query failed (bad token, rate limit) or is not scraped for 15 m |
 | homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |
