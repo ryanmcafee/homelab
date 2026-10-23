@@ -106,7 +106,10 @@ jobs:
   kind-argocd:
     name: Kind + ArgoCD loop (level 2)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Level-2 checks take about 42 minutes; the post-job registry cache save
+    # can upload several GB after artifacts are written. Leave time for it to
+    # finish so a passing verification gets a successful terminal check.
+    timeout-minutes: 60
     permissions:
       # Read-only on contents: nothing is committed. pull-requests: write is
       # for the kind-preview sticky comment only.

@@ -37,6 +37,7 @@ import {
   chartRef,
   collectSources,
   declaredPaths,
+  describeUnusedEntries,
   findingsFor,
   isAllowed,
   isTransientPullError,
@@ -395,33 +396,53 @@ test("a seeded bad key fails, then passes when the chart declares it", () => {
   });
 });
 
-test("isAllowed matches an entry's path and everything under it, within one chart", () => {
+test("isAllowed matches a path only for the same pinned chart", () => {
+  const identity = {
+    repoURL: "https://argoproj.github.io/argo-helm",
+    chart: "argo-cd",
+    targetRevision: "9.7.1",
+  };
   const allow: AllowEntry[] = [
-    { chart: "argo-cd", path: "configs.cm", reason: "free-form ConfigMap" },
+    { ...identity, path: "configs.cm", reason: "free-form ConfigMap" },
   ];
-  const finding = (chart: string, path: string): Finding => ({
+  const finding = (path: string, overrides = {}): Finding => ({
     ruleId: UNDECLARED_VALUE_RULE_ID,
     env: "homelab",
     app: "a",
-    chart,
-    targetRevision: "1",
+    ...identity,
     path,
+    ...overrides,
   });
-  assert(isAllowed(finding("argo-cd", "configs.cm"), allow));
-  assert(isAllowed(finding("argo-cd", "configs.cm.accounts.agent"), allow));
-  assertEquals(isAllowed(finding("argo-cd", "configs.params.x"), allow), false);
-  assertEquals(isAllowed(finding("argo-cd", "configs.cmX"), allow), false);
+  assert(isAllowed(finding("configs.cm"), allow));
+  assert(isAllowed(finding("configs.cm.accounts.agent"), allow));
+  assertEquals(isAllowed(finding("configs.params.x"), allow), false);
+  assertEquals(isAllowed(finding("configs.cmX"), allow), false);
   assertEquals(
-    isAllowed(finding("argo-workflows", "configs.cm"), allow),
+    isAllowed(finding("configs.cm", { chart: "argo-workflows" }), allow),
+    false,
+  );
+  assertEquals(
+    isAllowed(finding("configs.cm", { repoURL: "https://other.test" }), allow),
+    false,
+  );
+  assertEquals(
+    isAllowed(finding("configs.cm", { targetRevision: "9.7.2" }), allow),
     false,
   );
 });
 
 test("unusedEntries names an allowlist entry that no longer matches anything", () => {
+  const argo = {
+    repoURL: "https://argoproj.github.io/argo-helm",
+    chart: "argo-cd",
+    targetRevision: "9.7.1",
+  };
   const allow: AllowEntry[] = [
-    { chart: "argo-cd", path: "configs.cm", reason: "still needed" },
+    { ...argo, path: "configs.cm", reason: "still needed" },
     {
+      repoURL: "ghcr.io/spegel-org/helm-charts",
       chart: "spegel",
+      targetRevision: "0.6.0",
       path: "spegel.registries",
       reason: "upstream declares it now",
     },
@@ -431,8 +452,7 @@ test("unusedEntries names an allowlist entry that no longer matches anything", (
       ruleId: UNDECLARED_VALUE_RULE_ID,
       env: "homelab",
       app: "argocd",
-      chart: "argo-cd",
-      targetRevision: "9.7.1",
+      ...argo,
       path: "configs.cm.accounts.agent",
     },
   ];
@@ -443,24 +463,108 @@ test("unusedEntries names an allowlist entry that no longer matches anything", (
 });
 
 test("unusedEntries holds entries for a chart that could not be pulled", () => {
+  const mosquitto = {
+    repoURL: "oci.trueforge.org/truecharts",
+    chart: "mosquitto",
+    targetRevision: "17.17.2",
+  };
   const allow: AllowEntry[] = [
-    { chart: "mosquitto", path: "persistence", reason: "still needed" },
-    { chart: "mosquitto", path: "service.main", reason: "still needed" },
+    { ...mosquitto, path: "persistence", reason: "still needed" },
+    { ...mosquitto, path: "service.main", reason: "still needed" },
     {
+      ...mosquitto,
+      targetRevision: "17.17.3",
+      path: "persistence",
+      reason: "different revision",
+    },
+    {
+      repoURL: "ghcr.io/spegel-org/helm-charts",
       chart: "spegel",
+      targetRevision: "0.6.0",
       path: "spegel.registries",
       reason: "upstream declares it now",
     },
   ];
   assertEquals(
-    unusedEntries([], allow, new Set(["mosquitto"])).map((e) => e.path),
-    ["spegel.registries"],
+    unusedEntries([], allow, new Set([cacheKey(mosquitto)])).map(
+      (e) => `${e.targetRevision}:${e.path}`,
+    ),
+    ["17.17.3:persistence", "0.6.0:spegel.registries"],
   );
 });
 
-test("parseAllowlist rejects an entry with no reason", () => {
+test("unused entry pinned to a source says to remove the obsolete exception", () => {
+  const identity = {
+    repoURL: "https://argoproj.github.io/argo-helm",
+    chart: "argo-cd",
+    targetRevision: "9.7.1",
+  };
+  const entry: AllowEntry = {
+    ...identity,
+    path: "configs.cm",
+    reason: "previously needed",
+  };
+  const source = {
+    ...identity,
+    env: "homelab",
+    app: "argocd",
+    values: {},
+  };
+  const messages = describeUnusedEntries([entry], [source]);
+  assertEquals(messages.length, 1);
+  assertStringIncludes(messages[0], "chart declares the key now, so remove");
+  assertStringIncludes(messages[0], cacheKey(entry));
+});
+
+test("unused entry with no pinned identity says to review the new revision", () => {
+  const identity = {
+    repoURL: "https://argoproj.github.io/argo-helm",
+    chart: "argo-cd",
+    targetRevision: "9.7.1",
+  };
+  const entry: AllowEntry = {
+    ...identity,
+    path: "configs.cm",
+    reason: "previously needed",
+  };
+  const source = {
+    ...identity,
+    targetRevision: "9.7.2",
+    env: "homelab",
+    app: "argocd",
+    values: {},
+  };
+  const messages = describeUnusedEntries([entry], [source]);
+  assertEquals(messages.length, 1);
+  assertStringIncludes(messages[0], `no Application pins ${cacheKey(entry)}`);
+  assertStringIncludes(messages[0], "currently pinned revision(s): 9.7.2");
+  assertStringIncludes(messages[0], "re-review the reason");
+  assertStringIncludes(messages[0], "update targetRevision");
+  assertEquals(messages[0].includes("chart declares the key now"), false);
+});
+
+test("parseAllowlist requires the complete pinned chart identity and reason", () => {
   assertThrows(
-    () => parseAllowlist("allow:\n  - chart: x\n    path: y\n"),
+    () =>
+      parseAllowlist(
+        "allow:\n  - chart: x\n    targetRevision: 1\n    path: y\n    reason: z\n",
+      ),
+    Error,
+    'missing a non-empty "repoURL"',
+  );
+  assertThrows(
+    () =>
+      parseAllowlist(
+        "allow:\n  - repoURL: https://x.test\n    chart: x\n    path: y\n    reason: z\n",
+      ),
+    Error,
+    'missing a non-empty "targetRevision"',
+  );
+  assertThrows(
+    () =>
+      parseAllowlist(
+        "allow:\n  - repoURL: https://x.test\n    chart: x\n    targetRevision: v1\n    path: y\n",
+      ),
     Error,
     'missing a non-empty "reason"',
   );
@@ -538,7 +642,14 @@ test("the committed allowlist parses and every entry carries a reason", () => {
   const allow = parseAllowlist(
     readFileSync(join(REPO_ROOT, ALLOWLIST_PATH), "utf8"),
   );
+  assertEquals(allow.length, 48);
+  const pinned = new Set(
+    ["homelab", "localdev"].flatMap((env) =>
+      collectSources(REPO_ROOT, env).map(cacheKey),
+    ),
+  );
   for (const entry of allow) {
+    assert(pinned.has(cacheKey(entry)), `${cacheKey(entry)} is not pinned`);
     assert(
       entry.reason.length > 20,
       `${entry.chart}:${entry.path} needs a real reason, got ${JSON.stringify(entry.reason)}`,
