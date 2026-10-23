@@ -30,6 +30,10 @@ maxMsgs: 1000000
 # platform bus. Enforced at render by templates/_helpers.tpl.
 maxBytesBudgetFraction: 0.75
 
+# Pinned like the platform bus's PodMonitor rather than inheriting a fork's
+# global scrape interval.
+scrapeInterval: 30s
+
 storage:
   size: 10Gi
   className: ""
