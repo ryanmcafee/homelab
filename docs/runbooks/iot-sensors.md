@@ -18,9 +18,19 @@ The exporter's two freshness timestamps are the only honest staleness signal:
 | `ecowitt_last_report_timestamp_seconds` | Unix time of the most recent POST to `/report` from the gateway |
 | `ecowitt_sensor_last_report_timestamp_seconds{sensor}` | Unix time that specific sensor last appeared in a push |
 
-Both are seeded with the current time when the exporter starts, so a restart
-does not immediately trip a staleness alert — the rule's `for:` window is the
-grace period.
+Both arrived in exporter **2.3.0**. Chart 2.2.2 defaults to image 2.2.0, which
+has neither, so `configuration/versions.yaml` pins the image tag separately from
+the chart. On 2.2.0 the two staleness rules and the SLI below return no data and
+every expected sensor fires `EcowittSensorMissing`.
+
+The gateway timestamp is seeded with the current time when the exporter starts,
+so a restart does not immediately trip a staleness alert — the rule's `for:`
+window is the grace period.
+
+The chart's ServiceMonitor `labeldrop`s `job`, `namespace`, `instance` and `pod`.
+Prometheus refills `instance` from the scrape address, so every series here is
+labelled `service="ecowitt-exporter", endpoint="http"` plus `instance`, never
+`job` or `namespace`. Select on those.
 
 ## The SLO
 
@@ -31,9 +41,15 @@ threshold (`ECOWITT_GATEWAY_STALE_SECONDS`, default 900s):
 
 ```promql
 avg_over_time(
-  ((time() - ecowitt_last_report_timestamp_seconds) < bool 900)[30d:1m]
+  (max((time() - ecowitt_last_report_timestamp_seconds) < bool 900) or vector(0))[30d:1m]
 )
 ```
+
+`or vector(0)` is what makes an exporter outage count. When the exporter is down
+its timestamp series goes stale, the comparison returns no sample, and
+`avg_over_time` would skip that interval rather than score it, so a long outage
+would cost no budget at all. `max()` drops the labels so the observed and the
+filled-in samples are one series.
 
 **Target: 99% over a rolling 30 days.** That is an error budget of about **7h
 12m** of stale data per 30 days, which covers a battery change, a Wi-Fi outage
@@ -43,7 +59,7 @@ Burn rate over the last day, for the same window the alerts watch:
 
 ```promql
 1 - avg_over_time(
-  ((time() - ecowitt_last_report_timestamp_seconds) < bool 900)[1d:1m]
+  (max((time() - ecowitt_last_report_timestamp_seconds) < bool 900) or vector(0))[1d:1m]
 )
 ```
 
@@ -51,7 +67,9 @@ Both queries are asserted in `tests/alerts/ecowitt-iot.test.yaml` against a
 window with a known outage, so the SLI is a measured number rather than an
 intention: a gateway that goes silent 30 minutes into a one-hour window scores
 **0.7333** (44 of 60 samples inside the threshold) and burns **0.2667** of the
-budget.
+budget. An exporter that vanishes for 20 minutes also scores **0.7333** (16
+samples with no data, counted as stale); without `or vector(0)` the same window
+scores 1.
 
 This SLO gates nothing. Weather data is not on a release path, and an exhausted
 budget here is a reason to change batteries, not to hold a deploy.
@@ -64,7 +82,7 @@ user-facing service depends on the weather. They render only when
 
 ### EcowittExporterDown
 
-`absent(up{job="ecowitt-exporter", namespace="monitoring"} == 1)` for 10m.
+`absent(up{service="ecowitt-exporter", endpoint="http"} == 1)` for 10m.
 
 Every other rule in the group reads a series this exporter produces, so while it
 is down they all return no data and stay silent rather than firing. This alert is
@@ -88,9 +106,11 @@ at the default 60s interval, so every panel is showing a stale reading.
    server `ecowitt.<your domain>`, path `/report`, port 80, interval 60s.
    A changed domain or a re-flashed gateway silently resets this.
 3. Power-cycle the gateway. It reconnects to Wi-Fi on boot and resumes pushing.
-4. If the gateway is reachable but the exporter never sees a POST, the route is
-   the suspect: `kubectl -n monitoring get httproute ecowitt-exporter` and check
-   the internal Gateway resolves the hostname on the LAN.
+4. If the gateway is reachable but the exporter never sees a POST, the ingest
+   Service is the suspect: `kubectl -n monitoring get svc ecowitt-exporter-ingest`
+   must show an `EXTERNAL-IP`, `ecowitt.<your domain>` must resolve to it on the
+   LAN, and the gateway's address must be inside `NFS_SHARE_ALLOW`, the Service's
+   only allowed source range.
 
 ### EcowittSensorStale
 
@@ -123,7 +143,7 @@ The exporter can pre-seed these series from a `SENSORS_TO_TRACK` environment
 variable, which would close the gap at the source — but **the upstream Helm chart
 renders a fixed list of environment variables and has no `extraEnv`, so that
 variable cannot be set through it** (verified against chart 2.2.2,
-`templates/deployment.yaml`). Until that is fixed upstream, this `absent()` rule
+`templates/deployment.yaml`; exporter 2.3.0 reads it). Until that is fixed upstream, this `absent()` rule
 is the cover.
 
 It only exists for sensors named in `ECOWITT_EXPECTED_SENSORS`, because a rule
@@ -184,8 +204,15 @@ Off by default: a fork has no weather gateway, and an exporter nothing pushes to
 would sit at `EcowittGatewayStale` forever.
 
 1. Set `ECOWITT_ENABLED=true` in your ConfigSet. That deploys the exporter, its
-   ServiceMonitor, the HTTPRoute at `ECOWITT_HOSTNAME` (`ecowitt.<your domain>`)
-   and the `homelab-iot` rule group.
+   ServiceMonitor, the `homelab-iot` rule group, and `ecowitt-exporter-ingest`:
+   a LoadBalancer Service on port 80 published as `ECOWITT_HOSTNAME`
+   (`ecowitt.<your domain>`) by the internal external-dns.
+
+   It is a LoadBalancer rather than an HTTPRoute because the gateway uploads over
+   plain HTTP and the internal Gateway's port 80 listener only redirects to HTTPS
+   (`charts/envoy-gateway-config/templates/gateway.yaml`). A 301 does not carry a
+   POST body. The Service accepts traffic only from `NFS_SHARE_ALLOW`, so put the
+   weather gateway on that LAN.
 2. Point the gateway at it. In the WSView Plus app: **Device -> Customized**,
    protocol `Ecowitt`, server `ecowitt.<your domain>`, path `/report`, port 80,
    upload interval 60s.

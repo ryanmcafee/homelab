@@ -1690,6 +1690,7 @@ ecowitt-exporter:
     name: ecowitt-exporter
     repo: https://djjudas21.github.io/charts
     version: "2.2.2"
+  imageTag: "2.3.0"
   scrapeInterval: 60s
   # Sensors that must always be reporting, comma-separated. Only these get
   # EcowittSensorMissing, the one rule that covers a probe already offline when
@@ -1698,14 +1699,11 @@ ecowitt-exporter:
   expectedSensors: ""
   rules:
     enabled: false
-  # Ingest endpoint on the internal Gateway: the weather gateway POSTs here.
-  route:
+  # LAN ingest over plain HTTP, the gateway's custom-upload protocol; the Gateway's port 80 only redirects.
+  ingest:
     enabled: false
     host: "ecowitt.homelab.local"
-    gateway:
-      name: envoy-internal
-      namespace: envoy-gateway-system
-      sectionName: https
+    sourceRanges: "127.0.0.0/8"
   units:
     temperature: c
     pressure: hpa

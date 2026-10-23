@@ -1306,12 +1306,15 @@ spec:
           # These rules are declared here, not enabled in the upstream chart's
           # own prometheusRules. A remote chart's PrometheusRule is rendered by
           # ArgoCD, where runbooks/coverage and task test:alerts cannot read it.
+          #
+          # The chart's ServiceMonitor labeldrops job, namespace, instance and
+          # pod, so these series carry service and endpoint instead.
           homelab-iot:
             groups:
               - name: homelab-iot
                 rules:
                   - alert: EcowittExporterDown
-                    expr: 'absent(up{job="ecowitt-exporter", namespace="{{ $eco.namespace }}"} == 1)'
+                    expr: 'absent(up{service="ecowitt-exporter", endpoint="http"} == 1)'
                     for: 10m
                     labels:
                       severity: warning

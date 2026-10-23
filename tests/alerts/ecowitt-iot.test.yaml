@@ -23,7 +23,7 @@ tests:
   - interval: 1m
     name: gateway goes silent while the exporter stays up
     input_series:
-      - series: 'ecowitt_last_report_timestamp_seconds{job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'ecowitt_last_report_timestamp_seconds{service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '0+60x30 1800+0x60'  # pushes on time to t+30m, then frozen
     alert_rule_test:
       # Fresh: the gateway pushed this minute.
@@ -40,8 +40,9 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: warning
-              job: ecowitt-exporter
-              namespace: monitoring
+              service: ecowitt-exporter
+              endpoint: http
+              instance: 10.0.0.5:8088
             exp_annotations:
               summary: 'The Ecowitt gateway has not reported for 30m 0s'
               description: 'No push has reached /report for longer than 900s, so every weather and soil panel is showing the last value the gateway sent rather than current conditions. This is the SLI for IoT data freshness. Usually the gateway lost Wi-Fi or its custom-upload target no longer resolves; docs/runbooks/iot-sensors.md.'
@@ -55,27 +56,43 @@ tests:
   - interval: 1m
     name: freshness SLI over a window with a known outage
     input_series:
-      - series: 'ecowitt_last_report_timestamp_seconds{job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'ecowitt_last_report_timestamp_seconds{service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '0+60x30 1800+0x60'
     promql_expr_test:
       # A fully healthy window reads 1.
-      - expr: 'avg_over_time(((time() - ecowitt_last_report_timestamp_seconds) < bool 900)[30m:1m])'
+      - expr: 'avg_over_time((max((time() - ecowitt_last_report_timestamp_seconds) < bool 900) or vector(0))[30m:1m])'
         eval_time: 30m
         exp_samples:
-          - labels: '{job="ecowitt-exporter", namespace="monitoring"}'
+          - labels: '{}'
             value: 1
       # 44 fresh samples of 60.
-      - expr: 'avg_over_time(((time() - ecowitt_last_report_timestamp_seconds) < bool 900)[1h:1m])'
+      - expr: 'avg_over_time((max((time() - ecowitt_last_report_timestamp_seconds) < bool 900) or vector(0))[1h:1m])'
         eval_time: 1h
         exp_samples:
-          - labels: '{job="ecowitt-exporter", namespace="monitoring"}'
+          - labels: '{}'
             value: 0.7333333333333333
       # The error budget consumed over that window, which is what the SLO spends.
-      - expr: '1 - avg_over_time(((time() - ecowitt_last_report_timestamp_seconds) < bool 900)[1h:1m])'
+      - expr: '1 - avg_over_time((max((time() - ecowitt_last_report_timestamp_seconds) < bool 900) or vector(0))[1h:1m])'
         eval_time: 1h
         exp_samples:
-          - labels: '{job="ecowitt-exporter", namespace="monitoring"}'
+          - labels: '{}'
             value: 0.2666666666666667
+
+  # 1c. The exporter disappears for 20 minutes. Without `or vector(0)` those
+  #     missing samples drop out of the average and the window scores 1: an
+  #     outage that costs no budget. The last sample at t+20m is read until
+  #     t+24m, so t+25m..t+40m - 16 of the 60 samples - score 0.
+  - interval: 1m
+    name: freshness SLI counts an exporter outage against the budget
+    input_series:
+      - series: 'ecowitt_last_report_timestamp_seconds{service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
+        values: '0+60x20 _x20 2460+60x19'
+    promql_expr_test:
+      - expr: 'avg_over_time((max((time() - ecowitt_last_report_timestamp_seconds) < bool 900) or vector(0))[1h:1m])'
+        eval_time: 1h
+        exp_samples:
+          - labels: '{}'
+            value: 0.7333333333333333
 
   # 2. One probe loses radio sync while the gateway itself is healthy. This is
   #    the failure EcowittGatewayStale cannot see: the gateway keeps pushing,
@@ -83,10 +100,10 @@ tests:
   - interval: 1m
     name: a single sensor drops off the radio
     input_series:
-      - series: 'ecowitt_sensor_last_report_timestamp_seconds{sensor="soilmoisture1",job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'ecowitt_sensor_last_report_timestamp_seconds{sensor="soilmoisture1",service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '0+60x30 1800+0x90'
       # The gateway is fine throughout, so the gateway rule must stay quiet.
-      - series: 'ecowitt_last_report_timestamp_seconds{job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'ecowitt_last_report_timestamp_seconds{service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '0+60x121'
     alert_rule_test:
       # 30m stale: over the gateway threshold but under the sensor's 1800s.
@@ -103,8 +120,9 @@ tests:
           - exp_labels:
               severity: warning
               sensor: soilmoisture1
-              job: ecowitt-exporter
-              namespace: monitoring
+              service: ecowitt-exporter
+              endpoint: http
+              instance: 10.0.0.5:8088
             exp_annotations:
               summary: 'Ecowitt sensor soilmoisture1 has not reported for 1h 0m 0s'
               description: 'The gateway is still pushing but soilmoisture1 is not in the payload, so that probe has lost radio sync or its battery is flat. Its readings are frozen at the last value. docs/runbooks/iot-sensors.md.'
@@ -117,7 +135,7 @@ tests:
     name: a declared sensor has never reported since exporter start
     input_series:
       # The gateway is up and pushing; soilmoisture1 is simply never in it.
-      - series: 'ecowitt_last_report_timestamp_seconds{job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'ecowitt_last_report_timestamp_seconds{service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '0+60x60'
     alert_rule_test:
       # Staleness is blind here - this is the assertion that proves the gap is real.
@@ -143,9 +161,9 @@ tests:
   - interval: 1m
     name: the exporter stops being scraped
     input_series:
-      - series: 'up{job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'up{service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '1+0x20 0+0x60'
-      - series: 'ecowitt_last_report_timestamp_seconds{job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'ecowitt_last_report_timestamp_seconds{service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '0+60x20'
     alert_rule_test:
       - eval_time: 15m
@@ -165,7 +183,7 @@ tests:
   - interval: 5m
     name: sensor reports its low-battery flag
     input_series:
-      - series: 'ecowitt_batterystatus{sensor="wh65batt",job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'ecowitt_batterystatus{sensor="wh65batt",service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '0+0x12 1+0x100'  # flag set at t+1h
     alert_rule_test:
       - eval_time: 1h
@@ -181,8 +199,9 @@ tests:
           - exp_labels:
               severity: warning
               sensor: wh65batt
-              job: ecowitt-exporter
-              namespace: monitoring
+              service: ecowitt-exporter
+              endpoint: http
+              instance: 10.0.0.5:8088
             exp_annotations:
               summary: 'Ecowitt sensor wh65batt reports a low battery'
               description: 'The sensor sets its own low-battery flag. It keeps reporting for a while after this, so the 6h hold is there to skip the cold-morning dips that clear on their own. Replace the cell before it goes stale; docs/runbooks/iot-sensors.md.'
@@ -191,7 +210,7 @@ tests:
   - interval: 5m
     name: sensor battery level falls to the bottom of its scale
     input_series:
-      - series: 'ecowitt_batterylevel{sensor="wh57batt",job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'ecowitt_batterylevel{sensor="wh57batt",service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '5+0x12 2+0x12 1+0x100'
     alert_rule_test:
       # 2 of 5 is low but not alerting - the threshold is `<= 1`.
@@ -204,8 +223,9 @@ tests:
           - exp_labels:
               severity: warning
               sensor: wh57batt
-              job: ecowitt-exporter
-              namespace: monitoring
+              service: ecowitt-exporter
+              endpoint: http
+              instance: 10.0.0.5:8088
             exp_annotations:
               summary: 'Ecowitt sensor wh57batt battery level is 1 of 5'
               description: 'WH57 lightning and WH41 PM2.5 sensors report a 0-5 level instead of a flag. At 1 or below the next cold night can take the sensor off the air; docs/runbooks/iot-sensors.md.'
@@ -215,7 +235,7 @@ tests:
   - interval: 5m
     name: soil sensor battery voltage falls below the threshold
     input_series:
-      - series: 'ecowitt_batteryvoltage{sensor="soilbatt1",unit="volt",job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'ecowitt_batteryvoltage{sensor="soilbatt1",unit="volt",service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '1.3+0x12 1.1+0x100'
     alert_rule_test:
       - eval_time: 1h
@@ -228,8 +248,9 @@ tests:
               severity: warning
               sensor: soilbatt1
               unit: volt
-              job: ecowitt-exporter
-              namespace: monitoring
+              service: ecowitt-exporter
+              endpoint: http
+              instance: 10.0.0.5:8088
             exp_annotations:
               summary: 'Ecowitt sensor soilbatt1 battery is at 1.1V'
               description: 'Soil and WS90 sensors report volts. Below 1.2V an alkaline AA is near the end of its usable life and the probe will drop off the radio soon; docs/runbooks/iot-sensors.md.'
@@ -238,7 +259,7 @@ tests:
   - interval: 5m
     name: soil moisture falls below the configured minimum
     input_series:
-      - series: 'ecowitt_soilmoisture{sensor="soilmoisture1",unit="percent",job="ecowitt-exporter",namespace="monitoring"}'
+      - series: 'ecowitt_soilmoisture{sensor="soilmoisture1",unit="percent",service="ecowitt-exporter",endpoint="http",instance="10.0.0.5:8088"}'
         values: '35+0x12 15+0x36'
     alert_rule_test:
       - eval_time: 1h
@@ -255,8 +276,9 @@ tests:
               severity: warning
               sensor: soilmoisture1
               unit: percent
-              job: ecowitt-exporter
-              namespace: monitoring
+              service: ecowitt-exporter
+              endpoint: http
+              instance: 10.0.0.5:8088
             exp_annotations:
               summary: 'Soil probe soilmoisture1 reads 15% moisture'
               description: 'Below 20% for an hour. This is the one rule in the group that reports a real reading rather than a device fault, so the threshold is a gardening choice: tune ECOWITT_SOIL_MOISTURE_MIN_PERCENT to the planting rather than silencing the alert. docs/runbooks/iot-sensors.md.'

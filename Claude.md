@@ -288,6 +288,9 @@ images:
   plex: "1.43.5.11029-6bf8af3f0"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
+  # Chart 2.2.2 defaults to 2.2.0, which predates both freshness timestamps the homelab-iot rules read.
+  # renovate: datasource=docker depName=djjudas21/ecowitt-exporter
+  ecowitt-exporter: "2.3.0"
   # renovate: datasource=docker depName=kindest/node
   kind-node: "v1.36.1"
   # renovate: datasource=docker depName=versity/versitygw

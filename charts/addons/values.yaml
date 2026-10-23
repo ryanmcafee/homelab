@@ -1197,17 +1197,15 @@ github-pr-exporter:
 ecowitt-exporter:
   enabled: false
   namespace: monitoring
+  imageTag: ""
   scrapeInterval: 60s
   expectedSensors: ""
   rules:
     enabled: false
-  route:
+  ingest:
     enabled: false
     host: ""
-    gateway:
-      name: envoy-internal
-      namespace: envoy-gateway-system
-      sectionName: https
+    sourceRanges: ""
   units:
     temperature: c
     pressure: hpa
