@@ -148,3 +148,10 @@ Each entry should include:
 - Source guard and rendered Helm G2 are separate surfaces. Platform co-land work is MCAA-130; no live-literal allowlist or claim of complete acceptance.
 - Local full-scan runtime before/after: 0.254s / 0.281s (202 / 257 tracked files, compiled CLI). Actual hook good/bad examples and HCL references/literals pass/fail correctly.
 - Role validator runs after expression resolution, excludes dedicated infrastructure and control-plane VIP, and requires intended LB allocations inside inclusive endpoints. Missing schema roles fail closed; full config suite awaits platform annotations. CLI positive/negative fixtures assert exit codes and absence of false success.
+
+### 2026-09-28 - Sync-aware localdev diagnostics (MCAA-468)
+
+- PR: https://github.com/ryanmcafee/homelab/pull/487; implementation commit `bbf81af`.
+- Diagnosis now selects Healthy/Succeeded/OutOfSync Applications, prints the failing `status.sync.status` field and sync detail, and collects their destination namespace diagnostics.
+- Regression demonstrated before the fix: OutOfSync failed and Synced passed. After: both pass; all 139 ArgoCD script tests pass (53 ms); TypeScript and level 0 pass (271 checks, 1 intentional skip, 10.177 s).
+- QA verified the real CI Diagnostics path on MCAA-470: two Healthy/Succeeded/OutOfSync Applications named `status.sync.status` and yielded namespace evidence; Synced controls stayed quiet. ADR-012 allows sync-only drift in Kind level 2. No production mutation. Ready-path API count is unchanged; drift runs the existing namespace collector (~1.57 s for 57 Applications in QA's Kind run).
