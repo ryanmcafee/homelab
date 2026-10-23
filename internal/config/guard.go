@@ -54,7 +54,7 @@ func isNonIdentifyingValue(v string) bool {
 	// An address is judged as an address: loopback, unspecified, link-local and
 	// multicast cannot identify a host, so they are never patterns.
 	if net.ParseIP(v) != nil {
-		return !isRoutableHostIP(v)
+		return !IsRoutableHostIP(v)
 	}
 	if hasPlaceholderMarker(v) {
 		return true
@@ -105,7 +105,7 @@ func BuildGuardPatterns(values map[string]string) []string {
 		isPII := IsPIIKey(key)
 
 		// Also flag anything that parses as a routable IP, whatever its key.
-		if !isPII && isRoutableHostIP(val) {
+		if !isPII && IsRoutableHostIP(val) {
 			isPII = true
 		}
 
@@ -777,7 +777,7 @@ func hostOf(v string) string {
 // isRealHostname reports whether a value names a host, domain or mailbox that
 // could identify real infrastructure. Documentation placeholders, reserved
 // suffixes and the committed-safe allowlist are excluded. IP addresses are
-// handled by isRoutableHostIP instead.
+// handled by IsRoutableHostIP instead.
 func isRealHostname(v string) bool {
 	host := hostOf(v)
 	if host == "" || !strings.Contains(host, ".") {
@@ -928,13 +928,13 @@ var flowMapPair = regexp.MustCompile(`([A-Za-z][A-Za-z0-9_./-]*)\s*:\s*(\[[^\]]*
 // wrapping an address (`https://192.0.2.1`) is judged on its address.
 func classifyHostValue(value string) string {
 	// A CIDR names a network, not a host. The config rule never flags one
-	// (isRoutableHostIP cannot parse it) and isExamplePlaceholder handles it
+	// (IsRoutableHostIP cannot parse it) and isExamplePlaceholder handles it
 	// on its own, so this rule agrees rather than reducing it to its address.
 	if _, _, err := net.ParseCIDR(strings.TrimSpace(value)); err == nil {
 		return ""
 	}
 	switch {
-	case isRoutableHostIP(hostOf(value)):
+	case IsRoutableHostIP(hostOf(value)):
 		return "routable host IP"
 	case isRealHostname(value):
 		return "real hostname"
@@ -1105,7 +1105,7 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 
 			var kind string
 			switch {
-			case isRoutableHostIP(value):
+			case IsRoutableHostIP(value):
 				kind = "routable host IP"
 			case isRealHostname(value):
 				kind = "real hostname"
@@ -1232,10 +1232,13 @@ func stripValue(v string) string {
 	return strings.Trim(v, `"'`)
 }
 
-// isRoutableHostIP reports whether a value is an IP address that could identify
+// IsRoutableHostIP reports whether a value is an IP address that could identify
 // a real host. Loopback, unspecified, link-local and multicast addresses are
 // safe to commit; a CIDR does not parse and is therefore never flagged.
-func isRoutableHostIP(v string) bool {
+//
+// Exported so the fork-ability render scan in internal/verify judges an address
+// by the same rule this source guard does rather than restating it.
+func IsRoutableHostIP(v string) bool {
 	ip := net.ParseIP(v)
 	if ip == nil {
 		return false
