@@ -1,0 +1,37 @@
+# Deliberate firing test against the measured 2026-09-29 provider_quota incident.
+# Live readout: 400 most recent runs, window 2026-09-28T22:42Z -> 2026-09-29T02:22Z.
+#   182 failed (provider_quota), 125 succeeded, 39 cancelled, 2 other failed => 348 terminal.
+rule_files:
+  - rules.yaml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    name: provider_quota incident pages on run failure rate, not on recovery rate
+    input_series:
+      - series: 'paperclip_agent_runs_finished{company_id="85388db3",company="McAfee Consulting",status="failed"}'
+        values: '184+0x40'
+      - series: 'paperclip_agent_runs_finished{company_id="85388db3",company="McAfee Consulting",status="succeeded"}'
+        values: '125+0x40'
+      - series: 'paperclip_agent_runs_finished{company_id="85388db3",company="McAfee Consulting",status="cancelled"}'
+        values: '39+0x40'
+      # Paperclip's own weekly verdict during the same incident: 2.19 %, breached.
+      - series: 'paperclip_recovery_rate_percent{company_id="85388db3",company="McAfee Consulting"}'
+        values: '2.19+0x40'
+      - series: 'paperclip_recovery_breached{company_id="85388db3",company="McAfee Consulting"}'
+        values: '1+0x40'
+    alert_rule_test:
+      # 184/348 = 52.9 % > 20 %, and >= 5 runs finished: this is the signal that pages.
+      - eval_time: 16m
+        alertname: PaperclipAgentFailureRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              company_id: "85388db3"
+              company: "McAfee Consulting"
+            exp_annotations:
+              summary: '52.87% of agent runs in McAfee Consulting failed in the last hour'
+              description: 'More than 20 % of at least 5 runs finished in the last hour failed, were interrupted or timed out. paperclip_agent_runs_errors names the error codes; docs/runbooks/paperclip-agents.md.'
+      # Silent before `for: 15m` elapses.
+      - eval_time: 14m
+        alertname: PaperclipAgentFailureRateHigh
+        exp_alerts: []
