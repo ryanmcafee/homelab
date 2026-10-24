@@ -53,3 +53,8 @@ postgresql:
   parameters:
     max_connections: "100"
     shared_buffers: 128MB
+    # A leaked or hung transaction must not hold the app's connection pool
+    # forever (2026-10-23: ten sessions idle in transaction for ~24h, every
+    # request timed out). Server-wide, so it also covers the app-native backup.
+    # No statement_timeout: it would also cut long legitimate statements.
+    idle_in_transaction_session_timeout: "10min"
