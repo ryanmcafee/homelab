@@ -36,6 +36,13 @@ Open Grafana -> "Paperclip request path" with the time range around the failure.
    lease (`kubectl -n kube-system get leases | rg cilium-l2announce`) and Cilium agent health.
 5. **Pod/database (panel 6).** Restarts, readiness flaps or CPU at the limit around the failure;
    `cnpg_backends_total` at `max_connections` (100) means the app waits for connections.
+   A handful of `cnpg_backends_total{state="idle in transaction"}` backends (about 10) with a
+   large `cnpg_backends_max_tx_duration_seconds` means the app's own pool is exhausted by
+   sessions that never committed, not that Postgres hit `max_connections`: the pod stays Ready
+   and every request hangs until the client times out (2026-10-23).
+   `idle_in_transaction_session_timeout` (10min, charts/paperclip-database) ends such sessions
+   and the pool reconnects. Sessions stuck before the setting took effect may not be reclaimed;
+   the maintainer ends them with `pg_terminate_backend` or restarts the paperclip pod.
 
 Note on client IPs: the `envoy-internal` Service uses `externalTrafficPolicy: Cluster`
 (charts/envoy-gateway-config), so for requests that entered via the LB address `client_ip` is

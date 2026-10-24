@@ -77,7 +77,9 @@ spec:
             name: paperclip
             namespace: argocd
     - name: database-and-instance-ready
-      description: Cluster paperclip-postgres is "Cluster in healthy state" and Instance paperclip is Running.
+      description: >-
+        Cluster paperclip-postgres is "Cluster in healthy state" and ends sessions left idle in a
+        transaction after 10min, and Instance paperclip is Running.
       try:
         - assert:
             resource:
@@ -86,6 +88,11 @@ spec:
               metadata:
                 name: paperclip-postgres
                 namespace: paperclip
+              spec:
+                postgresql:
+                  parameters:
+                    # a leaked transaction must not hold the app's pool forever (2026-10-23)
+                    idle_in_transaction_session_timeout: "10min"
               status:
                 phase: Cluster in healthy state
                 readyInstances: 1
