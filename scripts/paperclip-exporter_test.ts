@@ -652,6 +652,51 @@ test("isStrandedByWake flags a dead claimant but not a finished or live one", ()
   );
 });
 
+test("isStrandedByWake flags an unfinished claim buried under newer wakes", () => {
+  // The MCAA-7 ledger after the 2026-09-25 drop: interrupted run 81e77c8a
+  // left its claim unfinished, and later wakes deferred and coalesced on top.
+  const ledger = [
+    {
+      kind: "wake_request",
+      status: "coalesced",
+      runId: null,
+      claimedAt: null,
+      finishedAt: null,
+    },
+    {
+      kind: "wake_request",
+      status: "claimed",
+      runId: "81e77c8a",
+      claimedAt: "2026-09-25T03:09:24Z",
+      finishedAt: null,
+    },
+    {
+      kind: "wake_request",
+      status: "deferred_issue_execution",
+      runId: null,
+      claimedAt: null,
+      finishedAt: null,
+    },
+  ];
+  assert(
+    isStrandedByWake(ledger, new Set(["other-run"]), NOW, 30),
+    "an unfinished claim from a dead run must count wherever it sits in the ledger",
+  );
+  assertEquals(
+    isStrandedByWake(
+      ledger.map((e) =>
+        e.runId === "81e77c8a"
+          ? { ...e, finishedAt: "2026-09-25T03:14:33Z" }
+          : e,
+      ),
+      new Set(["other-run"]),
+      NOW,
+      30,
+    ),
+    false,
+  );
+});
+
 test("parseIssues accepts a bare array and an {issues} envelope", () => {
   assertEquals(parseIssues([{ id: "a", identifier: "X-1" }]).length, 1);
   assertEquals(
