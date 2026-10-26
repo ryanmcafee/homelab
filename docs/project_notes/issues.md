@@ -158,6 +158,7 @@ Each entry should include:
 - Level 0: 277 passed / 0 failed / 1 expected preview repository-secret skip. Full scripts initially: 565 passed / 0 failed. Biome and TypeScript pass via `bun x --no-install`; `task scripts:lint` is affected by the runner's nested-shell PATH reset (`biome: command not found`), even after locked dependency installation.
 - Live acceptance remains unverified: await a naturally occurring level-2 image-pull failure and inspect its kubelet event for registry/HTTP status. Do not rerun CI to manufacture this evidence. A `/v2/` mirror response demonstrates reachability only, not a successful upstream image pull.
 - Tooling limits: Serena MCP and `bd` are unavailable in this runner; the Paperclip issue and this log hold continuity. No production or registry configuration changed.
+
 ### 2026-09-28: OpenClaw verification gate (MCAA-496)
 
 - Review revision: restrict parameter paths to canonical identifiers/indexes and
