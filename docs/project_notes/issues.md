@@ -148,6 +148,7 @@ Each entry should include:
 - Source guard and rendered Helm G2 are separate surfaces. Platform co-land work is MCAA-130; no live-literal allowlist or claim of complete acceptance.
 - Local full-scan runtime before/after: 0.254s / 0.281s (202 / 257 tracked files, compiled CLI). Actual hook good/bad examples and HCL references/literals pass/fail correctly.
 - Role validator runs after expression resolution, excludes dedicated infrastructure and control-plane VIP, and requires intended LB allocations inside inclusive endpoints. Missing schema roles fail closed; full config suite awaits platform annotations. CLI positive/negative fixtures assert exit codes and absence of false success.
+
 ### 2026-09-29 — MCAA-652: upgrade report Secret containment
 
 - Isolated `fix/mcaa-652-secret-report-redaction` branch: redact before report diff construction; fixed diagnostics and allowlisted revalidation output; keep automerge closed for redacted Secret equality.

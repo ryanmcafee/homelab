@@ -9,67 +9,71 @@ const workflow = readFileSync(
   "utf8",
 );
 
-test("revalidation report projection strips synthetic diagnostics and fails closed", () => {
-  // Execute the actual workflow boundary, with all publishing steps excluded.
-  const projection = workflow.match(/ {10}if ! jq -s -e '[\s\S]*? {10}fi/)?.[0];
-  expect(projection).toBeDefined();
-  const markdown = workflow.match(
-    / {10}\{\n {12}echo\n[\s\S]*? {10}\} >> upgrade-report\.md/,
-  )?.[0];
-  expect(markdown).toBeDefined();
-  const sentinel = "SYNTHETIC_REVALIDATION_SENTINEL";
-  const dir = mkdtempSync(join(tmpdir(), "upgrade-report-sinks-"));
-  try {
-    for (const [caseIndex, raw] of [
-      JSON.stringify({
-        level: 0,
-        pass: true,
-        duration_ms: 1,
-        checks: [{ name: "render/test/chart", status: "pass", duration_ms: 1 }],
-      }),
-      ...["name", "status", "duration_ms"].map((field) =>
-        JSON.stringify({
-          level: 0,
-          pass: false,
+const sentinel = "SYNTHETIC_REVALIDATION_SENTINEL";
+const revalidationCases = [
+  JSON.stringify({
+    level: 0,
+    pass: true,
+    duration_ms: 1,
+    checks: [{ name: "render/test/chart", status: "pass", duration_ms: 1 }],
+  }),
+  ...["name", "status", "duration_ms"].map((field) =>
+    JSON.stringify({
+      level: 0,
+      pass: false,
+      duration_ms: 1,
+      checks: [
+        {
+          name: "render/test/chart",
+          status: "fail",
           duration_ms: 1,
-          checks: [
-            {
-              name: "render/test/chart",
-              status: "fail",
-              duration_ms: 1,
-              [field]: sentinel,
-            },
-          ],
-        }),
-      ),
-      ...["level", "pass", "duration_ms"].map((field) =>
-        JSON.stringify({
-          level: 0,
-          pass: false,
-          duration_ms: 1,
-          checks: [],
           [field]: sentinel,
-        }),
-      ),
-      JSON.stringify({
-        level: 0,
-        pass: false,
+        },
+      ],
+    }),
+  ),
+  ...["level", "pass", "duration_ms"].map((field) =>
+    JSON.stringify({
+      level: 0,
+      pass: false,
+      duration_ms: 1,
+      checks: [],
+      [field]: sentinel,
+    }),
+  ),
+  JSON.stringify({
+    level: 0,
+    pass: false,
+    duration_ms: 1,
+    checks: [
+      {
+        name: "render/test/chart",
+        status: "fail",
         duration_ms: 1,
-        checks: [
-          {
-            name: "render/test/chart",
-            status: "fail",
-            duration_ms: 1,
-            detail: sentinel,
-            findings: [sentinel],
-            data: { password: sentinel },
-          },
-        ],
-        unexpected: sentinel,
-      }),
-      `invalid JSON ${sentinel}`,
-      JSON.stringify({ pass: true, checks: [null, sentinel] }),
-    ].entries()) {
+        detail: sentinel,
+        findings: [sentinel],
+        data: { password: sentinel },
+      },
+    ],
+    unexpected: sentinel,
+  }),
+  `invalid JSON ${sentinel}`,
+  JSON.stringify({ pass: true, checks: [null, sentinel] }),
+];
+
+for (const [caseIndex, raw] of revalidationCases.entries()) {
+  test(`revalidation projection strips synthetic diagnostics: case ${caseIndex}`, () => {
+    // Execute the actual workflow boundary, with all publishing steps excluded.
+    const projection = workflow.match(
+      / {10}if ! jq -s -e '[\s\S]*? {10}fi/,
+    )?.[0];
+    expect(projection).toBeDefined();
+    const markdown = workflow.match(
+      / {10}\{\n {12}echo\n[\s\S]*? {10}\} >> upgrade-report\.md/,
+    )?.[0];
+    expect(markdown).toBeDefined();
+    const dir = mkdtempSync(join(tmpdir(), "upgrade-report-sinks-"));
+    try {
       writeFileSync(join(dir, "revalidate.raw.json"), raw);
       writeFileSync(join(dir, "upgrade-report.md"), "");
       writeFileSync(join(dir, "summary.md"), "");
@@ -118,11 +122,11 @@ test("revalidation report projection strips synthetic diagnostics and fails clos
         expect(run.stdout).toBe("false");
         expect(parsed.checks).toEqual([]);
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+  }, 30_000);
+}
 
 test("summary, sticky comment and artifact sinks use only report outputs", () => {
   expect(workflow).toContain(
