@@ -1,0 +1,146 @@
+# litellm-config values: the HTTPRoutes that publish the LiteLLM proxy, synced
+# after the proxy itself (wave 14 > 13).
+#
+# host and gateway are placeholders: the litellm-config Application in
+# charts/applications passes the real hostname and Gateway through
+# helm.valuesObject (ADR-010). Everything else describes the upstream chart and
+# is the same in every environment.
+
+namespace: litellm
+
+route:
+  enabled: true
+  host: litellm.example.com
+  gateway:
+    name: envoy-internal
+    namespace: envoy-gateway-system
+
+  # The three Services the upstream chart creates for release litellm with
+  # fullnameOverride: litellm. The gateway's metrics Service
+  # (litellm-gateway-metrics, port 4001) serves /metrics with no auth of its
+  # own and is deliberately absent: Prometheus scrapes it in-cluster through
+  # the ServiceMonitor, nothing routable needs it.
+  ui:
+    service: litellm-ui
+    port: 3000
+    # The dashboard is a Next.js static export whose client router fetches an
+    # RSC payload per route as a root-level <route>.txt. Without this they fall
+    # to the backend catch-all and the login flow never settles.
+    rscPayloads: true
+  backend:
+    service: litellm-backend
+    port: 4001
+  gatewayService:
+    service: litellm-gateway
+    port: 4000
+
+  # Paths the UI serves. Mirrors $uiPaths in the upstream chart's
+  # templates/ingress.yaml (chart 1.102.1); / is Exact so the backend keeps the
+  # catch-all underneath it.
+  uiExactPaths:
+    - /
+    - /favicon.ico
+  uiPathPrefixes:
+    - /litellm-asset-prefix
+    - /_next
+    - /ui
+
+  # Paths the gateway serves. Mirrors $gatewayPrefixes in the same upstream
+  # template, which mirrors the proxy's own gateway/routes/allowlist.py. The
+  # versioned entries are listed one by one on purpose: a broad /v1 prefix
+  # would steal the management routes (/v1/access_group, /v2/key/info,
+  # /v1/mcp/*) that only the backend serves.
+  #
+  # Two upstream entries are left out because neither belongs on a routable
+  # hostname: /metrics (the ServiceMonitor scrapes it in-cluster) and
+  # /debug/memory/summary (an upstream e2e memory gate that reports a worker's
+  # RSS). Re-check this list on every chart bump.
+  gatewayExactPaths:
+    # /test is the Admin UI's connection test; its children /test/connection
+    # and /test/tools/list are backend MCP management routes, so a prefix here
+    # would 404 them.
+    - /test
+  gatewayPathPrefixes:
+    - /v1/chat
+    - /chat
+    - /v1/completions
+    - /completions
+    - /v1/embeddings
+    - /embeddings
+    - /v1/moderations
+    - /moderations
+    - /v1/audio
+    - /audio
+    - /v1/images
+    - /images
+    - /v1/files
+    - /files
+    - /v1/batches
+    - /batches
+    - /v1/fine_tuning
+    - /fine_tuning
+    - /v1/fine-tuning
+    - /fine-tuning
+    - /v1/responses
+    - /responses
+    - /v1/threads
+    - /threads
+    - /v1/assistants
+    - /assistants
+    - /v1/vector_stores
+    - /vector_stores
+    - /v1/indexes
+    - /v1/models
+    - /models
+    - /openai
+    - /engines
+    - /v1/messages
+    - /messages
+    - /v1/skills
+    - /v1/a2a
+    - /a2a
+    - /v1/rerank
+    - /v2/rerank
+    - /rerank
+    - /v1/ocr
+    - /ocr
+    - /v1/rag
+    - /rag
+    - /v1/video
+    - /v1/videos
+    - /video
+    - /videos
+    - /v1/search
+    - /search
+    - /v1/containers
+    - /containers
+    - /v1/evals
+    - /v1/memory
+    - /queue/chat
+    - /v1beta
+    - /interactions
+    - /anthropic
+    - /azure
+    - /azure_ai
+    - /aws
+    - /bedrock
+    - /comprehendmedical
+    - /cohere
+    - /gemini
+    - /google
+    - /vertex_ai
+    - /vertex-ai
+    - /assemblyai
+    - /eu.assemblyai
+    - /langfuse
+    - /vllm
+    - /mistral
+    - /groq
+    - /voyage
+    - /cursor
+    - /milvus
+    - /openai_passthrough
+    - /toolset
+    - /v1/realtime
+    - /realtime
+    - /health
