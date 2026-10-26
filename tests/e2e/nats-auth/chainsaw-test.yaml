@@ -11,7 +11,8 @@ spec:
     namespace on keys minted for this run, so the shared anonymous bus is untouched. The
     probes (probes.sh) assert refusals on the server's own violation text and settle the
     contract's open questions consumer_create_name_only_reach and rq_reply_needs_no_inbox_grant
-    against the running digest, which the first step prints.
+    against the running digest, which the first step prints. The last step records
+    nack_account_on_stream_move without asserting an answer.
   steps:
     - name: render-and-start
       description: >-
@@ -56,8 +57,10 @@ spec:
               pairs=$(kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh $principals)
               probe_pairs=$(kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh \
                 rq-responder-bare rq-responder-bounded)
+              move_pairs=$(kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh nack-probe nack-move)
               out=$(mktemp -d)
-              PAIRS="$pairs" PROBE_PAIRS="$probe_pairs" NAMESPACE="$NAMESPACE" OUT="$out" sh "$dir/render.sh"
+              PAIRS="$pairs" PROBE_PAIRS="$probe_pairs" MOVE_PAIRS="$move_pairs" NAMESPACE="$NAMESPACE" OUT="$out" \
+                sh "$dir/render.sh"
               kubectl -n "$NAMESPACE" apply -f "$out/server.yaml"
               kubectl -n "$NAMESPACE" rollout status statefulset/nats --timeout=4m
               echo "image digests under test:"
@@ -109,4 +112,121 @@ spec:
       catch:
         - podLogs:
             selector: app.kubernetes.io/name=nats
+            tail: 100
+
+    - name: nack-account-move
+      description: >-
+        nack_account_on_stream_move, recorded as MEASURED lines rather than asserted. A second
+        NACK from the chart and version the addons nack Application pins, namespaced to this test
+        in control-loop mode, reconciles one Stream whose spec.account then moves from
+        TENANT_LOCAL to NACK_MOVE, on labelled probe users holding nack's grants plus _INBOX.>.
+        A second Stream on nack's own declared key records whether that key can drive NACK. The
+        cluster's own NACK, as rendered, reconciles both, so the shared-bus column records what
+        it does with spec.account.
+      try:
+        - script:
+            timeout: 8m
+            content: |
+              set -eu
+              root=$(git rev-parse --show-toplevel)
+              for pair in declared:nack tenant:nack-probe move:nack-move; do
+                kubectl -n "$NAMESPACE" exec nats-client -- cat "/seeds/${pair#*:}.nk" |
+                  kubectl -n "$NAMESPACE" create secret generic "nack-${pair%%:*}" --from-file=seed=/dev/stdin
+              done
+              out=$(mktemp -d)
+              helm template addons "$root/charts/addons" \
+                -f "$root/charts/addons/values.yaml" -f "$root/charts/addons/values-localdev.yaml" \
+                --show-only templates/nack.yaml >"$out/app.yaml"
+              yq '.spec.source.helm.values' "$out/app.yaml" >"$out/values.yaml"
+              shared=$(yq '.jetstream.nats.url' "$out/values.yaml")
+              helm template nack-move "$(yq '.spec.source.chart' "$out/app.yaml")" \
+                --repo "$(yq '.spec.source.repoURL' "$out/app.yaml")" \
+                --version "$(yq '.spec.source.targetRevision' "$out/app.yaml")" \
+                --namespace "$NAMESPACE" --skip-crds -f "$out/values.yaml" \
+                --set namespaced=true --set jetstream.controlLoop=true \
+                --set jetstream.nats.url=nats://nats:4222 | kubectl -n "$NAMESPACE" apply -f -
+              kubectl -n "$NAMESPACE" rollout status deployment/nack-move --timeout=3m
+              echo "image digests under test:"
+              digests='{range .items[*]}{range .status.containerStatuses[*]}{.name}{"\t"}{.imageID}{"\n"}{end}{end}'
+              kubectl -n "$NAMESPACE" get pods -l app=nack-move -o jsonpath="$digests"
+              kubectl -n nats get pods -l app=nack -o jsonpath="$digests"
+              for account in declared:TENANT_LOCAL tenant:TENANT_LOCAL move:NACK_MOVE; do
+                kubectl -n "$NAMESPACE" apply -f - <<EOF
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Account
+              metadata:
+                name: ${account%%:*}
+              spec:
+                name: ${account#*:}
+                servers: [nats://nats:4222]
+                nkey:
+                  secret: {name: nack-${account%%:*}}
+                  seed: seed
+              EOF
+              done
+              kubectl -n "$NAMESPACE" apply -f - <<EOF
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Stream
+              metadata:
+                name: nack-move-probe
+              spec:
+                name: NACK_MOVE_PROBE
+                account: tenant
+                subjects: ["nack.move.probe.>"]
+                storage: file
+                replicas: 1
+                maxBytes: 1048576
+              EOF
+              probe() {
+                kubectl -n "$NAMESPACE" exec nats-client -- env NATS_URL=nats://nats:4222 SEEDS=/seeds \
+                  SHARED_URL="$shared" MOVE_STREAM="$2" sh /probes/probes.sh "$1"
+              }
+              rc=0
+              probe move_placed NACK_MOVE_PROBE || rc=1
+              kubectl -n "$NAMESPACE" patch stream nack-move-probe --type merge -p '{"spec":{"account":"move"}}'
+              probe move_moved NACK_MOVE_PROBE || rc=1
+              kubectl -n "$NAMESPACE" get stream nack-move-probe -o yaml | yq '.status'
+              kubectl -n "$NAMESPACE" apply -f - <<EOF
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Stream
+              metadata:
+                name: nack-declared-probe
+              spec:
+                name: NACK_DECLARED_PROBE
+                account: declared
+                subjects: ["nack.declared.probe.>"]
+                storage: file
+                replicas: 1
+                maxBytes: 1048576
+              EOF
+              probe declared_placed NACK_DECLARED_PROBE || rc=1
+              refusal=$(kubectl -n "$NAMESPACE" logs deployment/nack-move |
+                grep -m1 -o 'Permissions Violation for Subscription to "_INBOX\.[^"]*"' || echo none)
+              echo "MEASURED nack_account_on_stream_move: server refusal seen by NACK on nack's declared key: $refusal"
+              kubectl -n "$NAMESPACE" get stream nack-declared-probe -o yaml | yq '.status'
+              kubectl -n "$NAMESPACE" logs deployment/nack-move --tail=40
+              kubectl -n "$NAMESPACE" delete stream nack-move-probe nack-declared-probe --wait=false
+              for cr in nack-move-probe nack-declared-probe; do
+                if kubectl -n "$NAMESPACE" wait "stream/$cr" --for=delete --timeout=30s 2>/dev/null; then
+                  echo "MEASURED nack_account_on_stream_move: $cr finalized within 30s of deletion"
+                else
+                  refused=$(kubectl -n "$NAMESPACE" logs deployment/nack-move |
+                    grep -o 'Permissions Violation for Publish to "\$JS\.API\.STREAM\.DELETE\.[^"]*"' | tail -1 || true)
+                  echo "MEASURED nack_account_on_stream_move: $cr still finalizing after 30s: ${refused:-no refusal}"
+                  kubectl -n "$NAMESPACE" patch stream "$cr" --type merge -p '{"metadata":{"finalizers":null}}'
+                  kubectl -n "$NAMESPACE" wait "stream/$cr" --for=delete --timeout=30s
+                fi
+              done
+              kubectl -n "$NAMESPACE" delete account declared tenant move --wait=true --timeout=60s
+              for stream in NACK_MOVE_PROBE NACK_DECLARED_PROBE; do
+                kubectl -n "$NAMESPACE" exec nats-client -- nats --server "$shared" --timeout 3s stream ls --names |
+                  grep -qx "$stream" && echo "$stream is still on the shared bus $shared after its Stream was deleted"
+              done
+              exit $rc
+      catch:
+        - describe:
+            apiVersion: jetstream.nats.io/v1beta2
+            kind: Stream
+        - podLogs:
+            selector: app=nack-move
             tail: 100

@@ -63,6 +63,29 @@ for pair in $(printf '%s' "$PROBE_PAIRS" | tr ',' ' '); do
   esac
 done
 
+# nack-probe (in the tenant account) and nack-move (alone in NACK_MOVE) are labelled probe users
+# holding nack's grants plus `_INBOX.>`: NACK 0.24.0 has no inbox-prefix option, so it cannot
+# use nack's declared `_INBOX.nack` (nack_account_on_stream_move).
+if [ -n "${MOVE_PAIRS:-}" ]; then
+  nack_key=$(printf '%s' "$PAIRS" | tr ',' '\n' | sed -n 's/^nack=//p')
+  probe_key=$(printf '%s' "$MOVE_PAIRS" | tr ',' '\n' | sed -n 's/^nack-probe=//p')
+  move_key=$(printf '%s' "$MOVE_PAIRS" | tr ',' '\n' | sed -n 's/^nack-move=//p')
+  [ -n "$nack_key" ] || { echo "PAIRS carries no nack key to copy" >&2; exit 1; }
+  [ -n "$probe_key" ] && [ -n "$move_key" ] || { echo "MOVE_PAIRS must carry nack-probe and nack-move" >&2; exit 1; }
+  nack_user=$(NACK=$nack_key yq -o=json -I=0 ".config.merge.accounts.$account.users[] | select(.nkey == strenv(NACK))" "$OUT/values.yaml")
+  widened() { printf '%s' "$nack_user" | KEY=$1 yq -p=json -o=json -I=0 '.nkey = strenv(KEY) | .permissions.subscribe.allow += ["_INBOX.>"]'; }
+  PROBE=$(widened "$probe_key") MOVE=$(widened "$move_key") yq -i "
+    .config.merge.accounts.$account.users += [strenv(PROBE) | from_json] |
+    .config.merge.accounts.NACK_MOVE = .config.merge.accounts.$account |
+    .config.merge.accounts.NACK_MOVE.users = [strenv(MOVE) | from_json]" \
+    "$OUT/values.yaml"
+  [ "$(yq '.config.merge.accounts.NACK_MOVE.users | length' "$OUT/values.yaml")" -eq 1 ] ||
+    { echo "NACK_MOVE did not render exactly one user" >&2; exit 1; }
+  NACK=$nack_key yq -e ".config.merge.accounts.$account.users[] | select(.nkey == strenv(NACK)) |
+    .permissions.subscribe.allow | all_c(. != \"_INBOX.>\")" "$OUT/values.yaml" >/dev/null ||
+    { echo "nack lost its key or gained _INBOX.> in $account" >&2; exit 1; }
+fi
+
 helm template nats "$chart" --repo "$repo" --version "$version" \
   --namespace "$NAMESPACE" -f "$OUT/values.yaml" |
   yq 'select(.kind != null and .kind != "PodMonitor")' >"$OUT/server.yaml"
