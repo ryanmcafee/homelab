@@ -1,0 +1,39 @@
+# expect: openclaw-untagged-tailnet
+# A tailnet endpoint with no tag of its own. The device inherits the operator's
+# proxyConfig.defaultTags (tag:k8s), which the subnet router carries too, so the
+# tailnet policy cannot name the Control UI without naming the subnet router --
+# tailnet-reachable is then the whole of the authorization.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  networking:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: true
+      className: tailscale
+      hosts:
+        - host: openclaw.example-tailnet.ts.net
+---
+# expect: openclaw-untagged-tailnet
+# The same defect spelled out: the shared tag set explicitly rather than
+# inherited.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  networking:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: true
+      className: tailscale
+      annotations:
+        tailscale.com/tags: tag:k8s
+      hosts:
+        - host: openclaw.example-tailnet.ts.net

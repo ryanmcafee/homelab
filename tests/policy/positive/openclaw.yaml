@@ -34,3 +34,36 @@ spec:
         defaults:
           model:
             primary: anthropic/claude-opus-5-5
+---
+# The tailnet-only endpoint charts/openclaw renders with tailnet.enabled: the
+# Tailscale operator's IngressClass, openclaw's own ACL tag, and a Service that
+# stays ClusterIP. Nothing here may flag: this is the shape the exposure rules
+# are steering toward.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  networking:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: true
+      className: tailscale
+      annotations:
+        tailscale.com/hostname: openclaw
+        tailscale.com/tags: tag:k8s-openclaw
+      hosts:
+        - host: openclaw.example-tailnet.ts.net
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - hosts:
+            - openclaw.example-tailnet.ts.net
+  security:
+    networkPolicy:
+      enabled: true
+      allowedIngressNamespaces:
+        - tailscale
