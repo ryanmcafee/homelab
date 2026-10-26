@@ -59,6 +59,8 @@ spec:
                 name: e2e-pg
               spec:
                 instances: 1
+                stopDelay: 30
+                smartShutdownTimeout: 5
                 storage:
                   size: 1Gi
                   storageClass: local-path
