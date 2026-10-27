@@ -224,7 +224,63 @@ expressed in the server's own terms: the account exists, and no credential reach
 {{- if .Values.nats.systemAccountNkey -}}
 {{- $systemUsers = list (dict "nkey" .Values.nats.systemAccountNkey) -}}
 {{- end -}}
+{{- include "addons.natsAssertAccountStoreBudget" (dict "Values" .Values "accounts" $accounts) -}}
 {{- $_ := set $accounts $contract.systemAccount (dict "users" $systemUsers) -}}
 {{- dict "system_account" $contract.systemAccount "accounts" $accounts | toYaml -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Bytes for a NATS config size (6GB, << 6GB >>, 1536MB, 4096), with nats-server's own suffixes:
+a bare letter is decimal and a `b`/`i`/`ib` suffix binary. The server drops an unknown suffix
+without an error, leaving the limit unset, so an unparseable size is refused here instead.
+*/}}
+{{- define "addons.natsSizeBytes" -}}
+{{- $raw := . -}}
+{{- if kindIs "float64" $raw -}}
+{{- $raw = int64 $raw -}}
+{{- end -}}
+{{- $size := toString $raw | trimPrefix "<<" | trimSuffix ">>" | trim | lower -}}
+{{- if not (regexMatch "^[0-9]+ *[a-z]*$" $size) -}}
+{{- fail (printf "nats.accountLimits.max_store %q is not a NATS size (expected an integer with an optional k, kb, m, mb, g, gb, t or tb suffix, e.g. << 6GB >>)" (toString .)) -}}
+{{- end -}}
+{{- $digits := regexFind "^[0-9]+" $size -}}
+{{- $suffix := trimPrefix $digits $size | trim -}}
+{{- $units := dict "" 1 "k" 1000 "kb" 1024 "ki" 1024 "kib" 1024 "m" 1000000 "mb" 1048576 "mi" 1048576 "mib" 1048576 "g" 1000000000 "gb" 1073741824 "gi" 1073741824 "gib" 1073741824 "t" 1000000000000 "tb" 1099511627776 "ti" 1099511627776 "tib" 1099511627776 -}}
+{{- if not (hasKey $units $suffix) -}}
+{{- fail (printf "nats.accountLimits.max_store %q is not a NATS size (suffix %q is not one nats-server parses; it would drop the limit silently)" (toString .) $suffix) -}}
+{{- end -}}
+{{- mul (atoi $digits) (get $units $suffix) -}}
+{{- end -}}
+
+{{/* Bytes for an integer Kubernetes storage quantity (20Gi, 512Mi, 2000M). */}}
+{{- define "addons.quantityBytes" -}}
+{{- $quantity := toString . | trim -}}
+{{- $digits := regexFind "^[0-9]+" $quantity -}}
+{{- $units := dict "" 1 "Ki" 1024 "Mi" 1048576 "Gi" 1073741824 "Ti" 1099511627776 "K" 1000 "M" 1000000 "G" 1000000000 "T" 1000000000000 -}}
+{{- $suffix := trimPrefix $digits $quantity -}}
+{{- if or (not $digits) (not (hasKey $units $suffix)) -}}
+{{- fail (printf "nats.jetstream.storage.size %q is not an integer storage quantity (expected e.g. 20Gi)" $quantity) -}}
+{{- end -}}
+{{- mul (atoi $digits) (get $units $suffix) -}}
+{{- end -}}
+
+{{/*
+The store level of ADR-043 D8's `jetstream_budget_rule`: the accounts' `max_store` values sum
+within ADR-042's 75% of the file store. Un-tiered limits count every replica while each peer holds
+one, so the budget scales with stream replicas. Below it, nats-config checks each account's streams.
+*/}}
+{{- define "addons.natsAssertAccountStoreBudget" -}}
+{{- $store := include "addons.quantityBytes" .Values.nats.jetstream.storage.size | int64 -}}
+{{- $replicas := .Values.nats.jetstream.streamReplicas | int64 -}}
+{{- $budget := mulf (float64 $store) 0.75 (float64 $replicas) -}}
+{{- $total := int64 0 -}}
+{{- range $name, $account := .accounts -}}
+{{- with $account.jetstream -}}
+{{- $total = add $total (include "addons.natsSizeBytes" .max_store | int64) -}}
+{{- end -}}
+{{- end -}}
+{{- if gt (float64 $total) $budget -}}
+{{- fail (printf "nats.accountLimits: the account max_store values sum to %d bytes, above the %.0f-byte budget (0.75 of the %d-byte file store x %d stream replicas); lower max_store or grow nats.jetstream.storage.size (ADR-043 D8 jetstream_budget_rule)" $total $budget $store $replicas) -}}
 {{- end -}}
 {{- end -}}

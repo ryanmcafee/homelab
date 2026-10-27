@@ -80,8 +80,10 @@ accounts:
     streams against the whole store, so it passes a configuration in which one account is
     overcommitted against its own `max_store` and admits the 10047 refusal the gate exists to
     prevent. Homelab's single account makes the two arithmetics identical, which is why the
-    discrepancy is invisible until a second account exists. RECONCILING THE GATE TO THE ACCOUNT
-    LEVEL GATES ONBOARDING THE SECOND TENANT, not the first. Storage limits bound storage only:
+    discrepancy is invisible until a second account exists. Both levels are render gates:
+    charts/nats-config `assertAccountReservation` checks maxBytes x replicas against the
+    account's max_store, the server's own 10047 arithmetic, and charts/addons
+    `natsAssertAccountStoreBudget` checks the accounts' sum. Storage limits bound storage only:
     CPU, connection count and shared-node contention stay shared-server residual risk.
 
 # ---------------------------------------------------------------------------------------------

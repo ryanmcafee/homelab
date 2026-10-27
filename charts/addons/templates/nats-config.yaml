@@ -33,6 +33,7 @@ spec:
         natsUrl: {{ .Values.nats.url | quote }}
         replicas: {{ .Values.nats.jetstream.streamReplicas }}
         fileStoreSize: {{ .Values.nats.jetstream.storage.size | quote }}
+        accountMaxStoreBytes: {{ include "addons.natsSizeBytes" .Values.nats.accountLimits.max_store }}
         {{- if $nkeys }}
         # The tenant account, from the same values that render the server's accounts block,
         # so the account NACK writes into and the account the server enforces cannot drift.
