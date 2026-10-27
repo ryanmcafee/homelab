@@ -968,6 +968,9 @@ paperclip:
     image:
       repository: ghcr.io/paperclipai/paperclip
       tag: "sha-d3e0f0a"
+    # psql for the PostSync heartbeat_runs index Job; same pin as the database.
+    dbIndexes:
+      image: "ghcr.io/cloudnative-pg/postgresql:17.11"
     # Seeded by the operator's admin-seed Job; the password is the ADMIN_PASSWORD
     # field of the paperclip-auth item. Homelab's admin exists since 2026-09-15,
     # so bootstrap is off there (operator 0.19.1 re-runs the Job while adminUser
