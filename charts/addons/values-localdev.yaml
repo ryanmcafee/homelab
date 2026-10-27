@@ -1368,11 +1368,13 @@ nats:
   # server offers is fatal for every account, not just the greedy one -- measured on v2.15.0
   # against this chart's own rendered nats.conf. `max_memory: 0` is the declared limit for a
   # file-store-only bus: no memory store is enabled, so a memory-backed stream is refused.
-  # `max_store` sits under the file store below, which is the ADR-043 budget rule at the
-  # account level for the one account homelab renders.
+  # Two levels (ADR-043 D8 `jetstream_budget_rule`): each account's `max_store` holds its
+  # streams' maxBytes x replicas, and the accounts' `max_store` values sum within 75% of the
+  # file store. Both charts refuse to render otherwise. Kind's 1536MB holds its 1152 MiB of
+  # limits; 1GB did not, so the server refused PF_DLQ with 10047.
   accountLimits:
     max_memory: 0
-    max_store: << 1GB >>
+    max_store: << 1536MB >>
     max_streams: 16
     max_consumers: 64
 

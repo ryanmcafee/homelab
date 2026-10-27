@@ -74,13 +74,19 @@ if [ -n "${MOVE_PAIRS:-}" ]; then
   [ -n "$probe_key" ] && [ -n "$move_key" ] || { echo "MOVE_PAIRS must carry nack-probe and nack-move" >&2; exit 1; }
   nack_user=$(NACK=$nack_key yq -o=json -I=0 ".config.merge.accounts.$account.users[] | select(.nkey == strenv(NACK))" "$OUT/values.yaml")
   widened() { printf '%s' "$nack_user" | KEY=$1 yq -p=json -o=json -I=0 '.nkey = strenv(KEY) | .permissions.subscribe.allow += ["_INBOX.>"]'; }
+  # NACK_MOVE gets its own small max_store: a copy of the tenant's would overcommit the file
+  # store, and a standalone server then refuses JetStream for every account (10047).
+  tenant_store=$(yq ".config.merge.accounts.$account.jetstream.max_store" "$OUT/values.yaml")
   PROBE=$(widened "$probe_key") MOVE=$(widened "$move_key") yq -i "
     .config.merge.accounts.$account.users += [strenv(PROBE) | from_json] |
     .config.merge.accounts.NACK_MOVE = .config.merge.accounts.$account |
-    .config.merge.accounts.NACK_MOVE.users = [strenv(MOVE) | from_json]" \
+    .config.merge.accounts.NACK_MOVE.users = [strenv(MOVE) | from_json] |
+    .config.merge.accounts.NACK_MOVE.jetstream = (.config.merge.accounts.$account.jetstream * {\"max_store\": \"<< 16MB >>\"})" \
     "$OUT/values.yaml"
   [ "$(yq '.config.merge.accounts.NACK_MOVE.users | length' "$OUT/values.yaml")" -eq 1 ] ||
     { echo "NACK_MOVE did not render exactly one user" >&2; exit 1; }
+  [ "$(yq ".config.merge.accounts.$account.jetstream.max_store" "$OUT/values.yaml")" = "$tenant_store" ] ||
+    { echo "giving NACK_MOVE its own max_store changed $account's" >&2; exit 1; }
   NACK=$nack_key yq -e ".config.merge.accounts.$account.users[] | select(.nkey == strenv(NACK)) |
     .permissions.subscribe.allow | all_c(. != \"_INBOX.>\")" "$OUT/values.yaml" >/dev/null ||
     { echo "nack lost its key or gained _INBOX.> in $account" >&2; exit 1; }

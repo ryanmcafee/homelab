@@ -49,6 +49,12 @@ fileStoreSize: 20Gi
 # being applied. The chart refuses to render above it.
 maxBytesBudgetFraction: 0.75
 
+# The tenant account's JetStream `max_store` in bytes, injected by the parent Application from
+# `nats.accountLimits.max_store`. The server reserves every stream's maxBytes x replicas against
+# it, so the chart refuses to render a stream set that does not fit. Required once
+# `account.natsName` is set; 0 is unset (ADR-043 D8 `jetstream_budget_rule`).
+accountMaxStoreBytes: 0
+
 # The tenant account every Stream and Consumer belongs to, injected by the parent
 # Application from the same values that render the server's `accounts {}` block, so the
 # account NACK writes into and the account the server enforces cannot drift.

@@ -76,4 +76,24 @@ message bytes. (ADR-042)
 {{- if gt (float64 $total) $budget -}}
 {{- fail (printf "nats-config: stream maxBytes total %d bytes exceeds the %.0f-byte budget (%v of the %d-byte JetStream file store); lower a stream's maxBytes or grow nats.jetstream.storage.size (ADR-042 max_bytes_sum_rule)" $total $budget $fraction $store) -}}
 {{- end -}}
+{{- include "nats-config.assertAccountReservation" (dict "Values" .Values "total" $total) -}}
+{{- end -}}
+
+{{/*
+The account level of ADR-043 D8's `jetstream_budget_rule`. nats-server reserves each stream's
+`max_bytes` against its account's `max_store`, times its replicas under un-tiered limits, and
+refuses the stream that crosses it with `insufficient storage resources (10047)`. The whole-store
+sum above cannot see this: it measures every account's streams against the whole store.
+*/}}
+{{- define "nats-config.assertAccountReservation" -}}
+{{- with .Values.account.natsName -}}
+{{- $maxStore := $.Values.accountMaxStoreBytes | default 0 | int64 -}}
+{{- if le $maxStore (int64 0) -}}
+{{- fail (printf "nats-config: accountMaxStoreBytes is unset for account %s; its streams cannot be checked against the account's max_store, which the server enforces on every stream create (ADR-043 D8)" .) -}}
+{{- end -}}
+{{- $reserved := mul $.total (int64 $.Values.replicas) -}}
+{{- if gt $reserved $maxStore -}}
+{{- fail (printf "nats-config: the streams reserve %d bytes against account %s's %d-byte max_store (maxBytes total %d x %d replicas), so the server refuses the last stream created with `insufficient storage resources (10047)`; lower a stream's maxBytes or raise nats.accountLimits.max_store within the file store (ADR-043 D8 jetstream_budget_rule)" $reserved . $maxStore $.total (int64 $.Values.replicas)) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}

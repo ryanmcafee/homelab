@@ -5632,6 +5632,7 @@ spec:
         natsUrl: "nats://nats.nats.svc.cluster.local:4222"
         replicas: 1
         fileStoreSize: "20Gi"
+        accountMaxStoreBytes: 16106127360
   destination:
     server: https://kubernetes.default.svc
     namespace: nats

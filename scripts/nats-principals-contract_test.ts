@@ -748,6 +748,8 @@ test("stream_and_consumer_name_account: every rendered Stream and Consumer sets 
     "account.natsName=TENANT_PROBE",
     "--set",
     "account.credentialSecret=nats-principal-nack",
+    "--set",
+    `accountMaxStoreBytes=${6 * 1024 ** 3}`,
   );
   assert(
     rendered.code === 0,
