@@ -4515,14 +4515,16 @@ spec:
                   # `unless`, not absent(): absent() emits no namespace or job,
                   # so it cannot be joined on them and it reads the whole
                   # selector - one install still reporting hid a blind one.
+                  # The tenant-account branch has no 6h lookback, so a tenant
+                  # whose PF_WORK never appeared or vanished long ago still fires.
                   - alert: PFWorkStreamMetricsAbsent
-                    expr: 'max by (account, stream_name, namespace, job) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0 unless on (account, stream_name, namespace, job) homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}'
+                    expr: '(max by (account, stream_name, namespace, job) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0 or label_replace(max by (account, namespace, job) (nats_account_storage_used{account=~"TENANT_.+"}), "stream_name", "PF_WORK", "", "")) unless on (account, stream_name, namespace, job) homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}'
                     for: 30m
                     labels:
                       severity: warning
                     annotations:
                       summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
-                      description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+                      description: 'Account {{ $labels.account }} reports no PF_WORK: either the exporter reported it within the last 6h and no longer does, or a tenant account is live with no PF_WORK stream at all. While this is firing nothing watches its 24h age budget. Check the stream exists in that account, then the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
                   # Storage budget (docs/runbooks/jetstream-storage-budget.md).
                   # ADR-042 bounds every stream with max_bytes and states the sum
                   # rule: the four limits must total below the file store. That

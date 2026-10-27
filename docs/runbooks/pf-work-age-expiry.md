@@ -88,7 +88,7 @@ All four are in the `homelab-nats-jetstream` group of
 | `PFWorkOldestUnackedAging` | warning | `first_seq` unmoved for 12h while the stream was never empty | 12h |
 | `PFWorkOldestUnackedAging` | critical | the same for 18h | **6h** |
 | `PFWorkMessagesExpiredUnacked` | critical | the head advanced further than every consumer ack floor did: messages left the stream unacked | none, loss already happened |
-| `PFWorkStreamMetricsAbsent` | warning | the exporter reported `PF_WORK` in the last 6h and no longer does | unknown — the monitor is blind |
+| `PFWorkStreamMetricsAbsent` | warning | the exporter reported `PF_WORK` in the last 6h and no longer does, or a `TENANT_*` account reports with no `PF_WORK` | unknown — the monitor is blind |
 
 Both aging rules share one `alertname`, so Alertmanager's severity inhibition drops the warning
 notification when the critical fires.
@@ -228,6 +228,14 @@ Nothing is watching the 24h budget while this is firing, and the budget keeps ru
 per account and install: it fires for each `(account, namespace, job)` that reported `PF_WORK` in
 the last 6h and no longer does, so the alert's own `account` and `namespace` labels are the ones to
 act on — another account or a second NATS still reporting does not suppress it.
+
+It also fires for a tenant account (one matching `accountNameTemplate` in
+`charts/addons/files/nats-accounts.gen.yaml`) whose `nats_account_storage_used` is arriving with no
+`PF_WORK` stream beside it. That branch has no 6h window, so it does not resolve while the tenant
+stays blind, and it catches a newly onboarded tenant whose stream was never created. When the
+account reports and the stream does not, the exporter is fine: run
+`nats stream info PF_WORK` with that tenant's context, and if the stream is missing, check the NACK
+`Stream` resource for that tenant (`kubectl get streams.jetstream.nats.io -A`).
 
 Renaming an install (moving NATS to another namespace, or changing its scrape `job`) also fires
 it, for the old label set. Once the new label set is reporting and PF_WORK depth looks right, the

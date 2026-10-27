@@ -187,7 +187,7 @@ Homelab rules live in `additionalPrometheusRulesMap`:
 | homelab-paperclip | `PaperclipPhantomAgentStuck` | warning | an agent reports `running` without a live run for 15 m |
 | homelab-nats-jetstream | `PFWorkOldestUnackedAging` | warning / critical | the head of the `PF_WORK` work queue has been unacked for 12 h / 18 h of its 24 h `max_age`, which deletes it silently ([pf-work-age-expiry.md](./pf-work-age-expiry.md)) |
 | homelab-nats-jetstream | `PFWorkMessagesExpiredUnacked` | critical | `PF_WORK` messages left the stream without being acked: age expiry, a purge or a delete |
-| homelab-nats-jetstream | `PFWorkStreamMetricsAbsent` | warning | the exporter reported `PF_WORK` in the last 6 h and no longer does, so the age budget is unwatched, for 30 m |
+| homelab-nats-jetstream | `PFWorkStreamMetricsAbsent` | warning | the exporter reported `PF_WORK` in the last 6 h and no longer does, or a `TENANT_*` account reports with no `PF_WORK`, so the age budget is unwatched, for 30 m |
 | homelab-nats-jetstream | `JetStreamFileStoreFillingUp` | warning / critical | the shared file store is above 75 % / 90 % of `max_file_store`, where the peer refuses writes for every stream on it ([jetstream-storage-budget.md](./jetstream-storage-budget.md)) |
 | homelab-nats-jetstream | `JetStreamFileStoreMetricsAbsent` | warning | the exporter reported account storage in the last 6 h and no longer does, so the store is unwatched, for 30 m |
 | homelab-nats-jetstream | `JetStreamStreamApproachingMaxBytes` | warning / critical | one stream is above 75 % / 90 % of its own `max_bytes`, which the file-store alert cannot see |

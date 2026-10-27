@@ -199,7 +199,7 @@ tests:
               job: nats
             exp_annotations:
               summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
-              description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+              description: 'Account  reports no PF_WORK: either the exporter reported it within the last 6h and no longer does, or a tenant account is live with no PF_WORK stream at all. While this is firing nothing watches its 24h age budget. Check the stream exists in that account, then the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
 
   # 8. Two NATS installs scraped by one Prometheus - the homelab stream and a
   #    test install in another namespace - each losing a different amount of
@@ -271,7 +271,7 @@ tests:
               job: nats
             exp_annotations:
               summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
-              description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+              description: 'Account  reports no PF_WORK: either the exporter reported it within the last 6h and no longer does, or a tenant account is live with no PF_WORK stream at all. While this is firing nothing watches its 24h age budget. Check the stream exists in that account, then the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
 
   # 10. Production is clustered (NATS_SERVER_REPLICAS: 3) and the exporter reports
   #     one series per server, so the recorded SLI has to collapse three views
