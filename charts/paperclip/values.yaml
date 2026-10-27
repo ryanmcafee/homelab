@@ -172,6 +172,25 @@ probes:
 # "auth.baseUrlMode=explicit requires auth.publicBaseUrl" check.
 extraEnv: []
 
+# Removes database.connectionString, which the operator's onboard step writes into
+# the instance config.json on the data volume that agent runs can read
+# (templates/config-scrub.yaml, files/paperclip-config-scrub.ts). The server takes
+# DATABASE_URL from database.secretName instead. Runs after onboard, before dotfiles.
+configScrub:
+  enabled: true
+  # The operator's instance config; its instance id is always "default".
+  configPath: /paperclip/instances/default/config.json
+  # The operator's data volume and the mount path that holds configPath.
+  dataVolume: paperclip-data
+  dataMountPath: /paperclip
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
 # The operator's own Claude Code setup for the agents (templates/dotfiles.yaml,
 # files/paperclip-dotfiles.ts): an init container clones any dotfiles repository
 # into the data volume, runs its setup command, symlinks its Claude directory into
