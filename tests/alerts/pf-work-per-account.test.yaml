@@ -3,33 +3,39 @@
 # docs/runbooks/pf-work-age-expiry.md).
 #
 # ADR-043 gives every tenant its own NATS account, and PF_WORK exists once per
-# account. prometheus-nats-exporter 0.20.1 labels every nats_stream_* and
-# nats_consumer_* series with `account` (collector/jsz.go), so two tenants in the
-# same namespace and job differ only by that label. Aggregating it away maxes one
-# tenant's head against the other's, so each case below was silent before the
-# rules kept `account`: a real loss, a blind tenant and an aging head all hidden
-# by a healthy neighbour.
+# account. prometheus-nats-exporter 0.20.1 (collector/jsz.go) labels every
+# nats_stream_*, nats_consumer_* and nats_account_* series with the server
+# labels plus `account`, `account_name` and `account_id`; with a static
+# accounts block all three carry the account name, so two tenants in the same
+# namespace and job differ only by those. The series below carry the label set
+# a single-node install emits: nats-server 2.15.0 names itself stream leader
+# for a stream with no raft group, but sets no consumer Cluster block, so
+# consumer_leader is empty (absent). Account names follow files/nats-accounts.gen.yaml's accountNameTemplate, TENANT_<TENANT>.
+#
+# Aggregating `account` away maxes one tenant's head against the other's, so
+# each case below was silent before the rules kept it: a real loss, a blind
+# tenant and an aging head all hidden by a healthy neighbour.
 rule_files:
   - rules.yaml
 
 evaluation_interval: 1m
 
 tests:
-  # 1. tenant-a loses three messages with no consumer bound; tenant-b drains two
-  #    and acks both. Collapsed, tenant-b's head (10 -> 12) won the max and its
-  #    two acks cancelled the advance, so tenant-a's loss read as zero.
+  # 1. TENANT_ACME loses three messages with no consumer bound; TENANT_GLOBEX
+  #    drains two and acks both. Collapsed, GLOBEX's head (10 -> 12) won the max
+  #    and its two acks cancelled the advance, so ACME's loss read as zero.
   - interval: 30s
     name: one account's loss is not netted against another account's acks
     input_series:
-      - series: 'nats_stream_first_seq{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+      - series: 'nats_stream_first_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_ACME",account_name="TENANT_ACME",account_id="TENANT_ACME",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '1+0x10 4+0x20'
-      - series: 'nats_stream_total_messages{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+      - series: 'nats_stream_total_messages{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_ACME",account_name="TENANT_ACME",account_id="TENANT_ACME",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '3+0x10 0+0x20'
-      - series: 'nats_stream_first_seq{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+      - series: 'nats_stream_first_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '10+0x10 12+0x20'
-      - series: 'nats_stream_total_messages{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+      - series: 'nats_stream_total_messages{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '2+0x10 0+0x20'
-      - series: 'nats_consumer_ack_floor_stream_seq{account="tenant-b",stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="true",namespace="nats",job="nats"}'
+      - series: 'nats_consumer_ack_floor_stream_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",consumer_name="worker-workload-v1",is_consumer_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '9+0x10 11+0x20'
     alert_rule_test:
       - eval_time: 8m
@@ -37,7 +43,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: critical
-              account: tenant-a
+              account: TENANT_ACME
               stream_name: PF_WORK
               namespace: nats
               job: nats
@@ -45,50 +51,91 @@ tests:
               summary: '3 PF_WORK messages left the stream without being acked'
               description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
 
-  # 2. tenant-a stops reporting while tenant-b keeps reporting from the same
-  #    exporter. Collapsed, tenant-b kept the per-install series alive and the
-  #    blind tenant was invisible.
+  # 2. TENANT_ACME's PF_WORK stops reporting at 1h while its account and
+  #    TENANT_GLOBEX keep reporting from the same exporter. Collapsed, GLOBEX
+  #    kept the per-install series alive and the blind tenant was invisible.
+  #    The 6h lookback alone resolved at ~7h with ACME still blind; the account
+  #    branch keeps it firing at 8h.
   - interval: 30s
     name: one account goes blind while another keeps reporting
     input_series:
-      - series: 'nats_stream_first_seq{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
-        values: '1+0x120 _x120'
-      - series: 'nats_stream_total_messages{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
-        values: '3+0x120 _x120'
-      - series: 'nats_stream_first_seq{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
-        values: '5+0x240'
-      - series: 'nats_stream_total_messages{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
-        values: '3+0x240'
+      - series: 'nats_stream_first_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_ACME",account_name="TENANT_ACME",account_id="TENANT_ACME",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '1+0x120 _x900'
+      - series: 'nats_stream_total_messages{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_ACME",account_name="TENANT_ACME",account_id="TENANT_ACME",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '3+0x120 _x900'
+      - series: 'nats_account_storage_used{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_ACME",account_name="TENANT_ACME",account_id="TENANT_ACME",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '4096+0x1020'
+      - series: 'nats_stream_first_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '5+0x1020'
+      - series: 'nats_stream_total_messages{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '3+0x1020'
+      - series: 'nats_account_storage_used{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '4096+0x1020'
     alert_rule_test:
       - eval_time: 55m
         alertname: PFWorkStreamMetricsAbsent
         exp_alerts: []
       - eval_time: 1h40m
         alertname: PFWorkStreamMetricsAbsent
-        exp_alerts:
+        exp_alerts: &acme-blind
           - exp_labels:
               severity: warning
-              account: tenant-a
+              account: TENANT_ACME
               stream_name: PF_WORK
               namespace: nats
               job: nats
             exp_annotations:
               summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
-              description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+              description: 'Account TENANT_ACME reports no PF_WORK: either the exporter reported it within the last 6h and no longer does, or a tenant account is live with no PF_WORK stream at all. While this is firing nothing watches its 24h age budget. Check the stream exists in that account, then the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+      - eval_time: 8h
+        alertname: PFWorkStreamMetricsAbsent
+        exp_alerts: *acme-blind
 
-  # 3. tenant-a's head freezes with work queued; tenant-b's head keeps advancing
-  #    at a higher sequence. Collapsed, the max followed tenant-b, so changes()
-  #    never saw tenant-a's head stop.
+  # 3. TENANT_INITECH is onboarded and its account reports, but PF_WORK was
+  #    never created in it. The 6h lookback never saw a sample, so only the
+  #    account branch fires. $G, the default account a server without an
+  #    accounts block uses, carries no PF_WORK and is not a tenant: it must not.
+  - interval: 30s
+    name: a tenant account that never had PF_WORK is reported, a non-tenant account is not
+    input_series:
+      - series: 'nats_account_storage_used{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_INITECH",account_name="TENANT_INITECH",account_id="TENANT_INITECH",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '0+0x120'
+      - series: 'nats_account_storage_used{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="$G",account_name="$G",account_id="$G",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '0+0x120'
+      - series: 'nats_stream_first_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '5+0x120'
+      - series: 'nats_account_storage_used{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '4096+0x120'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PFWorkStreamMetricsAbsent
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: PFWorkStreamMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              account: TENANT_INITECH
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
+              description: 'Account TENANT_INITECH reports no PF_WORK: either the exporter reported it within the last 6h and no longer does, or a tenant account is live with no PF_WORK stream at all. While this is firing nothing watches its 24h age budget. Check the stream exists in that account, then the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+
+  # 4. TENANT_ACME's head freezes with work queued; TENANT_GLOBEX's head keeps
+  #    advancing at a higher sequence. Collapsed, the max followed GLOBEX, so
+  #    changes() never saw ACME's head stop.
   - interval: 30s
     name: one account's aging head is not hidden by another account's progress
     input_series:
-      - series: 'nats_stream_first_seq{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+      - series: 'nats_stream_first_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_ACME",account_name="TENANT_ACME",account_id="TENANT_ACME",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '1+0x240 2+0x2700'
-      - series: 'nats_stream_total_messages{account="tenant-a",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+      - series: 'nats_stream_total_messages{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_ACME",account_name="TENANT_ACME",account_id="TENANT_ACME",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '3+0x2940'
-      - series: 'nats_stream_first_seq{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+      - series: 'nats_stream_first_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '100+1x2940'
-      - series: 'nats_stream_total_messages{account="tenant-b",stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats"}'
+      - series: 'nats_stream_total_messages{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '3+0x2940'
     alert_rule_test:
       - eval_time: 14h30m
@@ -96,7 +143,7 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: warning
-              account: tenant-a
+              account: TENANT_ACME
               stream_name: PF_WORK
               namespace: nats
               job: nats
