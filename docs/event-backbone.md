@@ -290,6 +290,13 @@ caught by `nats-server -t`:
   `max_store` above `max_file_store` gives `insufficient storage resources (10047)`. This
   chart enables only the file store, so `max_memory` is 0 and a non-zero value is refused at
   render rather than at startup.
+- A stream set larger than its account's `max_store` is refused one stream at a time. The
+  server reserves each stream's `max_bytes x replicas` against the account and refuses the stream
+  that crosses it with the same 10047, while the streams created before it run normally. Both
+  levels of ADR-043 D8's `jetstream_budget_rule` are therefore render gates. nats-config refuses a
+  stream set whose reservation exceeds `accountMaxStoreBytes`, which the parent injects from
+  `nats.accountLimits.max_store`. The addons chart refuses accounts whose `max_store` values sum
+  above 75% of the file store times the stream replicas.
 
 Generation, custody, activation prerequisites, offline `$SYS` break-glass and the rotation and
 revocation procedures are `docs/runbooks/nats-credentials.md`. Generate the pairs with
