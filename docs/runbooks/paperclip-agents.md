@@ -130,6 +130,18 @@ paperclip_agent_runs_live
 Silence with a bound while you work through the roster:
 `amtool silence add alertname=PaperclipPhantomAgentStuck --duration=2h` ([alerting.md](./alerting.md)).
 
+## Verifying these rules
+
+`task test:alerts` evaluates them with promtool against the expressions the addons chart renders,
+so a test cannot drift from what deploys. `tests/alerts/paperclip-recovery.test.yaml` drives them
+with the values the API reported during the 2026-09-24 batch sandbox drop and asserts both arms of
+each threshold: the five-run floor on `PaperclipAgentFailureRateHigh`, the `breached` join on
+`PaperclipRecoveryRateBreached` (a high rate alone must stay silent), and the three-agent plus
+no-live-run pair that separates the two `PaperclipPhantomAgentStuck` tiers.
+
+Every firing assertion pins the rendered annotations, so removing a runbook link from an alert
+fails the suite. Changing a threshold without changing the test fails it too - that is the point.
+
 ## Related
 
 - [alerting.md](./alerting.md): routing, receivers, silences
