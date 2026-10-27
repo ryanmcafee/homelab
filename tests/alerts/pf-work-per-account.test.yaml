@@ -7,9 +7,10 @@
 # nats_stream_*, nats_consumer_* and nats_account_* series with the server
 # labels plus `account`, `account_name` and `account_id`; with a static
 # accounts block all three carry the account name, so two tenants in the same
-# namespace and job differ only by those. The series below carry that full label set as a single-node install
-# emits it (no cluster or meta leader, so is_stream_leader="true"). Account
-# names follow files/nats-accounts.gen.yaml's accountNameTemplate, TENANT_<TENANT>.
+# namespace and job differ only by those. The series below carry the label set
+# a single-node install emits: nats-server 2.15.0 names itself stream leader
+# for a stream with no raft group, but sets no consumer Cluster block, so
+# consumer_leader is empty (absent). Account names follow files/nats-accounts.gen.yaml's accountNameTemplate, TENANT_<TENANT>.
 #
 # Aggregating `account` away maxes one tenant's head against the other's, so
 # each case below was silent before the rules kept it: a real loss, a blind
@@ -34,7 +35,7 @@ tests:
         values: '10+0x10 12+0x20'
       - series: 'nats_stream_total_messages{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '2+0x10 0+0x20'
-      - series: 'nats_consumer_ack_floor_stream_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",consumer_name="worker-workload-v1",consumer_leader="nats-0",is_consumer_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+      - series: 'nats_consumer_ack_floor_stream_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",consumer_name="worker-workload-v1",is_consumer_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '9+0x10 11+0x20'
     alert_rule_test:
       - eval_time: 8m
