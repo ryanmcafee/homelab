@@ -10,8 +10,7 @@ spec:
   timeouts:
     apply: 2m
     assert: 10m
-    # Deleting a chainsaw namespace that held a CloudNativePG Cluster takes
-    # over two minutes on a long-lived Kind cluster (the assert itself passes).
+    # e2e CNPG Clusters must set stopDelay below this (scripts/e2e-cnpg-cleanup-budget_test.ts).
     cleanup: 3m
     delete: 3m
     error: 2m
