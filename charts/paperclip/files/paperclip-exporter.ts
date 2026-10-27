@@ -5,13 +5,9 @@
  * On every GET /metrics it reads the Paperclip REST API with a board API key
  * and reports, per active company: runs finished in the last RUN_WINDOW_SECONDS
  * by status and error code, agents by status, live runs, agents that report
- * `running` without a live run ("phantom"), and the latest week of
- * recovery-observability. paperclip_up is 0 when any request fails.
- *
- * Live runs come from /live-runs together with the queued, running and
- * scheduled_retry runs among the newest RUN_LIMIT heartbeat runs: /live-runs
- * returns at most 50 entries, so on its own it would undercount live runs and
- * report agents whose run is past the cap as phantom.
+ * `running` without a credible live run ("phantom"), the latest week of
+ * recovery-observability, and open issues stranded behind an unfinished wake
+ * record. paperclip_up is 0 when any request fails.
  *
  * Runs from a ConfigMap in the stock oven/bun image (charts/paperclip
  * templates/exporter.yaml), so it has no dependencies beyond Bun itself.
@@ -23,6 +19,11 @@
  *   RUN_LIMIT            newest runs read per company (default 500, API max 1000)
  *   REQUEST_TIMEOUT_MS   per request (default 10000)
  *   PORT                 listen port (default 9464)
+ *   STALE_WAKE_MINUTES   a claimed wake older than this is stale (default 30)
+ *   STALE_WAKE_INTERVAL_SECONDS  seconds between wake sweeps (default 300)
+ *   STALE_WAKE_MAX_ISSUES        issues read per sweep (default 200)
+ *   PHANTOM_STALE_SECONDS        an agent heartbeat older than this is not
+ *                                credible evidence of life (default 1800)
  */
 
 export const TERMINAL_STATUSES = [
@@ -34,12 +35,25 @@ export const TERMINAL_STATUSES = [
 ] as const;
 const LIVE_STATUSES = new Set(["queued", "running", "scheduled_retry"]);
 
+/** Issue statuses that can still be dispatched, so a stranded one costs delivery. */
+export const OPEN_ISSUE_STATUSES = [
+  "todo",
+  "in_progress",
+  "in_review",
+  "blocked",
+  "backlog",
+] as const;
+
+/** Issues read concurrently during a wake sweep. */
+const SWEEP_CONCURRENCY = 8;
+
 export interface Company {
   id: string;
   name: string;
   status: string;
 }
 export interface Run {
+  id: string | null;
   agentId: string | null;
   status: string;
   finishedAt: string | null;
@@ -48,11 +62,36 @@ export interface Run {
 export interface Agent {
   id: string;
   status: string;
+  lastHeartbeatAt: string | null;
 }
 export interface LiveRun {
+  id: string | null;
   agentId: string;
   status: string;
 }
+export interface Issue {
+  id: string;
+  identifier: string;
+}
+export interface WakeEvent {
+  kind: string;
+  status: string;
+  runId: string | null;
+  claimedAt: string | null;
+  finishedAt: string | null;
+}
+/**
+ * One pass over the open issues of a company, cached between scrapes because it
+ * costs one request per issue (there is no company-level wake endpoint).
+ */
+export interface WakeSweep {
+  openIssues: number;
+  sweptIssues: number;
+  stranded: number;
+  truncated: boolean;
+  sweptAtMs: number;
+}
+export type WakeSweepCache = Map<string, WakeSweep>;
 export interface Recovery {
   thresholdPercent: number;
   breached: boolean;
@@ -71,11 +110,13 @@ export interface CompanyMetrics {
   company: Company;
   summary: Summary;
   recovery: Recovery;
+  wakeSweep: WakeSweep | null;
 }
 export interface ScrapeResult {
   up: boolean;
   durationSeconds: number;
   windowSeconds: number;
+  nowMs: number;
   companies: CompanyMetrics[];
 }
 export interface ExporterConfig {
@@ -85,6 +126,10 @@ export interface ExporterConfig {
   runLimit: number;
   requestTimeoutMs: number;
   port: number;
+  staleWakeMinutes: number;
+  staleWakeIntervalSeconds: number;
+  staleWakeMaxIssues: number;
+  phantomStaleSeconds: number;
 }
 export type Logger = (msg: string) => void;
 
@@ -127,6 +172,7 @@ export function parseCompanies(json: unknown): Company[] {
 
 export function parseRuns(json: unknown): Run[] {
   return records(json, "heartbeat-runs").map((r) => ({
+    id: str(r["id"]),
     agentId: str(r["agentId"]),
     status: requireString(r, "status", "heartbeat-runs"),
     finishedAt: str(r["finishedAt"]),
@@ -138,14 +184,67 @@ export function parseAgents(json: unknown): Agent[] {
   return records(json, "agents").map((a) => ({
     id: requireString(a, "id", "agents"),
     status: requireString(a, "status", "agents"),
+    lastHeartbeatAt: str(a["lastHeartbeatAt"]),
   }));
 }
 
 export function parseLiveRuns(json: unknown): LiveRun[] {
   return records(json, "live-runs").map((r) => ({
+    id: str(r["id"]),
     agentId: requireString(r, "agentId", "live-runs"),
     status: str(r["status"]) ?? "",
   }));
+}
+
+export function parseIssues(json: unknown): Issue[] {
+  const list = Array.isArray(json)
+    ? json
+    : isRecord(json) && Array.isArray(json["issues"])
+      ? json["issues"]
+      : json;
+  return records(list, "issues").map((i) => ({
+    id: requireString(i, "id", "issues"),
+    identifier: str(i["identifier"]) ?? "",
+  }));
+}
+
+export function parseWakeEvents(json: unknown): WakeEvent[] {
+  if (!isRecord(json)) {
+    throw new Error("diagnostics/wakes: expected a JSON object");
+  }
+  return records(json["events"] ?? [], "diagnostics/wakes").map((e) => ({
+    kind: str(e["kind"]) ?? "",
+    status: str(e["status"]) ?? "",
+    runId: str(e["runId"]),
+    claimedAt: str(e["claimedAt"]),
+    finishedAt: str(e["finishedAt"]),
+  }));
+}
+
+/**
+ * True when a wake request was claimed by a run that is gone and never finished.
+ *
+ * A sandbox drop terminalizes the run row but leaves the wake record `claimed`
+ * with a null `finishedAt`, and the dispatcher will not wake an issue behind an
+ * outstanding claim — every later wake lands `deferred_issue_execution`. The
+ * issue row still looks healthy, so this ledger read is the only signal.
+ *
+ * The age floor is what keeps a genuinely in-flight run from being counted; the
+ * live-run check is what proves the claimant is dead rather than merely slow.
+ */
+export function isStrandedByWake(
+  events: WakeEvent[],
+  liveRunIds: Set<string>,
+  now: number,
+  staleMinutes: number,
+): boolean {
+  const floor = now - staleMinutes * 60 * 1000;
+  return events.some((e) => {
+    if (e.kind !== "wake_request") return false;
+    if (e.status !== "claimed" || e.finishedAt !== null) return false;
+    if (e.claimedAt === null || Date.parse(e.claimedAt) > floor) return false;
+    return e.runId === null || !liveRunIds.has(e.runId);
+  });
 }
 
 export function parseRecovery(json: unknown): Recovery {
@@ -174,10 +273,27 @@ function countBy<T>(items: T[], key: (item: T) => string | null) {
   return counts;
 }
 
+/**
+ * A dead run can keep `heartbeat_runs.status = "running"`, so a live run row is
+ * not evidence the agent is working. `lastHeartbeatAt` is not falsified by the
+ * stall, so an agent whose heartbeat has gone quiet is phantom even with one.
+ */
+export function heartbeatStale(
+  agent: Agent,
+  now: number,
+  staleSeconds: number,
+): boolean {
+  if (agent.lastHeartbeatAt === null) return true;
+  const at = Date.parse(agent.lastHeartbeatAt);
+  if (Number.isNaN(at)) return true;
+  return now - at > staleSeconds * 1000;
+}
+
 export function summarize(
   data: { runs: Run[]; agents: Agent[]; liveRuns: LiveRun[] },
   now: number,
   windowSeconds: number,
+  phantomStaleSeconds: number,
 ): Summary {
   const since = now - windowSeconds * 1000;
   const finished = data.runs.filter((r) => {
@@ -192,21 +308,31 @@ export function summarize(
       finishedByStatus[run.status] = (finishedByStatus[run.status] ?? 0) + 1;
     }
   }
-  // /live-runs caps its response (flat at 50), so a running agent whose run
-  // is past the cap would look phantom. The newest heartbeat runs fill the gap.
+  // /live-runs is capped server-side and takes no limit, so it alone would
+  // misreport a busy company's live set and invent phantom agents.
   const live = data.liveRuns.filter((r) => LIVE_STATUSES.has(r.status));
-  const liveHeartbeat = data.runs.filter((r) => LIVE_STATUSES.has(r.status));
-  const agentsWithLiveRun = new Set(live.map((r) => r.agentId));
-  for (const run of liveHeartbeat) {
-    if (run.agentId !== null) agentsWithLiveRun.add(run.agentId);
+  const liveFromRuns = data.runs.filter((r) => LIVE_STATUSES.has(r.status));
+  const agentsWithLiveRun = new Set<string>();
+  for (const run of live) agentsWithLiveRun.add(run.agentId);
+  for (const run of liveFromRuns) {
+    if (run.agentId) agentsWithLiveRun.add(run.agentId);
+  }
+  const liveRunIds = new Set<string>();
+  let liveWithoutId = 0;
+  for (const run of [...live, ...liveFromRuns]) {
+    if (run.id) liveRunIds.add(run.id);
+    else liveWithoutId += 1;
   }
   return {
     finishedByStatus,
     errorsByCode: countBy(finished, (r) => r.errorCode),
     agentsByStatus: countBy(data.agents, (a) => a.status),
-    liveRuns: Math.max(live.length, liveHeartbeat.length),
+    liveRuns: liveRunIds.size + liveWithoutId,
     phantomRunning: data.agents.filter(
-      (a) => a.status === "running" && !agentsWithLiveRun.has(a.id),
+      (a) =>
+        a.status === "running" &&
+        (!agentsWithLiveRun.has(a.id) ||
+          heartbeatStale(a, now, phantomStaleSeconds)),
     ).length,
   };
 }
@@ -264,7 +390,7 @@ export function renderMetrics(result: ScrapeResult): string {
   const agents = family("paperclip_agents", "Agents by status.");
   const phantom = family(
     "paperclip_agents_phantom_running",
-    "Agents with status running but no live run.",
+    "Agents with status running and no credible live run (a dead run row can stay running, so a stale heartbeat counts).",
   );
   const rate = family(
     "paperclip_recovery_rate_percent",
@@ -286,9 +412,34 @@ export function renderMetrics(result: ScrapeResult): string {
     "paperclip_recovery_week_actions",
     "Recovery actions in the latest recovery-observability week.",
   );
+  const openIssues = family(
+    "paperclip_issues_open",
+    "Open issues read by the last wake sweep.",
+  );
+  const sweptIssues = family(
+    "paperclip_issues_wake_swept",
+    "Open issues actually swept, below paperclip_issues_open when capped.",
+  );
+  const stranded = family(
+    "paperclip_issues_wake_stranded",
+    "Open issues carrying a claimed wake record whose run is terminal: the mark a sandbox drop leaves.",
+  );
+  const sweepAge = family(
+    "paperclip_wake_sweep_age_seconds",
+    "Age of the cached wake sweep; grows without bound if sweeps stop succeeding.",
+  );
 
-  for (const { company, summary, recovery } of result.companies) {
+  for (const { company, summary, recovery, wakeSweep } of result.companies) {
     const base = { company_id: company.id, company: company.name };
+    if (wakeSweep) {
+      openIssues.samples.push({ labels: base, value: wakeSweep.openIssues });
+      sweptIssues.samples.push({ labels: base, value: wakeSweep.sweptIssues });
+      stranded.samples.push({ labels: base, value: wakeSweep.stranded });
+      sweepAge.samples.push({
+        labels: base,
+        value: Math.max(0, (result.nowMs - wakeSweep.sweptAtMs) / 1000),
+      });
+    }
     for (const [status, value] of Object.entries(summary.finishedByStatus)) {
       finished.samples.push({ labels: { ...base, status }, value });
     }
@@ -321,6 +472,10 @@ export function renderMetrics(result: ScrapeResult): string {
     breached,
     weekRuns,
     weekActions,
+    openIssues,
+    sweptIssues,
+    stranded,
+    sweepAge,
   ]
     .filter((f) => f.samples.length > 0)
     .map((f) =>
@@ -348,10 +503,69 @@ async function getJson(cfg: ExporterConfig, path: string): Promise<unknown> {
   return res.json();
 }
 
+/** Run `worker` over `items` at most SWEEP_CONCURRENCY at a time. */
+async function mapLimit<T, R>(
+  items: T[],
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const lanes = Array.from(
+    { length: Math.min(SWEEP_CONCURRENCY, items.length) },
+    async () => {
+      for (let i = next++; i < items.length; i = next++) {
+        out[i] = await worker(items[i] as T);
+      }
+    },
+  );
+  await Promise.all(lanes);
+  return out;
+}
+
+/**
+ * Count open issues stranded behind an unfinished wake record.
+ *
+ * One request per open issue, so it is rate-limited by
+ * STALE_WAKE_INTERVAL_SECONDS rather than run on every scrape, and capped at
+ * STALE_WAKE_MAX_ISSUES so a large board cannot stall the exporter.
+ */
+export async function sweepWakes(
+  cfg: ExporterConfig,
+  company: Company,
+  liveRunIds: Set<string>,
+  now: number,
+): Promise<WakeSweep> {
+  const base = `/companies/${encodeURIComponent(company.id)}`;
+  const query = `status=${OPEN_ISSUE_STATUSES.join(",")}&limit=${cfg.staleWakeMaxIssues}`;
+  const issues = parseIssues(await getJson(cfg, `${base}/issues?${query}`));
+  const swept = issues.slice(0, cfg.staleWakeMaxIssues);
+  const flags = await mapLimit(swept, async (issue) => {
+    const wakes = await getJson(
+      cfg,
+      `/issues/${encodeURIComponent(issue.id)}/diagnostics/wakes`,
+    );
+    return isStrandedByWake(
+      parseWakeEvents(wakes),
+      liveRunIds,
+      now,
+      cfg.staleWakeMinutes,
+    );
+  });
+  return {
+    openIssues: issues.length,
+    sweptIssues: swept.length,
+    stranded: flags.filter(Boolean).length,
+    truncated: issues.length > swept.length,
+    sweptAtMs: now,
+  };
+}
+
 async function collectCompany(
   cfg: ExporterConfig,
   company: Company,
   now: number,
+  cache: WakeSweepCache,
+  logError: Logger,
 ): Promise<CompanyMetrics> {
   const base = `/companies/${encodeURIComponent(company.id)}`;
   const [runs, agents, liveRuns, recovery] = await Promise.all([
@@ -360,31 +574,88 @@ async function collectCompany(
     getJson(cfg, `${base}/live-runs`),
     getJson(cfg, `${base}/recovery-observability`),
   ]);
+  const parsedLiveRuns = parseLiveRuns(liveRuns);
+  const parsedRuns = parseRuns(runs);
   return {
     company,
     summary: summarize(
       {
-        runs: parseRuns(runs),
+        runs: parsedRuns,
         agents: parseAgents(agents),
-        liveRuns: parseLiveRuns(liveRuns),
+        liveRuns: parsedLiveRuns,
       },
       now,
       cfg.windowSeconds,
+      cfg.phantomStaleSeconds,
     ),
     recovery: parseRecovery(recovery),
+    wakeSweep: await cachedSweep(
+      cfg,
+      company,
+      parsedLiveRuns,
+      parsedRuns,
+      now,
+      cache,
+      logError,
+    ),
   };
 }
+
+/**
+ * Serve the cached sweep until it ages past STALE_WAKE_INTERVAL_SECONDS.
+ *
+ * A failed sweep keeps the previous result rather than blanking the series —
+ * paperclip_wake_sweep_age_seconds is what shows the value went stale, so a
+ * silently failing sweep is visible instead of looking like zero stranded.
+ */
+async function cachedSweep(
+  cfg: ExporterConfig,
+  company: Company,
+  liveRuns: LiveRun[],
+  runs: Run[],
+  now: number,
+  cache: WakeSweepCache,
+  logError: Logger,
+): Promise<WakeSweep | null> {
+  const previous = cache.get(company.id) ?? null;
+  const fresh =
+    previous !== null &&
+    now - previous.sweptAtMs < cfg.staleWakeIntervalSeconds * 1000;
+  if (fresh) return previous;
+  // Missing a live run id here would report its healthy wake as stranded, so
+  // widen past the capped /live-runs with the live rows heartbeat-runs returns.
+  const liveRunIds = new Set(
+    [...liveRuns, ...runs]
+      .filter((r) => LIVE_STATUSES.has(r.status))
+      .map((r) => r.id)
+      .filter((id): id is string => id !== null),
+  );
+  try {
+    const sweep = await sweepWakes(cfg, company, liveRunIds, now);
+    cache.set(company.id, sweep);
+    return sweep;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    logError(`wake sweep for company ${company.id} failed: ${detail}`);
+    return previous;
+  }
+}
+
+/** Wake sweeps outlive a single scrape; see cachedSweep. */
+const defaultWakeSweepCache: WakeSweepCache = new Map();
 
 export async function collect(
   cfg: ExporterConfig,
   now: number = Date.now(),
   logError: Logger = (msg) => log("error", msg),
+  cache: WakeSweepCache = defaultWakeSweepCache,
 ): Promise<ScrapeResult> {
   const started = performance.now();
   const done = (up: boolean, companies: CompanyMetrics[]): ScrapeResult => ({
     up,
     durationSeconds: (performance.now() - started) / 1000,
     windowSeconds: cfg.windowSeconds,
+    nowMs: now,
     companies,
   });
   if (cfg.apiKey === "") {
@@ -396,7 +667,7 @@ export async function collect(
   try {
     const companies = parseCompanies(await getJson(cfg, "/companies"));
     const metrics = await Promise.all(
-      companies.map((c) => collectCompany(cfg, c, now)),
+      companies.map((c) => collectCompany(cfg, c, now, cache, logError)),
     );
     return done(true, metrics);
   } catch (err) {
@@ -432,6 +703,10 @@ export function readConfig(
     runLimit: Math.min(intEnv(env, "RUN_LIMIT", 500), 1000),
     requestTimeoutMs: intEnv(env, "REQUEST_TIMEOUT_MS", 10000),
     port: intEnv(env, "PORT", 9464),
+    staleWakeMinutes: intEnv(env, "STALE_WAKE_MINUTES", 30),
+    staleWakeIntervalSeconds: intEnv(env, "STALE_WAKE_INTERVAL_SECONDS", 300),
+    staleWakeMaxIssues: intEnv(env, "STALE_WAKE_MAX_ISSUES", 200),
+    phantomStaleSeconds: intEnv(env, "PHANTOM_STALE_SECONDS", 1800),
   };
 }
 
