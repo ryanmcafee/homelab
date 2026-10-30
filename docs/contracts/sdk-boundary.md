@@ -66,6 +66,7 @@ Three gates, all runnable locally and all required in CI:
 | Gate | What it proves | How |
 |---|---|---|
 | **Event contract** | The registry is internally consistent and no change breaks a published type | `task contracts:check` — [`scripts/contract-check.ts`](../../scripts/contract-check.ts), covered by `scripts/contract-check_test.ts` |
+| **Every other contract** | No document under `contracts/` loses a field, renames one, changes a type, narrows a declared set or tightens a bound, and none is left with no frozen baseline | `task contracts:check` — [`scripts/lib/contract-shape.ts`](../../scripts/lib/contract-shape.ts), covered by `scripts/contract-check_test.ts` |
 | **HTTP contract** | The served API still satisfies the OpenAPI document, and the new document is backward-compatible with the previous release's | Schema diff against the last released document; additive-only within a major |
 | **CRD contract** | Stored objects still round-trip through the new schema, and conversion webhooks work in both directions | Apply the previous version's fixtures against the new CRD |
 
