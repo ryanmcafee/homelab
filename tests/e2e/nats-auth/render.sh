@@ -6,14 +6,28 @@ set -eu
 root=$(git rev-parse --show-toplevel)
 app='select(.kind == "Application" and .metadata.name == "nats") | .spec.source'
 
+# Runs a helm command that fetches a remote chart into $1, retrying a transient upstream error.
+helm_fetch() {
+  dest=$1
+  shift
+  for attempt in 1 2 3; do
+    helm "$@" >"$dest" && return 0
+    echo "helm $1 attempt $attempt of 3 failed" >&2
+    [ "$attempt" -eq 3 ] || sleep ${HELM_RETRY_SLEEP:-10}
+  done
+  echo "helm $1 failed 3 times; refusing to continue with no rendered chart" >&2
+  return 1
+}
+
 if [ "${1:-}" = box-image ]; then
   addons=$(helm template addons "$root/charts/addons" \
     -f "$root/charts/addons/values.yaml" -f "$root/charts/addons/values-localdev.yaml" \
     --show-only templates/nats.yaml)
   repo=$(printf '%s\n' "$addons" | yq "$app | .repoURL")
   version=$(printf '%s\n' "$addons" | yq "$app | .targetRevision")
-  helm show values nats --repo "$repo" --version "$version" |
-    yq '.natsBox.container.image | .repository + ":" + .tag'
+  tmp=$(mktemp)
+  helm_fetch "$tmp" show values nats --repo "$repo" --version "$version"
+  yq -e '.natsBox.container.image | .repository + ":" + .tag' "$tmp"
   exit 0
 fi
 
@@ -92,9 +106,9 @@ if [ -n "${MOVE_PAIRS:-}" ]; then
     { echo "nack lost its key or gained _INBOX.> in $account" >&2; exit 1; }
 fi
 
-helm template nats "$chart" --repo "$repo" --version "$version" \
-  --namespace "$NAMESPACE" -f "$OUT/values.yaml" |
-  yq 'select(.kind != null and .kind != "PodMonitor")' >"$OUT/server.yaml"
+helm_fetch "$OUT/chart.yaml" template nats "$chart" --repo "$repo" --version "$version" \
+  --namespace "$NAMESPACE" -f "$OUT/values.yaml"
+yq 'select(.kind != null and .kind != "PodMonitor")' "$OUT/chart.yaml" >"$OUT/server.yaml"
 yq 'select(.kind == "ConfigMap") | .data."nats.conf"' "$OUT/server.yaml" >"$OUT/nats.conf"
 printf 'rendered %s %s from %s for account %s (%s declared users + probes)\n' \
   "$chart" "$version" "$repo" "$account" "$declared"
