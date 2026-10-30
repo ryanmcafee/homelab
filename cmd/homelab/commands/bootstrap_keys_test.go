@@ -42,16 +42,26 @@ func runBootstrapCapturingStdout(t *testing.T, args ...string) (error, string) {
 	root.SetArgs(args)
 	t.Cleanup(func() { DryRun = false; AutoAccept = false })
 
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	drained := make(chan readResult, 1)
+	go func() {
+		data, err := io.ReadAll(read)
+		drained <- readResult{data, err}
+	}()
+
 	runErr := root.ExecuteContext(context.Background())
 
 	if err := write.Close(); err != nil {
 		t.Fatalf("closing pipe: %v", err)
 	}
-	captured, err := io.ReadAll(read)
-	if err != nil {
-		t.Fatalf("reading captured stdout: %v", err)
+	captured := <-drained
+	if captured.err != nil {
+		t.Fatalf("reading captured stdout: %v", captured.err)
 	}
-	return runErr, string(captured)
+	return runErr, string(captured.data)
 }
 
 // The consumer (internal/verify fork-ability check 2) decodes stdout as one JSON
