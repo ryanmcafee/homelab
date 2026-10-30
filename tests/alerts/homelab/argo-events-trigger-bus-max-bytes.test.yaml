@@ -1,0 +1,51 @@
+# promtool unit tests for the maxBytes leg of ArgoEventsTriggerBusApproachingLimit
+# (docs/runbooks/argo-events-trigger-bus.md). The homelab render sets the trigger
+# bus maxBytes to 6442450944, which the rule divides by directly.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    name: approaching maxBytes
+    input_series:
+      - series: 'nats_stream_total_bytes{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",is_stream_leader="true",server_name="eventbus-default-js-0"}'
+        values: '1000x30 5153960756x30 6120328397x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ArgoEventsTriggerBusApproachingLimit
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: ArgoEventsTriggerBusApproachingLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              limit: maxBytes
+              stream_name: default
+              namespace: argo-events
+              job: argo-events-trigger-bus
+            exp_annotations:
+              summary: 'The trigger bus is at 80% of its maxBytes'
+              description: 'At the limit the bus deletes its oldest triggers, consumed or not. Find the Sensor that stopped acking or the EventSource flooding the bus before raising the limit. docs/runbooks/argo-events-trigger-bus.md.'
+      - eval_time: 80m
+        alertname: ArgoEventsTriggerBusApproachingLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              limit: maxBytes
+              stream_name: default
+              namespace: argo-events
+              job: argo-events-trigger-bus
+            exp_annotations:
+              summary: 'The trigger bus is at 95% of its maxBytes'
+              description: 'At the limit the bus deletes its oldest triggers, consumed or not. Find the Sensor that stopped acking or the EventSource flooding the bus before raising the limit. docs/runbooks/argo-events-trigger-bus.md.'
+          - exp_labels:
+              severity: critical
+              limit: maxBytes
+              stream_name: default
+              namespace: argo-events
+              job: argo-events-trigger-bus
+            exp_annotations:
+              summary: 'The trigger bus is at 95% of its maxBytes'
+              description: 'discard: old is about to delete triggers. A Sensor still behind loses them with no DLQ and no error. docs/runbooks/argo-events-trigger-bus.md.'
