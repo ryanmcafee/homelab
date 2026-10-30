@@ -53,3 +53,35 @@ postgresql:
   parameters:
     max_connections: "100"
     shared_buffers: 128MB
+
+# Daily logical backup and the ad hoc restore, as Argo Workflows in this
+# namespace (templates/backup.yaml, docs/runbooks/paperclip-db-restore.md).
+# Needs the argo-workflows addon, so the parent enables it only where that runs.
+backup:
+  enabled: false
+  schedule: "15 3 * * *"
+  timezone: UTC
+  # Dumps older than this are deleted, but the newest keep dumps always stay.
+  retentionDays: 14
+  keep: 3
+  # Separate from the database volume: NFS on the HDD pool in homelab.
+  storageClass: ""
+  storageSize: 20Gi
+  # Postgres client image; its major version must match the server's.
+  image: ""
+  # Argo CD Application paused during a restore, and the paperclip Instance it owns.
+  argocd:
+    namespace: argocd
+    application: paperclip
+  instance: paperclip
+  # The Argo Workflows log store credentials, read into this namespace for the executors.
+  artifacts:
+    secretName: argo-workflows-artifacts
+    itemPath: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
