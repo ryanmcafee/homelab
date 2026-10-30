@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/ryanmcafee/homelab/internal/config"
 )
 
 // fakeGPUCheckRunner is a test double that records which runner methods were
@@ -324,6 +326,73 @@ func TestPrintGPUStatus(t *testing.T) {
 			}
 			if !tt.wantCalls && len(f.calls) != 0 {
 				t.Fatalf("expected zero runner calls for vendor=%s, got %v", tt.vendor, f.calls)
+			}
+		})
+	}
+}
+
+// TestGPUNodeAddressRefusesAWorkerlessConfigSet covers the condition MCAA-423
+// created by dropping WORKER1_IP's `required: true`: `homelab verify gpu`
+// reads that key by name, so a fork with no workers and a GPU vendor set must
+// be told what is wrong rather than handed an empty address to resolve.
+func TestGPUNodeAddressRefusesAWorkerlessConfigSet(t *testing.T) {
+	values := func(gpuVendor, worker1 string) map[string]config.ConfigValue {
+		return map[string]config.ConfigValue{
+			"GPU_VENDOR": {Key: "GPU_VENDOR", Value: gpuVendor},
+			"WORKER1_IP": {Key: "WORKER1_IP", Value: worker1},
+		}
+	}
+
+	tests := []struct {
+		name     string
+		rc       config.ResolvedConfig
+		wantIP   string
+		wantErrs []string
+	}{
+		{
+			name: "worker 1 declared",
+			rc: config.ResolvedConfig{
+				Values:  values("intel", "192.0.2.21"),
+				Workers: []config.NodeMember{{Ordinal: 1, Address: "192.0.2.21"}},
+			},
+			wantIP: "192.0.2.21",
+		},
+		{
+			name: "no workers at all",
+			rc: config.ResolvedConfig{
+				Values: values("intel", ""),
+			},
+			wantErrs: []string{"GPU_VENDOR is \"intel\"", "declares no worker addresses", "GPU_VENDOR to \"none\""},
+		},
+		{
+			name: "workers numbered from 2",
+			rc: config.ResolvedConfig{
+				Values:  values("nvidia", ""),
+				Workers: []config.NodeMember{{Ordinal: 2, Address: "192.0.2.32"}},
+			},
+			wantErrs: []string{"WORKER1_IP is unset", "1 worker(s) starting at ordinal 2"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ip, err := gpuNodeAddress(&tc.rc)
+			if len(tc.wantErrs) == 0 {
+				if err != nil {
+					t.Fatalf("gpuNodeAddress returned %v, want %q", err, tc.wantIP)
+				}
+				if ip != tc.wantIP {
+					t.Fatalf("gpuNodeAddress returned %q, want %q", ip, tc.wantIP)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("gpuNodeAddress returned %q, want an error", ip)
+			}
+			for _, want := range tc.wantErrs {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q does not say %q — the operator has to be able to act on it", err, want)
+				}
 			}
 		})
 	}
