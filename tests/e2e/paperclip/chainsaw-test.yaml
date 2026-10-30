@@ -86,6 +86,10 @@ spec:
               metadata:
                 name: paperclip-postgres
                 namespace: paperclip
+              spec:
+                postgresql:
+                  parameters:
+                    idle_in_transaction_session_timeout: 5min
               status:
                 phase: Cluster in healthy state
                 readyInstances: 1

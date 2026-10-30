@@ -53,3 +53,6 @@ postgresql:
   parameters:
     max_connections: "100"
     shared_buffers: 128MB
+    # Paperclip leaks transactions; without a timeout each one holds a pool
+    # connection "idle in transaction" until the pod restarts.
+    idle_in_transaction_session_timeout: 5min
