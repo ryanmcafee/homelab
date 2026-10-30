@@ -33,26 +33,28 @@ import (
 type ConditionID string
 
 const (
-	MemberCount         ConditionID = "member-count"
-	QuorumPresent       ConditionID = "quorum-present"
-	AbsencesAreDeclared ConditionID = "absences-are-declared"
-	NoErrors            ConditionID = "no-errors"
-	NoLearners          ConditionID = "no-learners"
-	SingleLeader        ConditionID = "single-leader"
-	RaftIndexConverged  ConditionID = "raft-index-converged"
+	MemberCount                   ConditionID = "member-count"
+	QuorumPresent                 ConditionID = "quorum-present"
+	AbsencesAreDeclared           ConditionID = "absences-are-declared"
+	MembershipAccountsForExpected ConditionID = "membership-accounts-for-expected"
+	NoErrors                      ConditionID = "no-errors"
+	NoLearners                    ConditionID = "no-learners"
+	SingleLeader                  ConditionID = "single-leader"
+	RaftIndexConverged            ConditionID = "raft-index-converged"
 )
 
 // implemented is every condition this Go consumer can evaluate. The loader
 // rejects a contract that names one outside this set, so extending the
 // contract fails the build's tests rather than quietly weakening the guard.
 var implemented = map[ConditionID]bool{
-	MemberCount:         true,
-	QuorumPresent:       true,
-	AbsencesAreDeclared: true,
-	NoErrors:            true,
-	NoLearners:          true,
-	SingleLeader:        true,
-	RaftIndexConverged:  true,
+	MemberCount:                   true,
+	QuorumPresent:                 true,
+	AbsencesAreDeclared:           true,
+	MembershipAccountsForExpected: true,
+	NoErrors:                      true,
+	NoLearners:                    true,
+	SingleLeader:                  true,
+	RaftIndexConverged:            true,
 }
 
 // PredicateID is a named composition of conditions from health.predicates.
@@ -82,6 +84,11 @@ const (
 	// the entry point comes from whether the declared target is in etcd's own
 	// membership, never from a flag or a state file (ADR-035 rejected `--resume`).
 	SelectorObservedMembership = "declared-target-present-in-observed-membership"
+	// DeadTargetRefuse is the only disposition this consumer implements for a
+	// target that is still a member and not answering: the cluster is short
+	// before the run starts, so the fresh shape refuses and the operator is sent
+	// to the runbook.
+	DeadTargetRefuse = "refuse"
 )
 
 // Point kinds. An `entry` point is where a run may start; an `in-run` point is
@@ -148,6 +155,14 @@ type Contract struct {
 	Entry                   string
 	EntrySelector           string
 	EntrySelectorIsObserved bool
+
+	// DeadDeclaredTarget is what to do when the node to be recreated is still a
+	// member but is not answering, and the guidance to print instead of bare
+	// arithmetic. The fresh shape refuses, because the cluster is already short
+	// before anyone touches it; the guidance is the operator's route to the
+	// resumed shape.
+	DeadDeclaredTarget         string
+	DeadDeclaredTargetGuidance string
 
 	quorumTable []quorumRow
 	predicates  map[PredicateID]Predicate
@@ -346,11 +361,13 @@ type raw struct {
 			Predicate PredicateID `yaml:"predicate"`
 			Kind      string      `yaml:"kind"`
 		} `yaml:"points"`
-		Entry                   string    `yaml:"entry"`
-		EntryPoints             []PointID `yaml:"entryPoints"`
-		EntrySelector           string    `yaml:"entrySelector"`
-		EntrySelectorIsObserved bool      `yaml:"entrySelectorIsObserved"`
-		RunShapes               []struct {
+		Entry                      string    `yaml:"entry"`
+		EntryPoints                []PointID `yaml:"entryPoints"`
+		EntrySelector              string    `yaml:"entrySelector"`
+		EntrySelectorIsObserved    bool      `yaml:"entrySelectorIsObserved"`
+		DeadDeclaredTarget         string    `yaml:"deadDeclaredTarget"`
+		DeadDeclaredTargetGuidance string    `yaml:"deadDeclaredTargetGuidance"`
+		RunShapes                  []struct {
 			ID       string    `yaml:"id"`
 			When     string    `yaml:"when"`
 			Sequence []PointID `yaml:"sequence"`
@@ -382,6 +399,8 @@ func Parse(data []byte) (*Contract, error) {
 		Entry:                              r.Evaluation.Entry,
 		EntrySelector:                      r.Evaluation.EntrySelector,
 		EntrySelectorIsObserved:            r.Evaluation.EntrySelectorIsObserved,
+		DeadDeclaredTarget:                 r.Evaluation.DeadDeclaredTarget,
+		DeadDeclaredTargetGuidance:         strings.TrimSpace(r.Evaluation.DeadDeclaredTargetGuidance),
 		quorumTable:                        r.Quorum.Table,
 		predicates:                         map[PredicateID]Predicate{},
 		points:                             map[PointID]PredicateID{},
@@ -492,6 +511,20 @@ func (c *Contract) parseEntryRule(r raw) error {
 		return fmt.Errorf(
 			"evaluation.entrySelectorIsObserved is false: a caller-asserted entry point is the `--resume` flag ADR-035 " +
 				"rejected, because asserting `resume` is how `survivable` ends up at the door")
+	}
+	// The dead-target row of the same table: the target is still a member and is
+	// not answering, so `preflight` refuses. A disposition this consumer does not
+	// implement must not be read as the one it does, and a refusal the contract
+	// does not explain is a refusal an operator looks for a way around.
+	if c.DeadDeclaredTarget != "" && c.DeadDeclaredTarget != DeadTargetRefuse {
+		return fmt.Errorf(
+			"evaluation.deadDeclaredTarget is %q; this consumer implements only %q for a declared target that is still a member and not answering",
+			c.DeadDeclaredTarget, DeadTargetRefuse)
+	}
+	if c.DeadDeclaredTarget != "" && c.DeadDeclaredTargetGuidance == "" {
+		return fmt.Errorf(
+			"evaluation.deadDeclaredTarget is %q but evaluation.deadDeclaredTargetGuidance is empty: the ordinary reason to run a recreate is a dead node, and refusing it with bare arithmetic is what sends an operator looking for a bypass",
+			c.DeadDeclaredTarget)
 	}
 
 	kindEntry := map[PointID]bool{}
