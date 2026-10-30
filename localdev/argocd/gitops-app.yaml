@@ -2,14 +2,20 @@
 # Root Application for the Kind localdev loop (applied by
 # scripts/localdev-argocd.ts install, task localdev:argocd).
 #
-# The two `main` values below are placeholders: `install` parses this file,
-# sets spec.source.targetRevision AND helm.valuesObject.global.targetRevision
-# to the resolved revision (--revision / LOCALDEV_REVISION: the PR head SHA in
+# The revision and repository values below are placeholders: `install` parses
+# this file, rewrites them and applies the result from stdin.
+#
+# spec.source.targetRevision AND helm.valuesObject.global.targetRevision take
+# the resolved revision (--revision / LOCALDEV_REVISION: the PR head SHA in
 # CI, the upstream branch of HEAD locally, main only when the branch is not
-# pushed) and applies the result from stdin. charts/gitops hands that
-# global.targetRevision down to addons and applications through
-# helm.valuesObject, so every Application in Kind tracks the PR head, not
-# GitHub main.
+# pushed). charts/gitops hands that global.targetRevision down to addons and
+# applications through helm.valuesObject, so every Application in Kind tracks
+# the PR head, not GitHub main.
+#
+# spec.source.repoURL AND helm.valuesObject.global.repoUrl take
+# GITOPS_REPO_URL from configuration/environments/localdev.yaml and are handed
+# down the same way, so a fork's Kind loop reconciles the fork and not the
+# upstream repository.
 #
 # Every Application is still synced from the working tree with
 # `scripts/localdev-argocd.ts sync` (`argocd app sync --local`), which refuses
@@ -31,7 +37,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/gitops
     helm:
@@ -41,6 +47,7 @@ spec:
       valuesObject:
         global:
           targetRevision: main
+          repoUrl: https://github.com/REPLACEME-user/homelab.git
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
