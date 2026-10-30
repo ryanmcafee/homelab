@@ -1,0 +1,24 @@
+---
+# Source: argo-events-config/templates/eventbus.yaml
+# Argo Events looks up an EventBus named `default` in its own namespace when an
+# EventSource or Sensor names none, so this name is the wiring, not a label.
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: default
+spec:
+  jetstream:
+    version: "2.10.29"
+    replicas: 1
+    persistence:
+      storageClassName: "democratic-csi-iscsi"
+      accessMode: ReadWriteOnce
+      volumeSize: 10Gi
+    # A YAML string, not a mapping: Argo Events merges it over the
+    # controller-config the argo-events chart installs, which is where the
+    # replica count is set. Byte counts are plain integers because Argo Events
+    # reads them with viper's GetInt64, which yields 0 for a suffixed string.
+    streamConfig: |
+      maxAge: 72h
+      maxBytes: 6442450944
+      maxMsgs: 1000000
