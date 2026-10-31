@@ -5,8 +5,8 @@ column) and ADR-037 (the scan scope and check 4), in
 [`docs/project_notes/decisions.md`](../project_notes/decisions.md).
 
 **Read [Current status](#current-status) before citing a check.** Of the five checks below, three
-are specified and not implemented, one has never been executed by anyone, and one is automated and
-passing. The table states what each check *is*; the status section states what has actually run,
+run in CI (1 in part and 2 in level 0 on every pull request, 3a on a cron and a change gate), one
+has never been executed by anyone, and one is not yet enforced anywhere (4). The table states what each check *is*; the status section states what has actually run,
 when, and with what result.
 
 ## The rule
@@ -48,7 +48,8 @@ fork on `10.0.0.0/24` that fills in the domain and leaves the addresses alone st
 from `task config:validate` and still renders a `CP_VIP`, `LB_POOL_*` and `BGP_PEER_IP` pointing
 into a subnet it does not have. It now fails visibly rather than plausibly, because TEST-NET-2 is
 unroutable, but it does not fail loudly at render. That is this document's own `DOMAIN` argument
-turned on itself, and it is why check 2 cannot pass as written. Tracked in
+turned on itself. Check 2 accepts TEST-NET-2 as a reserved placeholder, so it passes on these
+addresses; it cannot make an unchanged one fail at render. Tracked in
 [homelab#359](https://github.com/ryanmcafee/homelab/issues/359); the sentence above states the
 contract, not the current state of the file.
 
@@ -72,13 +73,16 @@ specified-and-not-implemented; it may **not** be listed with no status (ADR-033)
 | # | Check | When | What it catches | Status |
 |---|---|---|---|---|
 | 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic, then assert that no literal in the rendered output arrived from anywhere but the ConfigSet. Paired with `homelab config guard` over the repository's own source. | Level-0 static verification, every PR | A literal that escaped the ConfigSet | **Implemented for the hostname and address families; the email and cloud-identifier families are not built.** Hostnames: `tests/policy/hostname.rego`, since before this row existed. Addresses: `forkability/addresses` in `internal/verify/forkability.go`, 2026-09-28 — passing on `main`, and observed failing on an injected literal (see [Current status](#current-status)) |
-| 2 | **`homelab.yaml.example` completeness.** Every key the render **or the bootstrap** requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Specified, not implemented — and fails on `main` today** |
+| 2 | **`homelab.yaml.example` completeness.** Every key the render **or the bootstrap** requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Enforced in level 0** as `forkability/required-keys/contract` plus one `forkability/example-completeness/<tier>` per tier, passing on `main`. `homelab.yaml.example` is held to `REPLACEME-` or reserved (RFC 2606/5737) values; `localdev.yaml`, which runs unedited, to present and non-empty values |
 | 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron, on demand, **and every pull request that changes the surface 3a executes** — enforced by the `Fork-ability check 3a change gate` job in [`verify.yml`](../../.github/workflows/verify.yml); two discharge routes, see [Current status](#current-status) | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — cold `up` + `wait` `18m55s`-`23m04s` across 3 runs, 2026-09-25 to 2026-09-29 |
 | 3b | **The production bootstrap on foreign hardware.** A filled-in ConfigSet and `task setup -- --environment homelab`, on a machine holding none of the maintainer's credentials **and not in this cluster's topology**. | Before a declared platform milestone | Undeclared physical prerequisites, secret-store and identity assumptions, anything the Kind path cannot reach, a shape that only this cluster has | **Never executed** |
 | 4 | **Bootstrap key resolution.** The bootstrap resolves every operator-specific value from the ConfigSet and exits non-zero naming the missing key — every missing key, not the first one. | Runtime, in the Go CLI; exercised by 3b | A value the bootstrap needs that no render requires, so checks 1–2 never see it | **Implemented and unit-tested; never exercised on foreign hardware** (that is 3b) |
 
 Checks 1 and 2 are static and belong in the existing level-0 gate, so a violation fails a pull
-request rather than being found by a stranger months later. Check 2 is not built. Check 1 is
+request rather than being found by a stranger months later. Check 2 is there now:
+`internal/verify/forkability.go` consumes the bootstrap's published key document and
+`verify all --level 0` calls it, shelling out to `bootstrap --print-required-keys --format json`
+so the gate reads the same contract a forker does. Check 1 is
 partly built, and the shape it took differs from what this section assumed:
 
 - **The separate synthetic ConfigSet turned out to be unnecessary.** Level 0 already renders
@@ -168,6 +172,12 @@ Dated, because a check's status is a claim about the past and decays.
   `homelab config export`. This check sees what ships, so an injection that does not ship does not
   fail it — and an injected value that *is* generated is somebody else's gate. Re-prove on any
   change to the scanner's allowlist or its image-tag rule.
+- **2 — enforced in level 0 from 2026-10-22.** `verify all --level 0` emits
+  `forkability/required-keys/contract` and one `forkability/example-completeness/<tier>` per tier.
+  A `.example` file must carry `REPLACEME-` or reserved values; `localdev.yaml` only present,
+  non-empty ones, because 3a runs it unedited. For a key the render requires,
+  `render/<tier>/_config` fails on the same mutation too; check 2 alone catches a computed
+  (`example:forbidden`) key set in an example and a malformed published key document.
 - **3a — automated and passing: cold time to first success `18m55s`-`23m04s`, measured across
   three runs from 2026-09-25 to 2026-09-29.** `.github/workflows/fork-path-cold.yml` restores no
   cache and saves none, and fails if a cache directory exists. Added in
