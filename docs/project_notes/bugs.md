@@ -581,3 +581,9 @@ These are documented errors with known solutions:
 - **Root Cause**: Requests grew from 12.79 to 13.97 CPU in two days: ca1e123 (Paperclip request to one core, +0.5), #438 (NATS, +0.325), #562 (paperclip-postgres 250m -> 500m, +0.25, merged 18 minutes before the alert) and argo-rollouts (+0.1). Paperclip and postgres use what they request; several other workloads asked for 10-40x their 7-day peak
 - **Solution**: CPU requests sized from the 7-day peak, limits unchanged: sonarr and radarr 200m -> 75m (peak ~50m), tautulli 100m -> 25m (~9m), lazylibrarian 100m -> 25m (~3m), production NATS 100m -> 25m per replica (~6m, 3 replicas). Frees ~0.6 CPU, enough for the overcommit plus one 250m triage stage pod
 - **Prevention**: Before raising a request, check `sum(namespace_cpu:kube_pod_container_resource_requests:sum) - (sum(kube_node_status_allocatable{resource="cpu"}) - max(kube_node_status_allocatable{resource="cpu"}))` stays below 0 with the new value; same failure as the 2026-09-23 entry (KubeCPUOvercommit after the observability rollout)
+
+### 2026-09-28 - Diagnose omitted healthy Applications with sync drift
+- **Issue**: `localdev:diagnose` printed all-clear after level 2 rejected Healthy/Succeeded/OutOfSync.
+- **Cause**: `cmdDiagnose` called `isReady(app, false)` and returned before namespace collection.
+- **Fix**: Require sync readiness in diagnosis; print `status.sync.status` and full sync detail, then collect destination namespace evidence. Preserve the existing new-empty-chart exception.
+- **Verification**: Command regression fails for OutOfSync before the fix and passes after; Synced control stays quiet. QA verified the real CI Diagnostics entrypoint names drift and collects namespace evidence while Kind level 2 permits sync-only drift (ADR-012; MCAA-470).
