@@ -26,6 +26,7 @@ on:
       # can break `terragrunt validate` without touching terragrunt/.
       - 'configuration/**'
       - 'mise.toml'
+      - 'internal/dag/**'
       - '.github/workflows/terragrunt-plan.yml'
   workflow_dispatch:
 
@@ -90,6 +91,13 @@ jobs:
           go run ./cmd/homelab config export --set localdev --format json
           go run ./cmd/homelab config export --set homelab --format json \
             --env-file configuration/environments/homelab.yaml.example
+
+      # Level 0 has no terragrunt, so this is where the in-process DAG parse is
+      # compared with terragrunt's own graph; the variable turns a skip into a failure.
+      - name: Parsed deployment DAG matches terragrunt (${{ matrix.environment }})
+        env:
+          DAG_REQUIRE_TERRAGRUNT: '1'
+        run: go test ./internal/dag/ -run 'TestParseTerragruntMatchesTerragruntDagGraph/${{ matrix.environment }}$' -v
 
       # mise.toml exports TF_PLUGIN_CACHE_DIR for workstations; a shared cache
       # races across the parallel unit inits here, and an empty value disables it.
