@@ -212,6 +212,30 @@ dependencies {
 			want: `a/terragrunt.hcl: include "extra" path must be a literal string or find_in_parent_folders()`,
 		},
 		{
+			name:  "unit nested below a plain folder",
+			units: map[string]string{"a": "", "extras/foo": ""},
+			want:  "terragrunt/environments/test/extras/foo/terragrunt.hcl: unit is not a terragrunt.hcl directly under",
+		},
+		{
+			name:  "unit nested inside another unit",
+			units: map[string]string{"a": "", "a/sub": ""},
+			want:  "terragrunt/environments/test/a/sub/terragrunt.hcl: unit is not a terragrunt.hcl directly under",
+		},
+		{
+			name:  "unit written as terragrunt.hcl.json",
+			units: map[string]string{"a": ""},
+			extra: map[string]string{"terragrunt/environments/test/b/terragrunt.hcl.json": "{}"},
+			want:  "terragrunt/environments/test/b/terragrunt.hcl.json: unit is not a terragrunt.hcl directly under",
+		},
+		{
+			name: "include target exists in no parent folder",
+			units: map[string]string{"a": `include "extra" {
+  path = find_in_parent_folders("missing.hcl")
+}
+`},
+			want: `a/terragrunt.hcl: include "extra": no parent folder holds the included file`,
+		},
+		{
 			name: "edge points outside the environment's units",
 			units: map[string]string{"b": `dependency "gone" {
   config_path = "../gone"
@@ -231,6 +255,19 @@ dependencies {
 				t.Fatalf("error = %q\nwant it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseTerragruntSkipsHiddenFolders(t *testing.T) {
+	root := writeTree(t, map[string]string{"a": ""}, map[string]string{
+		"terragrunt/environments/test/a/.terragrunt-cache/x/terragrunt.hcl": "",
+	})
+	g, err := ParseTerragrunt(root, "test")
+	if err != nil {
+		t.Fatalf("ParseTerragrunt: %v", err)
+	}
+	if want := []string{"a"}; !reflect.DeepEqual(g.Units, want) {
+		t.Fatalf("units = %v, want %v", g.Units, want)
 	}
 }
 
@@ -379,6 +416,9 @@ var dotNode = regexp.MustCompile(`^"([^"]+)"\s*;$`)
 func TestParseTerragruntMatchesTerragruntDagGraph(t *testing.T) {
 	bin, err := exec.LookPath("terragrunt")
 	if err != nil {
+		if os.Getenv("DAG_REQUIRE_TERRAGRUNT") != "" {
+			t.Fatal("DAG_REQUIRE_TERRAGRUNT is set but terragrunt is not on PATH")
+		}
 		t.Skip("terragrunt not on PATH")
 	}
 	root := repoRoot(t)

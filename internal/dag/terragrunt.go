@@ -36,7 +36,7 @@ const defaultParentFile = "terragrunt.hcl"
 // file, and every such error is reported rather than only the first.
 func ParseTerragrunt(repoRoot, env string) (TerragruntGraph, error) {
 	envDir := filepath.Join(repoRoot, "terragrunt", "environments", env)
-	units, err := discoverUnits(envDir)
+	units, err := discoverUnits(repoRoot, envDir)
 	if err != nil {
 		return TerragruntGraph{}, err
 	}
@@ -71,22 +71,45 @@ func ParseTerragrunt(repoRoot, env string) (TerragruntGraph, error) {
 	return g, nil
 }
 
-func discoverUnits(envDir string) ([]string, error) {
-	entries, err := os.ReadDir(envDir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
+// discoverUnits returns the directories directly under envDir that hold a
+// terragrunt.hcl. Terragrunt finds units at any depth, so any other unit file
+// below envDir is an error rather than a unit this parse would silently drop.
+func discoverUnits(repoRoot, envDir string) ([]string, error) {
+	if _, err := os.Stat(envDir); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
 	}
 	var units []string
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
+	var errs []error
+	err := filepath.WalkDir(envDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		if _, err := os.Stat(filepath.Join(envDir, e.Name(), "terragrunt.hcl")); err == nil {
-			units = append(units, e.Name())
+		if d.IsDir() {
+			if path != envDir && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
 		}
+		if d.Name() != "terragrunt.hcl" && d.Name() != "terragrunt.hcl.json" {
+			return nil
+		}
+		rel, err := filepath.Rel(envDir, filepath.Dir(path))
+		if err != nil {
+			return err
+		}
+		if d.Name() == "terragrunt.hcl" && !strings.Contains(rel, string(filepath.Separator)) && rel != "." {
+			units = append(units, rel)
+			return nil
+		}
+		shown, _ := filepath.Rel(repoRoot, path)
+		errs = append(errs, fmt.Errorf("%s: unit is not a terragrunt.hcl directly under terragrunt/environments/<env>/<unit>/; terragrunt would run it and this parse would drop its edges", filepath.ToSlash(shown)))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	sort.Strings(units)
 	return units, nil
