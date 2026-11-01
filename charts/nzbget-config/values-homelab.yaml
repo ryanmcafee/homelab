@@ -4,7 +4,7 @@ volumes:
     pvName: nzbget-config-pv
     volumeHandle: nzbget-config
     storageClassName: democratic-csi-iscsi-hdd
-    size: 5Gi
+    size: 10Gi
     csi:
       driver: org.democratic-csi.iscsi-hdd
       fsType: ext4
