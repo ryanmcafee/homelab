@@ -8,7 +8,11 @@
  * never touches the homelab cluster (ADR-009).
  *
  * Subcommands:
- *   up                  Create the cluster if missing (node image from
+ *   up                  Raise the host's inotify limits to kind's minimums
+ *                       (Linux, `sudo -n sysctl -w`), unload host AppArmor
+ *                       profiles that confine pod binaries (CI only; a
+ *                       workstation gets the command), create the cluster if
+ *                       missing (node image from
  *                       configuration/versions.yaml images.kind-node), start
  *                       the registry pull-through caches, write containerd
  *                       hosts.toml into every node, install Cilium (chart pin
@@ -614,6 +618,168 @@ async function requireDocker(ctx: Ctx): Promise<void> {
   throw new Error(
     "Docker daemon is not reachable (`docker info` failed). Start Docker Desktop and retry.",
   );
+}
+
+// ============================================================================
+// Host inotify limits
+// ============================================================================
+/** https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files */
+export const INOTIFY_MINIMUMS: readonly { key: string; min: number }[] = [
+  { key: "fs.inotify.max_user_instances", min: 512 },
+  { key: "fs.inotify.max_user_watches", min: 524288 },
+];
+
+export interface SysctlShortfall {
+  key: string;
+  current: number;
+  min: number;
+}
+
+export function sysctlProcPath(key: string): string {
+  return `/proc/sys/${key.replaceAll(".", "/")}`;
+}
+
+export function inotifyShortfalls(
+  current: Record<string, number | undefined>,
+): SysctlShortfall[] {
+  return INOTIFY_MINIMUMS.flatMap(({ key, min }) => {
+    const value = current[key];
+    return value !== undefined && value < min
+      ? [{ key, current: value, min }]
+      : [];
+  });
+}
+
+export function sysctlRaiseCommand(shortfalls: SysctlShortfall[]): string[] {
+  return [
+    "sudo",
+    "-n",
+    "sysctl",
+    "-w",
+    ...shortfalls.map(({ key, min }) => `${key}=${min}`),
+  ];
+}
+
+async function readSysctl(key: string): Promise<number | undefined> {
+  try {
+    const value = Number.parseInt(
+      await readFile(sysctlProcPath(key), "utf8"),
+      10,
+    );
+    return Number.isNaN(value) ? undefined : value;
+  } catch (err) {
+    if (isNotFound(err)) return undefined;
+    throw err;
+  }
+}
+
+/**
+ * Kind nodes share the host kernel's per-user inotify budget; below kind's
+ * minimums, istio-cni dies with "too many open files" (MCAA-1736).
+ */
+async function ensureInotifyLimits(ctx: Ctx): Promise<void> {
+  if (process.platform !== "linux") return;
+  const current = Object.fromEntries(
+    await Promise.all(
+      INOTIFY_MINIMUMS.map(
+        async ({ key }): Promise<[string, number | undefined]> => [
+          key,
+          await readSysctl(key),
+        ],
+      ),
+    ),
+  );
+  log.info(
+    `host inotify limits: ${INOTIFY_MINIMUMS.map(
+      ({ key }) => `${key}=${current[key] ?? "unreadable"}`,
+    ).join(" ")}`,
+  );
+  const shortfalls = inotifyShortfalls(current);
+  if (shortfalls.length === 0) return;
+  const cmd = sysctlRaiseCommand(shortfalls);
+  const r = await ctx.exec.run(cmd, { mutating: true });
+  if (r.code !== 0) {
+    throw new Error(
+      `host inotify limits are below kind's minimums (${shortfalls
+        .map((s) => `${s.key}=${s.current} < ${s.min}`)
+        .join(", ")}) and \`${formatCommand(cmd)}\` failed (exit ${
+        r.code
+      }): ${r.stderr.trim()}\nRaise them yourself: ${formatCommand(
+        cmd.filter((a) => a !== "-n"),
+      )}`,
+    );
+  }
+  if (!ctx.args.dryRun) log.ok(`raised ${formatCommand(cmd.slice(4))}`);
+}
+
+// ============================================================================
+// Host AppArmor profiles
+// ============================================================================
+const APPARMOR_PROFILES = "/sys/kernel/security/apparmor/profiles";
+const APPARMOR_REMOVE = "/sys/kernel/security/apparmor/.remove";
+
+/** Binaries localdev pods run that a host profile can confine by exec path. */
+export const HOST_APPARMOR_CONFLICTS: readonly string[] = ["mosquitto"];
+
+export function enforcedHostConflicts(profilesText: string): string[] {
+  return profilesText.split("\n").flatMap((line) => {
+    const match = /^(.+) \(enforce\)$/.exec(line.trim());
+    if (!match) return [];
+    const name = match[1];
+    const binary = name.split("/").pop() ?? name;
+    return HOST_APPARMOR_CONFLICTS.includes(binary) ? [name] : [];
+  });
+}
+
+export function apparmorRemoveCommand(): string[] {
+  return ["sudo", "-n", "tee", APPARMOR_REMOVE];
+}
+
+async function readAppArmorProfiles(ctx: Ctx): Promise<string | undefined> {
+  try {
+    return await readFile(APPARMOR_PROFILES, "utf8");
+  } catch (err) {
+    if (isNotFound(err)) return undefined;
+  }
+  const r = await ctx.exec.run(["sudo", "-n", "cat", APPARMOR_PROFILES]);
+  return r.code === 0 ? r.stdout : undefined;
+}
+
+/**
+ * Kind pods run unconfined, so the host kernel attaches its own profile when a
+ * pod execs a matching binary; Ubuntu 26.04's `mosquitto` profile denies the
+ * chart's /mosquitto/config (MCAA-1736). CI unloads it; a workstation is told how.
+ */
+async function ensureHostAppArmorAllowsPods(ctx: Ctx): Promise<void> {
+  if (process.platform !== "linux") return;
+  const profiles = await readAppArmorProfiles(ctx);
+  if (profiles === undefined) {
+    log.info("host AppArmor profiles unreadable or AppArmor absent; skipped");
+    return;
+  }
+  const conflicts = enforcedHostConflicts(profiles);
+  if (conflicts.length === 0) return;
+  const cmd = apparmorRemoveCommand();
+  if (process.env.CI !== "true") {
+    throw new Error(
+      `the host enforces AppArmor profile(s) ${conflicts.join(
+        ", ",
+      )}, which confine the same binary inside Kind pods and deny their config paths.\nUnload them until the next reboot: ${conflicts
+        .map((name) => `echo -n '${name}' | sudo tee ${APPARMOR_REMOVE}`)
+        .join(" && ")}`,
+    );
+  }
+  for (const name of conflicts) {
+    const r = await ctx.exec.run(cmd, { mutating: true, stdin: name });
+    if (r.code !== 0) {
+      throw new Error(
+        `unloading host AppArmor profile ${name} with \`${formatCommand(
+          cmd,
+        )}\` failed (exit ${r.code}): ${r.stderr.trim()}`,
+      );
+    }
+    if (!ctx.args.dryRun) log.ok(`unloaded host AppArmor profile ${name}`);
+  }
 }
 
 // ============================================================================
@@ -1324,6 +1490,8 @@ ${green("Kind localdev ready")}
 async function cmdUp(ctx: Ctx): Promise<void> {
   await requireDocker(ctx);
   const versions = await readVersions(ctx);
+  await ensureInotifyLimits(ctx);
+  await ensureHostAppArmorAllowsPods(ctx);
   await ensureCluster(ctx, versions);
   if (ctx.args.noRegistry) {
     log.info("--no-registry: skipping pull-through caches and hosts.toml");
