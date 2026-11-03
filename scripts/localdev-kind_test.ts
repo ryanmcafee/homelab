@@ -26,6 +26,8 @@ import {
   generatedSecretStubs,
   DEFAULT_CLUSTER,
   INOTIFY_MINIMUMS,
+  apparmorRemoveCommand,
+  enforcedHostConflicts,
   inotifyShortfalls,
   sysctlProcPath,
   sysctlRaiseCommand,
@@ -550,4 +552,31 @@ test("sysctlRaiseCommand: non-interactive sudo, one key=min per shortfall", () =
       "fs.inotify.max_user_watches=524288",
     ],
   );
+});
+
+// ----------------------------------------------------------------------------
+// Host AppArmor profiles that confine binaries the localdev pods run
+// ----------------------------------------------------------------------------
+test("enforcedHostConflicts: only enforced profiles named for a localdev binary", () => {
+  const profiles = [
+    "mosquitto (enforce)",
+    "/usr/bin/man (enforce)",
+    "systemd-detect-virt (enforce)",
+    "",
+  ].join("\n");
+  assertEquals(enforcedHostConflicts(profiles), ["mosquitto"]);
+  assertEquals(enforcedHostConflicts("mosquitto (complain)\n"), []);
+  assertEquals(enforcedHostConflicts("/usr/sbin/mosquitto (enforce)\n"), [
+    "/usr/sbin/mosquitto",
+  ]);
+  assertEquals(enforcedHostConflicts(""), []);
+});
+
+test("apparmorRemoveCommand: non-interactive sudo tee into the kernel's .remove", () => {
+  assertEquals(apparmorRemoveCommand(), [
+    "sudo",
+    "-n",
+    "tee",
+    "/sys/kernel/security/apparmor/.remove",
+  ]);
 });
