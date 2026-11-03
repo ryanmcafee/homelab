@@ -5,7 +5,10 @@
 # 3. homelab-environment-config OnePasswordItem
 
 global:
-  repoUrl: https://github.com/ryanmcafee/homelab.git
+  # Placeholder. The parent (charts/gitops) hands the fork's own
+  # GITOPS_REPO_URL down through helm.valuesObject; templates/sops-secrets.yaml
+  # points its Application at it.
+  repoUrl: https://github.com/REPLACEME-user/homelab.git
   targetRevision: HEAD
 
   # Whether every Application syncs automatically (prune + selfHeal).

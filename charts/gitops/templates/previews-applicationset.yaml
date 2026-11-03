@@ -27,8 +27,8 @@ spec:
   generators:
     - pullRequest:
         github:
-          owner: {{ .Values.previews.github.owner }}
-          repo: {{ .Values.previews.github.repo }}
+          owner: {{ .Values.previews.github.owner | default (include "homelab.repo.owner" .) }}
+          repo: {{ .Values.previews.github.repo | default (include "homelab.repo.name" .) }}
           {{- if .Values.previews.github.tokenSecret.name }}
           tokenRef:
             secretName: {{ .Values.previews.github.tokenSecret.name }}
@@ -50,7 +50,7 @@ spec:
     spec:
       project: previews
       source:
-        repoURL: {{ .Values.global.repoUrl }}
+        repoURL: {{ include "homelab.repo.cloneUrl" . }}
         targetRevision: '{{`{{.head_sha}}`}}'
         path: charts/applications
         plugin:

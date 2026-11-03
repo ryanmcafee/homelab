@@ -90,6 +90,7 @@ import {
   PROMETHEUS_CRDS_RELEASE,
   renderReport,
   renderRootApp,
+  repoUrlFromEnvFile,
   REPORT_MAX_FINDINGS,
   REPORT_TITLE,
   resourceLines,
@@ -1117,6 +1118,9 @@ test("chooseRevision: flag, then env, then the upstream branch, then main", () =
   });
 });
 
+/** A fork's own GITOPS_REPO_URL: never the placeholder in the manifest. */
+const FORK_REPO = "https://github.com/astranger/homelab";
+
 const ROOT_APP_FIXTURE = `# Root Application for the Kind localdev loop.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -1130,7 +1134,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/gitops
     helm:
@@ -1140,6 +1144,7 @@ spec:
       valuesObject:
         global:
           targetRevision: main
+          repoUrl: https://github.com/REPLACEME-user/homelab.git
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
@@ -1154,7 +1159,9 @@ type Loose = any;
 
 test("renderRootApp: targetRevision and helm.valuesObject.global.targetRevision follow the revision", () => {
   const sha = "0d96cfd31fb10e66d4fe0628a142edd17c7dd9f9";
-  const out = parseYaml(renderRootApp(ROOT_APP_FIXTURE, sha)) as Loose;
+  const out = parseYaml(
+    renderRootApp(ROOT_APP_FIXTURE, sha, FORK_REPO),
+  ) as Loose;
   assertEquals(out.spec.source.targetRevision, sha);
   assertEquals(out.spec.source.helm.valuesObject.global.targetRevision, sha);
   // Everything else survives untouched.
@@ -1171,13 +1178,45 @@ test("renderRootApp: targetRevision and helm.valuesObject.global.targetRevision 
   assertEquals(out.metadata.annotations["argocd.argoproj.io/sync-wave"], "0");
 
   const branch = parseYaml(
-    renderRootApp(ROOT_APP_FIXTURE, "feat/paperclip"),
+    renderRootApp(ROOT_APP_FIXTURE, "feat/paperclip", FORK_REPO),
   ) as Loose;
   assertEquals(branch.spec.source.targetRevision, "feat/paperclip");
   assertEquals(
     branch.spec.source.helm.valuesObject.global.targetRevision,
     "feat/paperclip",
   );
+});
+
+test("renderRootApp: repoURL and global.repoUrl leave the upstream placeholder behind", () => {
+  const out = parseYaml(
+    renderRootApp(ROOT_APP_FIXTURE, "main", FORK_REPO),
+  ) as Loose;
+  assertEquals(out.spec.source.repoURL, FORK_REPO);
+  assertEquals(out.spec.source.helm.valuesObject.global.repoUrl, FORK_REPO);
+  // The committed placeholder must survive nowhere in the applied manifest:
+  // a leftover would point the fork's Kind tree at somebody else's repository.
+  assertEquals(
+    renderRootApp(ROOT_APP_FIXTURE, "main", FORK_REPO).includes("REPLACEME"),
+    false,
+  );
+});
+
+test("repoUrlFromEnvFile: reads GITOPS_REPO_URL and refuses a value that names no fork", () => {
+  assertEquals(
+    repoUrlFromEnvFile(
+      `DOMAIN: homelab.local\nGITOPS_REPO_URL: ${FORK_REPO}\n`,
+    ),
+    FORK_REPO,
+  );
+  assertEquals(repoUrlFromEnvFile("GITOPS_REPO_URL: '  '\n"), null);
+  assertEquals(repoUrlFromEnvFile("DOMAIN: homelab.local\n"), null);
+  assertEquals(
+    repoUrlFromEnvFile(
+      "GITOPS_REPO_URL: https://github.com/REPLACEME-user/homelab\n",
+    ),
+    null,
+  );
+  assertEquals(repoUrlFromEnvFile("GITOPS_REPO_URL: [\n"), null);
 });
 
 test("renderRootApp: creates helm.valuesObject.global when the manifest has no helm block", () => {
@@ -1187,11 +1226,11 @@ metadata:
   name: gitops
 spec:
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/gitops
 `;
-  const out = parseYaml(renderRootApp(bare, "feat/x")) as Loose;
+  const out = parseYaml(renderRootApp(bare, "feat/x", FORK_REPO)) as Loose;
   assertEquals(out.spec.source.targetRevision, "feat/x");
   assertEquals(
     out.spec.source.helm.valuesObject.global.targetRevision,
@@ -1199,7 +1238,7 @@ spec:
   );
   // A manifest without spec.source is refused rather than silently patched.
   assertThrows(
-    () => renderRootApp("apiVersion: v1\nkind: ConfigMap\n", "main"),
+    () => renderRootApp("apiVersion: v1\nkind: ConfigMap\n", "main", FORK_REPO),
     Error,
     "spec.source",
   );
