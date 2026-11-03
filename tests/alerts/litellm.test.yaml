@@ -1,0 +1,222 @@
+# promtool unit tests for the homelab-litellm rules in
+# charts/addons/templates/kube-prometheus-stack.yaml (docs/runbooks/litellm.md).
+#
+# `task test:alerts` renders the addons chart, extracts every group of
+# additionalPrometheusRulesMap into rules.yaml in a temp directory, copies this
+# file next to it and runs `promtool test rules`, so the expressions under test
+# are the ones that deploy - the test cannot drift from the chart.
+#
+# Each alert is asserted twice: once on the failure it exists for, and once on
+# the near miss that must stay quiet (an idle gateway with one failure, a
+# migrations Job whose failure has aged out, a database that answers).
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 1. Every gateway replica goes away at t+10m. kube-state-metrics keeps
+  #    reporting the Deployment, so the series stays and drops to 0.
+  - interval: 1m
+    name: the gateway loses its last available replica
+    input_series:
+      - series: 'kube_deployment_status_replicas_available{namespace="litellm", deployment="litellm-gateway", job="kube-state-metrics"}'
+        values: '1+0x10 0+0x30'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: LiteLLMGatewayDown
+        exp_alerts: []
+      # 4m without a replica: under the 5m threshold.
+      - eval_time: 14m
+        alertname: LiteLLMGatewayDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: LiteLLMGatewayDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: litellm
+              deployment: litellm-gateway
+            exp_annotations:
+              summary: 'The LiteLLM gateway has no available replica'
+              description: 'No litellm-gateway pod has been Ready for 5m, so every /v1 request fails. The pod events name the cause: a missing litellm-master-key-secret or litellm-api-keys keeps it Pending, an unreachable litellm-db-rw crash-loops it. docs/runbooks/litellm.md.'
+
+  # 2. A provider starts refusing: 2 of every 10 requests fail, well above the
+  #    10 % threshold and well above the volume floor.
+  - interval: 1m
+    name: one request in five fails at a rate worth paging on
+    input_series:
+      - series: 'litellm_proxy_total_requests_metric_total{namespace="litellm", requested_model="claude-sonnet-5", status_code="200", job="litellm-gateway-metrics"}'
+        values: '0+10x60'
+      - series: 'litellm_proxy_failed_requests_metric_total{namespace="litellm", requested_model="claude-sonnet-5", job="litellm-gateway-metrics"}'
+        values: '0+2x60'
+    alert_rule_test:
+      # The ratio is over the threshold from the second sample, and `for` holds
+      # the alert pending another 10m before it pages.
+      - eval_time: 8m
+        alertname: LiteLLMGatewayErrorRateHigh
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: LiteLLMGatewayErrorRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: litellm
+            exp_annotations:
+              summary: '20% of LiteLLM gateway requests are failing'
+              description: 'More than 10 % of the requests the proxy accepted failed for 10m, over at least 6 requests in the window so a single failure on an idle gateway stays quiet. The "LiteLLM gateway" dashboard splits the rate by model: one provider failing looks different from an expired key. docs/runbooks/litellm.md.'
+
+  # 3. The volume floor. Every request fails, but one request every three
+  #    minutes is an idle homelab gateway, not an incident worth a page.
+  - interval: 3m
+    name: a total failure rate below the volume floor stays quiet
+    input_series:
+      - series: 'litellm_proxy_total_requests_metric_total{namespace="litellm", requested_model="claude-sonnet-5", status_code="500", job="litellm-gateway-metrics"}'
+        values: '0+1x40'
+      - series: 'litellm_proxy_failed_requests_metric_total{namespace="litellm", requested_model="claude-sonnet-5", job="litellm-gateway-metrics"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: LiteLLMGatewayErrorRateHigh
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: LiteLLMGatewayErrorRateHigh
+        exp_alerts: []
+
+  # 4. The metrics sidecar dies while the gateway keeps serving: the scrape
+  #    fails, so the error-rate alert above is blind and says so.
+  - interval: 1m
+    name: the metrics sidecar stops answering the scrape
+    input_series:
+      - series: 'up{namespace="litellm", job="litellm-gateway-metrics", service="litellm-gateway-metrics", pod="litellm-gateway-7d9f-abcde"}'
+        values: '1+0x10 0+0x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: LiteLLMGatewayMetricsUnavailable
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: LiteLLMGatewayMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: litellm
+            exp_annotations:
+              summary: 'The LiteLLM gateway metrics sidecar is not being scraped'
+              description: 'While this fires LiteLLMGatewayErrorRateHigh and the "LiteLLM gateway" dashboard are blind; traffic itself may be fine. Either the metrics container is down or the ServiceMonitor no longer selects litellm-gateway-metrics. docs/runbooks/litellm.md.'
+
+  # 5. No scrape target at all - a deleted or mis-selecting ServiceMonitor
+  #    leaves no `up` series to be 0, which the absent() half catches.
+  - interval: 1m
+    name: the gateway has no scrape target at all
+    input_series:
+      - series: 'up{namespace="litellm", job="litellm-db", pod="litellm-db-1"}'
+        values: '1+0x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LiteLLMGatewayMetricsUnavailable
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: LiteLLMGatewayMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: litellm
+              job: litellm-gateway-metrics
+            exp_annotations:
+              summary: 'The LiteLLM gateway metrics sidecar is not being scraped'
+              description: 'While this fires LiteLLMGatewayErrorRateHigh and the "LiteLLM gateway" dashboard are blind; traffic itself may be fine. Either the metrics container is down or the ServiceMonitor no longer selects litellm-gateway-metrics. docs/runbooks/litellm.md.'
+
+  # 6. The migrations Job gives up at t+6m and ttlSecondsAfterFinished deletes
+  #    it two minutes later, so the series ends. The 30m read keeps the alert
+  #    up long enough to be actionable and then lets it go.
+  - interval: 1m
+    name: the migrations Job fails and is deleted out from under the alert
+    input_series:
+      - series: 'kube_job_failed{namespace="litellm", job_name="litellm-migrations", condition="true", job="kube-state-metrics"}'
+        values: '0+0x5 1+0x2'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: LiteLLMMigrationsJobFailed
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: LiteLLMMigrationsJobFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: litellm
+              job_name: litellm-migrations
+            exp_annotations:
+              summary: 'The LiteLLM migrations Job gave up, so the sync is stuck'
+              description: 'prisma migrate deploy exhausted its retries or its deadline, which fails the PreSync hook and leaves the Application unsynced on the previous schema. Read over 30m because ttlSecondsAfterFinished deletes the Job two minutes after it fails. docs/runbooks/litellm.md.'
+      # Still firing 25m after the Job object itself is gone.
+      - eval_time: 32m
+        alertname: LiteLLMMigrationsJobFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: litellm
+              job_name: litellm-migrations
+            exp_annotations:
+              summary: 'The LiteLLM migrations Job gave up, so the sync is stuck'
+              description: 'prisma migrate deploy exhausted its retries or its deadline, which fails the PreSync hook and leaves the Application unsynced on the previous schema. Read over 30m because ttlSecondsAfterFinished deletes the Job two minutes after it fails. docs/runbooks/litellm.md.'
+      # The failure has aged out of the 30m window.
+      - eval_time: 45m
+        alertname: LiteLLMMigrationsJobFailed
+        exp_alerts: []
+
+  # 7. A migrations Job that succeeds never reports the Failed condition.
+  - interval: 1m
+    name: a successful migrations Job is quiet
+    input_series:
+      - series: 'kube_job_failed{namespace="litellm", job_name="litellm-migrations", condition="true", job="kube-state-metrics"}'
+        values: '0+0x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: LiteLLMMigrationsJobFailed
+        exp_alerts: []
+
+  # 8. The CNPG Cluster never produced an instance to scrape (a stuck initdb,
+  #    an unbound volume). HomelabPostgresClusterDown cannot see this: it needs
+  #    a cnpg_collector_up series to be 0, and there is none.
+  - interval: 1m
+    name: the database cluster reports no instance at all
+    input_series:
+      - series: 'cnpg_collector_up{namespace="paperclip", cluster="paperclip-postgres", job="paperclip-postgres"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LiteLLMDatabaseNotReady
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: LiteLLMDatabaseNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: litellm
+              cluster: litellm-db
+            exp_annotations:
+              summary: 'The LiteLLM database litellm-db has no instance reporting'
+              description: 'No CloudNativePG instance of litellm-db has been scraped for 15m, so the Cluster never finished bootstrapping or its pods are gone; the migrations Job and the gateway both block on it. HomelabPostgresClusterDown covers the other half, an instance that is scraped and reports PostgreSQL down. docs/runbooks/litellm.md.'
+
+  # 9. A reporting database is quiet here even when PostgreSQL is down - that
+  #    case belongs to HomelabPostgresClusterDown, and is asserted so the two
+  #    rules cannot both go silent on the same failure.
+  - interval: 1m
+    name: a scraped database that reports PostgreSQL down belongs to the generic rule
+    input_series:
+      - series: 'cnpg_collector_up{namespace="litellm", cluster="litellm-db", job="litellm-db", pod="litellm-db-1"}'
+        values: '1+0x10 0+0x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: LiteLLMDatabaseNotReady
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: HomelabPostgresClusterDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: litellm
+              cluster: litellm-db
+            exp_annotations:
+              summary: 'CloudNativePG cluster litellm/litellm-db is down'
+              description: 'No instance of litellm-db has reported PostgreSQL up for 5m. `kubectl -n litellm get cluster litellm-db` shows the phase; docs/disaster-recovery.md covers the restore path.'
