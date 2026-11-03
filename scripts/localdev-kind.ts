@@ -8,7 +8,9 @@
  * never touches the homelab cluster (ADR-009).
  *
  * Subcommands:
- *   up                  Create the cluster if missing (node image from
+ *   up                  Raise the host's inotify limits to kind's minimums
+ *                       (Linux, `sudo -n sysctl -w`), create the cluster if
+ *                       missing (node image from
  *                       configuration/versions.yaml images.kind-node), start
  *                       the registry pull-through caches, write containerd
  *                       hosts.toml into every node, install Cilium (chart pin
@@ -614,6 +616,98 @@ async function requireDocker(ctx: Ctx): Promise<void> {
   throw new Error(
     "Docker daemon is not reachable (`docker info` failed). Start Docker Desktop and retry.",
   );
+}
+
+// ============================================================================
+// Host inotify limits
+// ============================================================================
+/** https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files */
+export const INOTIFY_MINIMUMS: readonly { key: string; min: number }[] = [
+  { key: "fs.inotify.max_user_instances", min: 512 },
+  { key: "fs.inotify.max_user_watches", min: 524288 },
+];
+
+export interface SysctlShortfall {
+  key: string;
+  current: number;
+  min: number;
+}
+
+export function sysctlProcPath(key: string): string {
+  return `/proc/sys/${key.replaceAll(".", "/")}`;
+}
+
+export function inotifyShortfalls(
+  current: Record<string, number | undefined>,
+): SysctlShortfall[] {
+  return INOTIFY_MINIMUMS.flatMap(({ key, min }) => {
+    const value = current[key];
+    return value !== undefined && value < min
+      ? [{ key, current: value, min }]
+      : [];
+  });
+}
+
+export function sysctlRaiseCommand(shortfalls: SysctlShortfall[]): string[] {
+  return [
+    "sudo",
+    "-n",
+    "sysctl",
+    "-w",
+    ...shortfalls.map(({ key, min }) => `${key}=${min}`),
+  ];
+}
+
+async function readSysctl(key: string): Promise<number | undefined> {
+  try {
+    const value = Number.parseInt(
+      await readFile(sysctlProcPath(key), "utf8"),
+      10,
+    );
+    return Number.isNaN(value) ? undefined : value;
+  } catch (err) {
+    if (isNotFound(err)) return undefined;
+    throw err;
+  }
+}
+
+/**
+ * Kind nodes share the host kernel's per-user inotify budget; below kind's
+ * minimums, istio-cni dies with "too many open files" (MCAA-1736).
+ */
+async function ensureInotifyLimits(ctx: Ctx): Promise<void> {
+  if (process.platform !== "linux") return;
+  const current = Object.fromEntries(
+    await Promise.all(
+      INOTIFY_MINIMUMS.map(
+        async ({ key }): Promise<[string, number | undefined]> => [
+          key,
+          await readSysctl(key),
+        ],
+      ),
+    ),
+  );
+  log.info(
+    `host inotify limits: ${INOTIFY_MINIMUMS.map(
+      ({ key }) => `${key}=${current[key] ?? "unreadable"}`,
+    ).join(" ")}`,
+  );
+  const shortfalls = inotifyShortfalls(current);
+  if (shortfalls.length === 0) return;
+  const cmd = sysctlRaiseCommand(shortfalls);
+  const r = await ctx.exec.run(cmd, { mutating: true });
+  if (r.code !== 0) {
+    throw new Error(
+      `host inotify limits are below kind's minimums (${shortfalls
+        .map((s) => `${s.key}=${s.current} < ${s.min}`)
+        .join(", ")}) and \`${formatCommand(cmd)}\` failed (exit ${
+        r.code
+      }): ${r.stderr.trim()}\nRaise them yourself: ${formatCommand(
+        cmd.filter((a) => a !== "-n"),
+      )}`,
+    );
+  }
+  if (!ctx.args.dryRun) log.ok(`raised ${formatCommand(cmd.slice(4))}`);
 }
 
 // ============================================================================
@@ -1324,6 +1418,7 @@ ${green("Kind localdev ready")}
 async function cmdUp(ctx: Ctx): Promise<void> {
   await requireDocker(ctx);
   const versions = await readVersions(ctx);
+  await ensureInotifyLimits(ctx);
   await ensureCluster(ctx, versions);
   if (ctx.args.noRegistry) {
     log.info("--no-registry: skipping pull-through caches and hosts.toml");
