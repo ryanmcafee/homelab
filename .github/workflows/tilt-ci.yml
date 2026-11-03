@@ -154,25 +154,42 @@ jobs:
           tilt version
           task --version
 
-      # The registry pull-through caches (scripts/localdev-kind.ts registry)
-      # persist their blobs under ~/.cache/homelab-kind-registry. Restoring a
-      # previous run's cache turns most image pulls into local reads. Best
-      # effort: the cache may grow to several GB and GitHub evicts entries past
-      # the 10 GB per-repository budget; every hosts.toml lists the upstream as
-      # a fallback, so an empty or evicted cache only costs pull time.
       - name: Cache kubeconform core schemas
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/homelab-kubeconform
           key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
 
-      - name: Registry pull-through cache (best effort)
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      # The registry pull-through caches (scripts/localdev-kind.ts registry)
+      # persist their blobs under ~/.cache/homelab-kind-registry; a warm cache
+      # turns most image pulls into local reads. Restore and save are separate
+      # steps (MCAA-660, guarded by scripts/tilt-ci-cache_test.ts):
+      #   - actions/cache declares post-if: success(), so a combined step never
+      #     saves on the timed-out runs a cold cache causes.
+      #   - Only main pushes save. GitHub scopes a cache to the ref that wrote
+      #     it; main's entries are restorable from every PR and merge group,
+      #     while a PR-ref entry (~5 GiB) only evicted main's from the 10 GiB
+      #     budget and was readable by nobody else.
+      #   - The save key carries a fingerprint of the blob set, so an unchanged
+      #     set is not re-uploaded and a grown one becomes a new generation.
+      # Best effort: every hosts.toml lists the upstream as a fallback, so an
+      # empty or evicted cache only costs pull time.
+      - name: Restore registry pull-through cache (best effort)
+        id: registry-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/homelab-kind-registry
           key: kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml', 'localdev/values/argocd-values.yaml') }}
           restore-keys: |
+            kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml') }}-
             kind-registry-
+
+      - name: Registry cache restore result
+        env:
+          MATCHED_KEY: ${{ steps.registry-cache.outputs.cache-matched-key }}
+        run: |
+          echo "matched key: ${MATCHED_KEY:-none (cold start)}"
+          du -sh ~/.cache/homelab-kind-registry 2>/dev/null || echo "no registry cache on disk"
 
       # kind -> argocd -> sync every Application from the working tree ->
       # wait until Healthy/Succeeded -> chainsaw e2e. Non-interactive; on a
@@ -185,6 +202,32 @@ jobs:
         run: |
           set -o pipefail
           task verify LEVEL=2 | tee verify-level2.json
+
+      - name: Fingerprint registry blobs
+        id: registry-blobs
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          MATCHED_KEY: ${{ steps.registry-cache.outputs.cache-matched-key }}
+          KEY_PREFIX: kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml') }}
+        run: |
+          dir=~/.cache/homelab-kind-registry
+          if [ ! -d "$dir" ]; then echo "no registry cache on disk; nothing to save"; exit 0; fi
+          blobs=$(find "$dir" -path '*/blobs/*' -name data | wc -l)
+          fingerprint=$(find "$dir" -path '*/blobs/*' -name data -printf '%P\n' | sort | sha256sum | cut -c1-16)
+          key="$KEY_PREFIX-$fingerprint"
+          echo "blobs=$blobs size=$(du -sh "$dir" | cut -f1) key=$key"
+          if [ "$blobs" -eq 0 ] || [ "$key" = "$MATCHED_KEY" ]; then
+            echo "blob set empty or unchanged since restore; skipping save"
+            exit 0
+          fi
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Save registry pull-through cache (main, even on failure)
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.registry-blobs.outputs.fingerprint != ''
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/homelab-kind-registry
+          key: kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml') }}-${{ steps.registry-blobs.outputs.fingerprint }}
 
       - name: Summary
         if: always()
