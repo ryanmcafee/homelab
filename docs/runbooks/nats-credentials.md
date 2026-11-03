@@ -218,15 +218,29 @@ is a rotation step.
 Revocation takes precedence over availability, and it needs approval on the ticket plus the
 owning engineer -- it is a live credential mutation.
 
-1. Remove the compromised public key from `NATS_PRINCIPAL_NKEYS` and land the render. The server
-   stops accepting it. **Do not clear the whole map**: that makes the bus anonymous, which is
-   strictly worse than one refused principal.
-2. Disconnect sessions established under that key through a verified supported mechanism.
-   `$SYS` administration is the path; the exact verb and its effect are part of the level-2
-   drill, so confirm the sessions are actually gone rather than assuming removal cut them.
-3. Mint a replacement seed, update the vault item, restart the consumers.
-4. Prove both: the new key succeeds, and the compromised key is refused on a fresh connection.
-5. **Never roll back to the compromised key.** An External Secrets update is delivery, not
+**Revocation is an atomic key replacement, never a removal.** `charts/addons` refuses a
+`NATS_PRINCIPAL_NKEYS` map that is missing any declared principal, so "drop only the compromised
+key" does not render and leaves the compromised key accepted. Clearing the map renders, but makes
+the bus anonymous. Neither is a revocation step.
+
+1. Move the compromised seed aside as evidence and mint its replacement:
+   ```bash
+   mv ~/.homelab/nats-seeds/nack.nk ~/.homelab/nats-seeds/nack.nk.compromised-$(date +%F)
+   bun scripts/nats-principals-keygen.ts --dir ~/.homelab/nats-seeds --rotate nack
+   ```
+2. In one change, replace that principal's public key in `NATS_PRINCIPAL_NKEYS` with the new one
+   and land the render. The map stays complete, so the render succeeds, and the server stops
+   accepting the compromised key on new connections.
+3. Accept the interruption: that principal's clients are refused until step 4 completes.
+   Revocation takes precedence over availability; do not restore the old key to shorten it.
+4. Update the 1Password item's `nats.nk` field to the new seed and restart the consumers.
+5. Cut sessions established under the compromised key. Whether a config reload closes them is
+   unmeasured (section 5), so do not assume it. Until the level-2 drill proves a narrower verb,
+   restart the NATS server through ArgoCD so every client must reconnect and authenticate
+   against the new map. This interrupts every principal briefly.
+6. Prove all three: the new key connects, the compromised key is refused on a fresh connection,
+   and `$SYS` `connz` lists no connection authenticated with the compromised public key.
+7. **Never roll back to the compromised key.** An External Secrets update is delivery, not
    revocation -- putting the old seed back in the vault would restore it.
 
 If the compromised credential is `$SYS`, use the offline copy to administer the bus while you
