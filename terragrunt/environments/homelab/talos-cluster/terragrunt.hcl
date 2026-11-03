@@ -1,5 +1,6 @@
 # Homelab - Talos Kubernetes Cluster
-# Provisions Talos Linux cluster (3 control plane + 3 workers)
+# Provisions the Talos Linux cluster. The node counts come from the ConfigSet's
+# CPn_IP / WORKERn_IP address keys via env.hcl, not from this file.
 
 include "root" {
   path = find_in_parent_folders()
@@ -102,6 +103,10 @@ inputs = {
   # Node configurations from env.hcl
   control_plane_nodes = include.env.locals.control_plane_nodes
   worker_nodes        = include.env.locals.worker_nodes
+
+  # Derived from worker_nodes being empty, in env.hcl. A workerless cluster that
+  # kept the module default (false) would come up healthy and schedule nothing.
+  allow_scheduling_on_control_planes = include.env.locals.allow_scheduling_on_control_planes
 
   # Proxmox configuration
   pool_id        = dependency.zfs_pool.outputs.pool_id
