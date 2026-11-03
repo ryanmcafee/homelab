@@ -20,6 +20,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAccount, createUser } from "nkeys.js";
@@ -416,6 +417,32 @@ test("--dir is required, absolute, and never inside the repository", async () =>
     (await rejects(() => generate(["nack"], { dir: inside }))).message,
     "inside the repository",
   );
+});
+
+test("a symlinked ancestor that leads into the repository is refused before any write", async () => {
+  const outside = await seedDir();
+  const link = join(outside, "into-repo");
+  await symlink(join(import.meta.dir, ".."), link);
+  const seeds = join(link, ".nats-seeds-regression", "nested");
+
+  assertStringIncludes(
+    (await rejects(() => generate(["nack"], { dir: seeds }))).message,
+    "inside the repository",
+  );
+  assert(
+    !existsSync(join(import.meta.dir, "..", ".nats-seeds-regression")),
+    "no seed directory may be created inside the checkout",
+  );
+});
+
+test("a symlinked ancestor that stays outside the repository is accepted", async () => {
+  const real = await seedDir();
+  const outside = await seedDir();
+  const link = join(outside, "elsewhere");
+  await symlink(real, link);
+
+  const entries = await generate(["nack"], { dir: join(link, "seeds") });
+  assertEquals(entries.length, 1);
 });
 
 test("--rotate names a declared principal", async () => {
