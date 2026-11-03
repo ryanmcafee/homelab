@@ -1,0 +1,2218 @@
+{
+  "version": 1,
+  "documents": {
+    "bus-principals.v1.yaml": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "version": {
+          "kind": "number",
+          "value": "1"
+        },
+        "accounts": {
+          "kind": "object"
+        },
+        "accounts.per_tenant": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "accounts.name_template": {
+          "kind": "string",
+          "value": "\"TENANT_<TENANT>\""
+        },
+        "accounts.name_pattern": {
+          "kind": "string",
+          "value": "\"^TENANT_[A-Z0-9][A-Z0-9_]{0,62}$\""
+        },
+        "accounts.system_account": {
+          "kind": "string",
+          "value": "\"$SYS\""
+        },
+        "accounts.system_account_principals": {
+          "kind": "list",
+          "members": []
+        },
+        "accounts.exports": {
+          "kind": "string",
+          "value": "\"forbidden\""
+        },
+        "accounts.imports": {
+          "kind": "string",
+          "value": "\"forbidden\""
+        },
+        "accounts.disabled_unless_reviewed": {
+          "kind": "list",
+          "members": [
+            "\"gateways\"",
+            "\"leafnodes\"",
+            "\"mappings\"",
+            "\"mqtt\"",
+            "\"websocket\""
+          ]
+        },
+        "accounts.jetstream_limits_required": {
+          "kind": "list",
+          "members": [
+            "\"max_consumers\"",
+            "\"max_memory\"",
+            "\"max_store\"",
+            "\"max_streams\""
+          ]
+        },
+        "accounts.jetstream_budget_rule": {
+          "kind": "string",
+          "value": "\"PER-STREAM `maxBytes` SUMS BELOW ITS ACCOUNT'S `max_store`, AND THE ACCOUNTS' `max_store` VALUES SUM BELOW THE FILE STORE WITH HEADROOM. ADR-042's `maxBytesBudgetFraction` caps a surface's summed `max_bytes` at 75% of the WHOLE file store. That denominator is correct for exactly one account and wrong at the second: applied unchanged it measures every tenant's streams against the whole store, so it passes a configuration in which one account is overcommitted against its own `max_store` and admits the 10047 refusal the gate exists to prevent. Homelab's single account makes the two arithmetics identical, which is why the discrepancy is invisible until a second account exists. RECONCILING THE GATE TO THE ACCOUNT LEVEL GATES ONBOARDING THE SECOND TENANT, not the first. Storage limits bound storage only: CPU, connection count and shared-node contention stay shared-server residual risk.\""
+        },
+        "subject_grants": {
+          "kind": "object"
+        },
+        "subject_grants.tenant_ceiling": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.>\""
+        },
+        "subject_grants.never_granted": {
+          "kind": "list",
+          "members": [
+            "\"$JS.>\"",
+            "\"$JS.ACK.>\"",
+            "\"$JS.API.>\"",
+            "\"_INBOX.>\"",
+            "\"pf.*.>\"",
+            "\"pf.>\""
+          ]
+        },
+        "subject_grants.inbox_prefix_template": {
+          "kind": "string",
+          "value": "\"_INBOX.<principal>\""
+        },
+        "subject_grants.inbox_subscribe_template": {
+          "kind": "string",
+          "value": "\"_INBOX.<principal>.>\""
+        },
+        "subject_grants.reply_mechanism": {
+          "kind": "string",
+          "value": "\"server_response_permission\""
+        },
+        "subject_grants.reply_inbox_publish_grant": {
+          "kind": "string",
+          "value": "\"forbidden\""
+        },
+        "subject_grants.ack_templates": {
+          "kind": "list",
+          "members": [
+            "\"$JS.ACK.*.*.<stream>.<consumer>.>\"",
+            "\"$JS.ACK.<stream>.<consumer>.>\""
+          ]
+        },
+        "roles": {
+          "kind": "object"
+        },
+        "roles.publisher": {
+          "kind": "object"
+        },
+        "roles.publisher.description": {
+          "kind": "string",
+          "value": "\"Publishes its registry-owned types and nothing else. It never reads a stream, so it gets no stream or consumer API at all.\""
+        },
+        "roles.publisher.js_api_allow": {
+          "kind": "list",
+          "members": [
+            "\"$JS.API.INFO\""
+          ]
+        },
+        "roles.publisher.js_api_deny": {
+          "kind": "list",
+          "members": []
+        },
+        "roles.publisher.binds_stream_explicitly": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "roles.bound_puller": {
+          "kind": "object"
+        },
+        "roles.bound_puller.description": {
+          "kind": "string",
+          "value": "\"Binds a durable that NACK pre-created, with NO consumer-create grant of any kind. Every workload consumer takes this path: a create carries a body `deliver_subject` the server never checks against the creator's publish grant, so self-create would let a workload redirect its stream into any subscribed subject in the account. (ADR-043 D6a, D6b)\""
+        },
+        "roles.bound_puller.js_api_allow": {
+          "kind": "list",
+          "members": [
+            "\"$JS.API.CONSUMER.INFO.<stream>.<consumer>\"",
+            "\"$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>\"",
+            "\"$JS.API.INFO\"",
+            "\"$JS.API.STREAM.INFO.<stream>\""
+          ]
+        },
+        "roles.bound_puller.js_api_deny": {
+          "kind": "list",
+          "members": [
+            "\"$JS.API.CONSUMER.CREATE.*\"",
+            "\"$JS.API.CONSUMER.DURABLE.CREATE.*.*\""
+          ]
+        },
+        "roles.bound_puller.binds_stream_explicitly": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "roles.bound_puller.durable_is_exclusive": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "roles.stream_controller": {
+          "kind": "object"
+        },
+        "roles.stream_controller.description": {
+          "kind": "string",
+          "value": "\"NACK, and only NACK. The stream set is GitOps state (ADR-038), so this is the one role with stream lifecycle rights -- scoped to its tenant's account through the `Account` resource, never to `$SYS`. The static backend uses `spec.nkey`, with the matching PUBLIC user key assigned to the tenant account; `spec.creds` is an nsc credentials file and the two are not interchangeable. (ADR-043 D4)\""
+        },
+        "roles.stream_controller.js_api_allow": {
+          "kind": "list",
+          "members": [
+            "\"$JS.API.CONSUMER.CREATE.*\"",
+            "\"$JS.API.CONSUMER.CREATE.*.>\"",
+            "\"$JS.API.CONSUMER.DURABLE.CREATE.*.*\"",
+            "\"$JS.API.CONSUMER.INFO.*.*\"",
+            "\"$JS.API.CONSUMER.LIST.*\"",
+            "\"$JS.API.CONSUMER.NAMES.*\"",
+            "\"$JS.API.INFO\"",
+            "\"$JS.API.STREAM.CREATE.*\"",
+            "\"$JS.API.STREAM.INFO.*\"",
+            "\"$JS.API.STREAM.LIST\"",
+            "\"$JS.API.STREAM.NAMES\"",
+            "\"$JS.API.STREAM.UPDATE.*\""
+          ]
+        },
+        "roles.stream_controller.js_api_deny": {
+          "kind": "list",
+          "members": [
+            "\"$JS.API.ACCOUNT.PURGE\"",
+            "\"$JS.API.CONSUMER.DELETE.*.*\"",
+            "\"$JS.API.STREAM.DELETE.*\"",
+            "\"$JS.API.STREAM.MSG.DELETE.*\"",
+            "\"$JS.API.STREAM.MSG.GET.*\"",
+            "\"$JS.API.STREAM.PURGE.*\"",
+            "\"$JS.API.STREAM.RESTORE.*\"",
+            "\"$JS.API.STREAM.SNAPSHOT.*\""
+          ]
+        },
+        "roles.stream_controller.binds_stream_explicitly": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "principals": {
+          "kind": "list"
+        },
+        "principals.nack": {
+          "kind": "object"
+        },
+        "principals.nack.name": {
+          "kind": "string",
+          "value": "\"nack\""
+        },
+        "principals.nack.role": {
+          "kind": "string",
+          "value": "\"stream_controller\""
+        },
+        "principals.nack.component": {
+          "kind": "string",
+          "value": "\"nack\""
+        },
+        "principals.nack.publish": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.nack.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.workload-operator": {
+          "kind": "object"
+        },
+        "principals.workload-operator.name": {
+          "kind": "string",
+          "value": "\"workload-operator\""
+        },
+        "principals.workload-operator.role": {
+          "kind": "string",
+          "value": "\"bound_puller\""
+        },
+        "principals.workload-operator.component": {
+          "kind": "string",
+          "value": "\"workload-operator\""
+        },
+        "principals.workload-operator.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.workload.deployment.degraded.v1.ev\"",
+            "\"pf.<tenant>.workload.deployment.deployed.v1.ev\"",
+            "\"pf.<tenant>.workload.deployment.promote.v1.dl\"",
+            "\"pf.<tenant>.workload.deployment.promoted.v1.ev\""
+          ]
+        },
+        "principals.workload-operator.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.workload-operator.consumes": {
+          "kind": "list"
+        },
+        "principals.workload-operator.consumes.#0": {
+          "kind": "object"
+        },
+        "principals.workload-operator.consumes.#0.stream": {
+          "kind": "string",
+          "value": "\"PF_WORK\""
+        },
+        "principals.workload-operator.consumes.#0.consumer": {
+          "kind": "string",
+          "value": "\"workload-operator-deployment-promote-v1\""
+        },
+        "principals.workload-operator.consumes.#0.filter": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.workload.deployment.promote.v1.wq\""
+        },
+        "principals.gitops-bridge": {
+          "kind": "object"
+        },
+        "principals.gitops-bridge.name": {
+          "kind": "string",
+          "value": "\"gitops-bridge\""
+        },
+        "principals.gitops-bridge.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.gitops-bridge.component": {
+          "kind": "string",
+          "value": "\"gitops-bridge\""
+        },
+        "principals.gitops-bridge.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.gitops.application.drifted.v1.ev\"",
+            "\"pf.<tenant>.gitops.application.synced.v1.ev\""
+          ]
+        },
+        "principals.gitops-bridge.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.infra-operator": {
+          "kind": "object"
+        },
+        "principals.infra-operator.name": {
+          "kind": "string",
+          "value": "\"infra-operator\""
+        },
+        "principals.infra-operator.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.infra-operator.component": {
+          "kind": "string",
+          "value": "\"infra-operator\""
+        },
+        "principals.infra-operator.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.infra.node.replaced.v1.ev\""
+          ]
+        },
+        "principals.infra-operator.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.homelab-cli": {
+          "kind": "object"
+        },
+        "principals.homelab-cli.name": {
+          "kind": "string",
+          "value": "\"homelab-cli\""
+        },
+        "principals.homelab-cli.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.homelab-cli.component": {
+          "kind": "string",
+          "value": "\"homelab-cli\""
+        },
+        "principals.homelab-cli.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.control.bootstrap.progressed.v1.ev\""
+          ]
+        },
+        "principals.homelab-cli.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.identity-broker": {
+          "kind": "object"
+        },
+        "principals.identity-broker.name": {
+          "kind": "string",
+          "value": "\"identity-broker\""
+        },
+        "principals.identity-broker.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.identity-broker.component": {
+          "kind": "string",
+          "value": "\"identity-broker\""
+        },
+        "principals.identity-broker.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.identity.principal.issued.v1.ev\"",
+            "\"pf.<tenant>.identity.principal.revoked.v1.ev\""
+          ]
+        },
+        "principals.identity-broker.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.slo-bridge": {
+          "kind": "object"
+        },
+        "principals.slo-bridge.name": {
+          "kind": "string",
+          "value": "\"slo-bridge\""
+        },
+        "principals.slo-bridge.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.slo-bridge.component": {
+          "kind": "string",
+          "value": "\"slo-bridge\""
+        },
+        "principals.slo-bridge.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.observability.slo.burned.v1.ev\""
+          ]
+        },
+        "principals.slo-bridge.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.platform-api": {
+          "kind": "object"
+        },
+        "principals.platform-api.name": {
+          "kind": "string",
+          "value": "\"platform-api\""
+        },
+        "principals.platform-api.role": {
+          "kind": "string",
+          "value": "\"publisher\""
+        },
+        "principals.platform-api.component": {
+          "kind": "string",
+          "value": "\"platform-api\""
+        },
+        "principals.platform-api.publish": {
+          "kind": "list",
+          "members": [
+            "\"pf.<tenant>.workload.deployment.describe.v1.rq\"",
+            "\"pf.<tenant>.workload.deployment.promote.v1.wq\""
+          ]
+        },
+        "principals.platform-api.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.dlq-reporter": {
+          "kind": "object"
+        },
+        "principals.dlq-reporter.name": {
+          "kind": "string",
+          "value": "\"dlq-reporter\""
+        },
+        "principals.dlq-reporter.role": {
+          "kind": "string",
+          "value": "\"bound_puller\""
+        },
+        "principals.dlq-reporter.component": {
+          "kind": "string",
+          "value": "\"dlq-reporter\""
+        },
+        "principals.dlq-reporter.publish": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.dlq-reporter.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.dlq-reporter.consumes": {
+          "kind": "list"
+        },
+        "principals.dlq-reporter.consumes.#0": {
+          "kind": "object"
+        },
+        "principals.dlq-reporter.consumes.#0.stream": {
+          "kind": "string",
+          "value": "\"PF_DLQ\""
+        },
+        "principals.dlq-reporter.consumes.#0.consumer": {
+          "kind": "string",
+          "value": "\"dlq-reporter-observability-v1\""
+        },
+        "principals.dlq-reporter.consumes.#0.filter": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.*.*.*.*.dl\""
+        },
+        "principals.argo-events-bridge": {
+          "kind": "object"
+        },
+        "principals.argo-events-bridge.name": {
+          "kind": "string",
+          "value": "\"argo-events-bridge\""
+        },
+        "principals.argo-events-bridge.role": {
+          "kind": "string",
+          "value": "\"bound_puller\""
+        },
+        "principals.argo-events-bridge.component": {
+          "kind": "string",
+          "value": "\"argo-events-bridge\""
+        },
+        "principals.argo-events-bridge.pending": {
+          "kind": "string",
+          "value": "\"MCAA-7\""
+        },
+        "principals.argo-events-bridge.publish": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.argo-events-bridge.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.argo-events-bridge.consumes": {
+          "kind": "list"
+        },
+        "principals.argo-events-bridge.consumes.#0": {
+          "kind": "object"
+        },
+        "principals.argo-events-bridge.consumes.#0.stream": {
+          "kind": "string",
+          "value": "\"PF_EVENTS\""
+        },
+        "principals.argo-events-bridge.consumes.#0.consumer": {
+          "kind": "string",
+          "value": "\"argo-events-bridge-delivery-v1\""
+        },
+        "principals.argo-events-bridge.consumes.#0.filter": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.delivery.*.*.*.ev\""
+        },
+        "principals.verify": {
+          "kind": "object"
+        },
+        "principals.verify.name": {
+          "kind": "string",
+          "value": "\"verify\""
+        },
+        "principals.verify.role": {
+          "kind": "string",
+          "value": "\"bound_puller\""
+        },
+        "principals.verify.component": {
+          "kind": "string",
+          "value": "\"verify\""
+        },
+        "principals.verify.publish": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.verify.subscribe": {
+          "kind": "list",
+          "members": []
+        },
+        "principals.verify.consumes": {
+          "kind": "list"
+        },
+        "principals.verify.consumes.#0": {
+          "kind": "object"
+        },
+        "principals.verify.consumes.#0.stream": {
+          "kind": "string",
+          "value": "\"PF_EVENTS\""
+        },
+        "principals.verify.consumes.#0.consumer": {
+          "kind": "string",
+          "value": "\"verify-workload-v1\""
+        },
+        "principals.verify.consumes.#0.filter": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.workload.*.*.v1.ev\""
+        },
+        "conformance": {
+          "kind": "object"
+        },
+        "conformance.level_0": {
+          "kind": "list"
+        },
+        "conformance.level_0.no_wildcard_tenant_grant": {
+          "kind": "object"
+        },
+        "conformance.level_0.no_wildcard_tenant_grant.id": {
+          "kind": "string",
+          "value": "\"no_wildcard_tenant_grant\""
+        },
+        "conformance.level_0.no_wildcard_tenant_grant.asserts": {
+          "kind": "string",
+          "value": "\"No principal publishes or subscribes on `pf.>` or any `pf.*.` form.\""
+        },
+        "conformance.level_0.grant_within_producer_ownership": {
+          "kind": "object"
+        },
+        "conformance.level_0.grant_within_producer_ownership.id": {
+          "kind": "string",
+          "value": "\"grant_within_producer_ownership\""
+        },
+        "conformance.level_0.grant_within_producer_ownership.asserts": {
+          "kind": "string",
+          "value": "\"Every `.ev`/`.rq`/`.wq` publish grant is a subject the registry assigns this component as `producer`, and every `.dl` grant derives from a `wq` subject this principal consumes.\""
+        },
+        "conformance.level_0.grant_within_tenant_ceiling": {
+          "kind": "object"
+        },
+        "conformance.level_0.grant_within_tenant_ceiling.id": {
+          "kind": "string",
+          "value": "\"grant_within_tenant_ceiling\""
+        },
+        "conformance.level_0.grant_within_tenant_ceiling.asserts": {
+          "kind": "string",
+          "value": "\"Every `pf.` grant begins `pf.<tenant>.` and never a literal tenant token.\""
+        },
+        "conformance.level_0.no_shared_inbox_or_ack": {
+          "kind": "object"
+        },
+        "conformance.level_0.no_shared_inbox_or_ack.id": {
+          "kind": "string",
+          "value": "\"no_shared_inbox_or_ack\""
+        },
+        "conformance.level_0.no_shared_inbox_or_ack.asserts": {
+          "kind": "string",
+          "value": "\"No principal is granted `_INBOX.>` or `$JS.ACK.>`, and no ACK grant omits its own stream and consumer.\""
+        },
+        "conformance.level_0.js_api_allow_is_exhaustive": {
+          "kind": "object"
+        },
+        "conformance.level_0.js_api_allow_is_exhaustive.id": {
+          "kind": "string",
+          "value": "\"js_api_allow_is_exhaustive\""
+        },
+        "conformance.level_0.js_api_allow_is_exhaustive.asserts": {
+          "kind": "string",
+          "value": "\"Every role's `js_api_allow` is a subset of the endpoints its role needs, and no role allows `$JS.API.>`, `STREAM.MSG.GET`, `ACCOUNT.PURGE`, `STREAM.RESTORE` or `STREAM.SNAPSHOT`.\""
+        },
+        "conformance.level_0.consumer_create_denies_present": {
+          "kind": "object"
+        },
+        "conformance.level_0.consumer_create_denies_present.id": {
+          "kind": "string",
+          "value": "\"consumer_create_denies_present\""
+        },
+        "conformance.level_0.consumer_create_denies_present.asserts": {
+          "kind": "string",
+          "value": "\"Every role that binds a consumer carries the name-only and legacy-durable denies as defence in depth, and `stream_controller` denies none of the create forms it needs.\""
+        },
+        "conformance.level_0.consumer_create_only_stream_controller": {
+          "kind": "object"
+        },
+        "conformance.level_0.consumer_create_only_stream_controller.id": {
+          "kind": "string",
+          "value": "\"consumer_create_only_stream_controller\""
+        },
+        "conformance.level_0.consumer_create_only_stream_controller.asserts": {
+          "kind": "string",
+          "value": "\"No role but `stream_controller`, and no rendered principal but `nack`, holds an allow that MATCHES a `$JS.API.CONSUMER.CREATE` or `$JS.API.CONSUMER.DURABLE.CREATE` subject, compared as NATS subject patterns so `$JS.API.>`, `$JS.API.CONSUMER.>` and `>` fail as a literal create grant does. (ADR-043 D6b)\""
+        },
+        "conformance.level_0.no_push_consumer": {
+          "kind": "object"
+        },
+        "conformance.level_0.no_push_consumer.id": {
+          "kind": "string",
+          "value": "\"no_push_consumer\""
+        },
+        "conformance.level_0.no_push_consumer.asserts": {
+          "kind": "string",
+          "value": "\"No rendered `Consumer` sets a non-empty `spec.deliverSubject` or `spec.deliverGroup`; every consumer is pull-only, so delivery is never redirected to a subject in Git. (ADR-043 D6b)\""
+        },
+        "conformance.level_0.no_system_account_principal": {
+          "kind": "object"
+        },
+        "conformance.level_0.no_system_account_principal.id": {
+          "kind": "string",
+          "value": "\"no_system_account_principal\""
+        },
+        "conformance.level_0.no_system_account_principal.asserts": {
+          "kind": "string",
+          "value": "\"`accounts.system_account_principals` is empty and no principal names `$SYS`.\""
+        },
+        "conformance.level_0.no_cross_account_link": {
+          "kind": "object"
+        },
+        "conformance.level_0.no_cross_account_link.id": {
+          "kind": "string",
+          "value": "\"no_cross_account_link\""
+        },
+        "conformance.level_0.no_cross_account_link.asserts": {
+          "kind": "string",
+          "value": "\"Exports and imports are forbidden and every topology feature that bypasses them is listed as disabled.\""
+        },
+        "conformance.level_0.jetstream_limits_declared": {
+          "kind": "object"
+        },
+        "conformance.level_0.jetstream_limits_declared.id": {
+          "kind": "string",
+          "value": "\"jetstream_limits_declared\""
+        },
+        "conformance.level_0.jetstream_limits_declared.asserts": {
+          "kind": "string",
+          "value": "\"All four per-account JetStream limits are required, and the rendered account sets all four.\""
+        },
+        "conformance.level_0.durable_not_shared": {
+          "kind": "object"
+        },
+        "conformance.level_0.durable_not_shared.id": {
+          "kind": "string",
+          "value": "\"durable_not_shared\""
+        },
+        "conformance.level_0.durable_not_shared.asserts": {
+          "kind": "string",
+          "value": "\"No two principals name the same (stream, consumer) pair, so a `bound_puller`'s `durable_is_exclusive` is a property of the declaration and not a comment.\""
+        },
+        "conformance.level_0.stream_and_consumer_name_account": {
+          "kind": "object"
+        },
+        "conformance.level_0.stream_and_consumer_name_account.id": {
+          "kind": "string",
+          "value": "\"stream_and_consumer_name_account\""
+        },
+        "conformance.level_0.stream_and_consumer_name_account.asserts": {
+          "kind": "string",
+          "value": "\"Every rendered `Stream` and `Consumer` sets `spec.account`.\""
+        },
+        "conformance.level_0.callout_allowed_accounts_bounded": {
+          "kind": "object"
+        },
+        "conformance.level_0.callout_allowed_accounts_bounded.id": {
+          "kind": "string",
+          "value": "\"callout_allowed_accounts_bounded\""
+        },
+        "conformance.level_0.callout_allowed_accounts_bounded.asserts": {
+          "kind": "string",
+          "value": "\"When the callout backend is configured, `allowed_accounts` is non-empty and excludes `$SYS` -- v2.15.0 delegates EVERY account when it is left empty, so the secure value is not the default.\""
+        },
+        "conformance.level_2": {
+          "kind": "list"
+        },
+        "conformance.level_2.start_bind_pull_ack_reconnect": {
+          "kind": "object"
+        },
+        "conformance.level_2.start_bind_pull_ack_reconnect.id": {
+          "kind": "string",
+          "value": "\"start_bind_pull_ack_reconnect\""
+        },
+        "conformance.level_2.start_bind_pull_ack_reconnect.asserts": {
+          "kind": "string",
+          "value": "\"A principal starts, binds, pulls, ACK/NAK/TERMs and reconnects under the real rendered ACL.\""
+        },
+        "conformance.level_2.lifecycle_refused": {
+          "kind": "object"
+        },
+        "conformance.level_2.lifecycle_refused.id": {
+          "kind": "string",
+          "value": "\"lifecycle_refused\""
+        },
+        "conformance.level_2.lifecycle_refused.asserts": {
+          "kind": "string",
+          "value": "\"Every stream and consumer lifecycle verb outside the allow-list is refused.\""
+        },
+        "conformance.level_2.cross_principal_inbox_and_ack_refused": {
+          "kind": "object"
+        },
+        "conformance.level_2.cross_principal_inbox_and_ack_refused.id": {
+          "kind": "string",
+          "value": "\"cross_principal_inbox_and_ack_refused\""
+        },
+        "conformance.level_2.cross_principal_inbox_and_ack_refused.asserts": {
+          "kind": "string",
+          "value": "\"A principal cannot read another principal's inbox or acknowledge another consumer's messages INSIDE ONE ACCOUNT. Cross-tenant refusal alone does not test this.\""
+        },
+        "conformance.level_2.consumer_create_name_only_reach": {
+          "kind": "object"
+        },
+        "conformance.level_2.consumer_create_name_only_reach.id": {
+          "kind": "string",
+          "value": "\"consumer_create_name_only_reach\""
+        },
+        "conformance.level_2.consumer_create_name_only_reach.measured": {
+          "kind": "object"
+        },
+        "conformance.level_2.consumer_create_name_only_reach.measured.image": {
+          "kind": "string",
+          "value": "\"docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4\""
+        },
+        "conformance.level_2.consumer_create_name_only_reach.measured.suite": {
+          "kind": "string",
+          "value": "\"tests/e2e/nats-auth\""
+        },
+        "conformance.level_2.consumer_create_name_only_reach.measured.run": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/actions/runs/36802082830\""
+        },
+        "conformance.level_2.consumer_create_name_only_reach.asserts": {
+          "kind": "string",
+          "value": "\"No workload principal can create a consumer (ADR-043 D6b, `bound_puller`). The nameless `$JS.API.CONSUMER.CREATE.<stream>` form, legacy `DURABLE.CREATE` and the fully-filtered form are each refused, for a new name and as an update of the NACK durable. The bind to that durable succeeds and it stays pull. So neither the name reach nor the `deliver_subject` push redirect (checked against no publish grant, MCAA-1090) is reachable from a workload credential; only `stream_controller` creates consumers.\""
+        },
+        "conformance.level_2.nack_account_on_stream_move": {
+          "kind": "object"
+        },
+        "conformance.level_2.nack_account_on_stream_move.id": {
+          "kind": "string",
+          "value": "\"nack_account_on_stream_move\""
+        },
+        "conformance.level_2.nack_account_on_stream_move.open_question": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "conformance.level_2.nack_account_on_stream_move.asserts": {
+          "kind": "string",
+          "value": "\"UNMEASURED. NACK 0.35.0's `Account` behaviour when a `Stream` moves between accounts.\""
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant": {
+          "kind": "object"
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.id": {
+          "kind": "string",
+          "value": "\"rq_reply_needs_no_inbox_grant\""
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.measured": {
+          "kind": "object"
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.measured.image": {
+          "kind": "string",
+          "value": "\"docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4\""
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.measured.suite": {
+          "kind": "string",
+          "value": "\"tests/e2e/nats-auth\""
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.measured.run": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/actions/runs/36810662328\""
+        },
+        "conformance.level_2.rq_reply_needs_no_inbox_grant.asserts": {
+          "kind": "string",
+          "value": "\"The key is the responder user's `permissions.allow_responses`, measured at `{max: 1, expires: 5s}`. Without it the reply is refused. With it the reply reaches the requester's `_INBOX.<principal>` with no publish grant on that inbox, while an unsolicited publish to, a subscribe on, and a reply after the 5s bound to that inbox are all refused.\""
+        },
+        "conformance.level_2.monitoring_network_policy": {
+          "kind": "object"
+        },
+        "conformance.level_2.monitoring_network_policy.id": {
+          "kind": "string",
+          "value": "\"monitoring_network_policy\""
+        },
+        "conformance.level_2.monitoring_network_policy.asserts": {
+          "kind": "string",
+          "value": "\"Untrusted-pod denial AND authorized scrape, on BOTH 8222 (the monitoring port, published by `nats-headless` and reachable on the pod IP either way) and 7777 (the exporter, which republishes the same cross-account metadata).\""
+        },
+        "conformance.level_2.rotation_and_revocation_drill": {
+          "kind": "object"
+        },
+        "conformance.level_2.rotation_and_revocation_drill.id": {
+          "kind": "string",
+          "value": "\"rotation_and_revocation_drill\""
+        },
+        "conformance.level_2.rotation_and_revocation_drill.asserts": {
+          "kind": "string",
+          "value": "\"Staged new-key publication, Secret delivery, server config reload, client and NACK reconnect, old-key removal, and refusal of both new AND already-established old sessions within a stated bound -- plus rollback and a `$SYS` recovery path that works while the identity service is down. External Secrets and 1Password synchronise material; they do not supply this protocol.\""
+        },
+        "conformance.level_2.cold_start_no_maintainer_account": {
+          "kind": "object"
+        },
+        "conformance.level_2.cold_start_no_maintainer_account.id": {
+          "kind": "string",
+          "value": "\"cold_start_no_maintainer_account\""
+        },
+        "conformance.level_2.cold_start_no_maintainer_account.asserts": {
+          "kind": "string",
+          "value": "\"Cold start on fresh synthetic credentials with no maintainer account, no identity service and no anonymous fallback. This is the fork-ability contract for the bus.\""
+        }
+      }
+    },
+    "envelope.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/envelope.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"Platform CloudEvents envelope, v1\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"A narrowing profile of CloudEvents 1.0 (structured JSON mode). Every event published to the platform NATS bus MUST validate against this schema. The profile narrows CloudEvents in four places: `source` and `type` have an enforced grammar, `datacontenttype` is fixed to JSON, `dataschema` is required, and the platform extension attributes below are required on every event. `additionalProperties` is false, so a NEW OPTIONAL ATTRIBUTE IS NOT A UNILATERALLY ADDITIVE CHANGE: a producer that ships one has its events rejected by any consumer still validating against an older copy of this file. Adding an attribute is a COORDINATED ROLLOUT — every validator is updated first, producers second — and the gate pins this schema's `required` array so the ordering cannot be skipped by accident. See docs/contracts/event-contract.md.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"datacontenttype\"",
+            "\"dataschema\"",
+            "\"id\"",
+            "\"source\"",
+            "\"specversion\"",
+            "\"tenant\"",
+            "\"time\"",
+            "\"type\""
+          ]
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.specversion": {
+          "kind": "object"
+        },
+        "properties.specversion.const": {
+          "kind": "string",
+          "value": "\"1.0\""
+        },
+        "properties.specversion.description": {
+          "kind": "string",
+          "value": "\"CloudEvents spec version. Fixed: a second spec version would be a second contract.\""
+        },
+        "properties.id": {
+          "kind": "object"
+        },
+        "properties.id.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.id.minLength": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "properties.id.maxLength": {
+          "kind": "number",
+          "value": "128",
+          "bound": "max"
+        },
+        "properties.id.description": {
+          "kind": "string",
+          "value": "\"Producer-assigned. Unique per (source, id). This is the de-duplication key for every at-least-once path; consumers MUST treat (source, id) as the idempotency key.\""
+        },
+        "properties.source": {
+          "kind": "object"
+        },
+        "properties.source.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.source.pattern": {
+          "kind": "string",
+          "value": "\"^//[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*/[a-z0-9./-]+$\""
+        },
+        "properties.source.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.source.description": {
+          "kind": "string",
+          "value": "\"URI-reference identifying the producing component, as //<domain>/<component-path>. The domain segment is operator-supplied (the fork-ability contract: no personal domain may be hard-coded here) and the component path is stable across forks.\""
+        },
+        "properties.type": {
+          "kind": "object"
+        },
+        "properties.type.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.type.pattern": {
+          "kind": "string",
+          "value": "\"^com\\\\.mcafeeconsulting\\\\.platform\\\\.[a-z0-9]+(-[a-z0-9]+)*(\\\\.[a-z0-9]+(-[a-z0-9]+)*)*\\\\.v[1-9][0-9]*$\""
+        },
+        "properties.type.maxLength": {
+          "kind": "number",
+          "value": "128",
+          "bound": "max"
+        },
+        "properties.type.description": {
+          "kind": "string",
+          "value": "\"Reverse-DNS event type ending in an explicit major version, e.g. com.mcafeeconsulting.platform.workload.deployment.deployed.v1. The version is part of the type, never a separate attribute, so a consumer subscribing to v1 can never be handed a v2 body. The `com.mcafeeconsulting.platform.` prefix is FIXED AND A FORK DOES NOT CHANGE IT: it identifies the platform software, which a fork still runs, and is what makes an event from a forked install recognisable to the same SDK. The operator's own identity travels in `source`, which is parameterised.\""
+        },
+        "properties.subject": {
+          "kind": "object"
+        },
+        "properties.subject.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.subject.minLength": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "properties.subject.maxLength": {
+          "kind": "number",
+          "value": "256",
+          "bound": "max"
+        },
+        "properties.subject.description": {
+          "kind": "string",
+          "value": "\"The entity the event is about, as <kind>/<namespace>/<name> for Kubernetes-scoped events. Optional per CloudEvents; required by every operator-sourced type in registry.v1.yaml.\""
+        },
+        "properties.time": {
+          "kind": "object"
+        },
+        "properties.time.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.time.format": {
+          "kind": "string",
+          "value": "\"date-time\""
+        },
+        "properties.time.description": {
+          "kind": "string",
+          "value": "\"RFC3339 with timezone, producer clock. Not usable for ordering across producers; use `sequence` within a stream.\""
+        },
+        "properties.datacontenttype": {
+          "kind": "object"
+        },
+        "properties.datacontenttype.const": {
+          "kind": "string",
+          "value": "\"application/json\""
+        },
+        "properties.datacontenttype.description": {
+          "kind": "string",
+          "value": "\"Fixed. A second content type is a second serialization contract and a second set of compatibility rules.\""
+        },
+        "properties.dataschema": {
+          "kind": "object"
+        },
+        "properties.dataschema.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.dataschema.format": {
+          "kind": "string",
+          "value": "\"uri\""
+        },
+        "properties.dataschema.description": {
+          "kind": "string",
+          "value": "\"Required (CloudEvents makes it optional). The JSON Schema for `data`. RESOLUTION IS DEFINED, not left to each producer: the wire value is `<contracts_base_uri>` + the registry's relative `dataschema` path, where `contracts_base_uri` is a single operator-supplied setting ending in `/` (homelab default: the raw contracts path of the operator's own fork). The registry stores the relative path and the compatibility gate compares relative paths; only the base differs between installs. A payload whose shape is not published is not a contract.\""
+        },
+        "properties.data": {
+          "kind": "object"
+        },
+        "properties.data.description": {
+          "kind": "string",
+          "value": "\"The event body. Shape is governed by `dataschema`, evolved additively within a major version: new optional fields only. Absent only for types declared `dataless: true` in the registry. The whole event — envelope plus body — must fit inside the producer budget (subjects.v1.yaml `limits.max_event_bytes`, 960 KiB, deliberately below the server's 1 MiB `max_payload` because that limit counts headers as well as body); a larger payload is referenced by URI, never embedded.\""
+        },
+        "properties.tenant": {
+          "kind": "object"
+        },
+        "properties.tenant.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.tenant.pattern": {
+          "kind": "string",
+          "value": "\"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$\""
+        },
+        "properties.tenant.maxLength": {
+          "kind": "number",
+          "value": "63",
+          "bound": "max"
+        },
+        "properties.tenant.description": {
+          "kind": "string",
+          "value": "\"Platform extension. The tenancy boundary the event belongs to. Homelab publishes the reserved value `local`. This attribute is a trust boundary: a subscriber MUST NOT be delivered events whose `tenant` it is not authorized for, and authorization is enforced at the NATS account/subject level, not by consumer-side filtering.\""
+        },
+        "properties.sequence": {
+          "kind": "object"
+        },
+        "properties.sequence.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.sequence.pattern": {
+          "kind": "string",
+          "value": "\"^[0-9]{1,20}$\""
+        },
+        "properties.sequence.description": {
+          "kind": "string",
+          "value": "\"Platform extension, per CloudEvents Sequence. The JetStream stream sequence, stringified, assigned on persist by the ONE stream that ingested the event (PF_EVENTS for `.ev`, PF_WORK for `.wq`); PF_AUDIT sources from PF_EVENTS and its internal sequences are never this value. Monotonic per (stream, subject) and meaningful for ordering ONLY within a single subject on a single stream — and see subjects.v1.yaml `consumers.ordering_reality` before relying on it. OPTIONAL, because only the broker can assign it: a producer does not set it, the publishing SDK fills it from the PubAck, and on the core-NATS `rq` path there is no stream and no PubAck at all. Present on every event a consumer receives from a stream; absent on a synchronous request. A required attribute that a producer must fill with a placeholder is a lie in the schema (ADR-038).\""
+        },
+        "properties.traceparent": {
+          "kind": "object"
+        },
+        "properties.traceparent.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.traceparent.pattern": {
+          "kind": "string",
+          "value": "\"^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$\""
+        },
+        "properties.traceparent.description": {
+          "kind": "string",
+          "value": "\"W3C Trace Context. Strongly recommended and set automatically by the SDK; optional so that an event emitted outside a traced request is still valid rather than silently dropped.\""
+        },
+        "properties.tracestate": {
+          "kind": "object"
+        },
+        "properties.tracestate.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.tracestate.maxLength": {
+          "kind": "number",
+          "value": "512",
+          "bound": "max"
+        },
+        "properties.tracestate.description": {
+          "kind": "string",
+          "value": "\"W3C Trace Context vendor state, carried through untouched.\""
+        },
+        "properties.correlationid": {
+          "kind": "object"
+        },
+        "properties.correlationid.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.correlationid.maxLength": {
+          "kind": "number",
+          "value": "128",
+          "bound": "max"
+        },
+        "properties.correlationid.description": {
+          "kind": "string",
+          "value": "\"Platform extension. The end-to-end unit of work (e.g. a reconcile pass, a golden-path run). Distinct from traceparent, which is per-request. Required by request/reply types in the registry.\""
+        },
+        "properties.replyto": {
+          "kind": "object"
+        },
+        "properties.replyto.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.replyto.maxLength": {
+          "kind": "number",
+          "value": "256",
+          "bound": "max"
+        },
+        "properties.replyto.description": {
+          "kind": "string",
+          "value": "\"Platform extension. NATS inbox subject (`_INBOX.…`) for synchronous request/reply. Present ONLY on `rq` types; a consumer that sees it on a pub/sub type MUST ignore it. A `wq` durable request has no `replyto` — an inbox does not survive the wait that made the request durable — and reports its outcome through the `completion` event named in the registry.\""
+        },
+        "properties.dryrun": {
+          "kind": "object"
+        },
+        "properties.dryrun.type": {
+          "kind": "string",
+          "value": "\"boolean\""
+        },
+        "properties.dryrun.description": {
+          "kind": "string",
+          "value": "\"Platform extension. True when the event describes an evaluation that MUST NOT cause side effects. Consumers that cannot honour it MUST drop the event rather than act on it.\""
+        }
+      }
+    },
+    "registry.v1.yaml": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "version": {
+          "kind": "number",
+          "value": "1"
+        },
+        "types": {
+          "kind": "list"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.deployed\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.deployed\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.workload.deployment.deployed.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.deployed\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.workload.deployment.deployed.v1.ev\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.deployed\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"pubsub\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.deployed\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.deployed\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.deployed\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/workload.deployed.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.deployed\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.deployed\\.v1.producer": {
+          "kind": "string",
+          "value": "\"workload-operator\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.deployed\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.degraded\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.degraded\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.workload.deployment.degraded.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.degraded\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.workload.deployment.degraded.v1.ev\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.degraded\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"pubsub\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.degraded\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.degraded\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.degraded\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/workload.degraded.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.degraded\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.degraded\\.v1.producer": {
+          "kind": "string",
+          "value": "\"workload-operator\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.degraded\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.synced\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.synced\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.gitops.application.synced.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.synced\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.gitops.application.synced.v1.ev\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.synced\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"pubsub\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.synced\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.synced\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.synced\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/gitops.application.synced.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.synced\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.synced\\.v1.producer": {
+          "kind": "string",
+          "value": "\"gitops-bridge\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.synced\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.drifted\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.drifted\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.gitops.application.drifted.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.drifted\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.gitops.application.drifted.v1.ev\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.drifted\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"pubsub\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.drifted\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.drifted\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.drifted\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/gitops.application.drifted.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.drifted\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.drifted\\.v1.producer": {
+          "kind": "string",
+          "value": "\"gitops-bridge\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.gitops\\.application\\.drifted\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.infra\\.node\\.replaced\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.infra\\.node\\.replaced\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.infra.node.replaced.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.infra\\.node\\.replaced\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.infra.node.replaced.v1.ev\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.infra\\.node\\.replaced\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"pubsub\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.infra\\.node\\.replaced\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.infra\\.node\\.replaced\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.infra\\.node\\.replaced\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/infra.node.replaced.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.infra\\.node\\.replaced\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.infra\\.node\\.replaced\\.v1.producer": {
+          "kind": "string",
+          "value": "\"infra-operator\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.infra\\.node\\.replaced\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.control\\.bootstrap\\.progressed\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.control\\.bootstrap\\.progressed\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.control.bootstrap.progressed.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.control\\.bootstrap\\.progressed\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.control.bootstrap.progressed.v1.ev\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.control\\.bootstrap\\.progressed\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"pubsub\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.control\\.bootstrap\\.progressed\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.control\\.bootstrap\\.progressed\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.control\\.bootstrap\\.progressed\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/platform.bootstrap.progressed.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.control\\.bootstrap\\.progressed\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"correlationid\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.control\\.bootstrap\\.progressed\\.v1.producer": {
+          "kind": "string",
+          "value": "\"homelab-cli\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.control\\.bootstrap\\.progressed\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.issued\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.issued\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.identity.principal.issued.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.issued\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.identity.principal.issued.v1.ev\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.issued\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"pubsub\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.issued\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.issued\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.issued\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/identity.principal.issued.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.issued\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"correlationid\"",
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.issued\\.v1.producer": {
+          "kind": "string",
+          "value": "\"identity-broker\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.issued\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.revoked\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.revoked\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.identity.principal.revoked.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.revoked\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.identity.principal.revoked.v1.ev\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.revoked\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"pubsub\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.revoked\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.revoked\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.revoked\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/identity.principal.revoked.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.revoked\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"correlationid\"",
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.revoked\\.v1.producer": {
+          "kind": "string",
+          "value": "\"identity-broker\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.identity\\.principal\\.revoked\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.observability\\.slo\\.burned\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.observability\\.slo\\.burned\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.observability.slo.burned.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.observability\\.slo\\.burned\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.observability.slo.burned.v1.ev\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.observability\\.slo\\.burned\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"pubsub\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.observability\\.slo\\.burned\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.observability\\.slo\\.burned\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.observability\\.slo\\.burned\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/observability.slo.burned.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.observability\\.slo\\.burned\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.observability\\.slo\\.burned\\.v1.producer": {
+          "kind": "string",
+          "value": "\"slo-bridge\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.observability\\.slo\\.burned\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.describe\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.describe\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.workload.deployment.describe.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.describe\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.workload.deployment.describe.v1.rq\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.describe\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"request_reply\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.describe\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_most_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.describe\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"none\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.describe\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/workload.describe.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.describe\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"correlationid\"",
+            "\"replyto\"",
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.describe\\.v1.producer": {
+          "kind": "string",
+          "value": "\"platform-api\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.describe\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.workload.deployment.promote.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.workload.deployment.promote.v1.wq\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"request_reply\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"none\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/workload.promote.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"correlationid\"",
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1.completion": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.workload.deployment.promoted.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1.producer": {
+          "kind": "string",
+          "value": "\"platform-api\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promote\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promoted\\.v1": {
+          "kind": "object"
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promoted\\.v1.type": {
+          "kind": "string",
+          "value": "\"com.mcafeeconsulting.platform.workload.deployment.promoted.v1\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promoted\\.v1.subject": {
+          "kind": "string",
+          "value": "\"pf.<tenant>.workload.deployment.promoted.v1.ev\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promoted\\.v1.pattern": {
+          "kind": "string",
+          "value": "\"pubsub\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promoted\\.v1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promoted\\.v1.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promoted\\.v1.dataschema": {
+          "kind": "string",
+          "value": "\"data/workload.promoted.v1.schema.json\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promoted\\.v1.requires": {
+          "kind": "list",
+          "members": [
+            "\"correlationid\"",
+            "\"subject\""
+          ]
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promoted\\.v1.producer": {
+          "kind": "string",
+          "value": "\"workload-operator\""
+        },
+        "types.com\\.mcafeeconsulting\\.platform\\.workload\\.deployment\\.promoted\\.v1.status": {
+          "kind": "string",
+          "value": "\"stable\""
+        }
+      }
+    },
+    "subjects.v1.yaml": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "version": {
+          "kind": "number",
+          "value": "1"
+        },
+        "grammar": {
+          "kind": "object"
+        },
+        "grammar.pattern": {
+          "kind": "string",
+          "value": "\"^pf\\\\.[a-z0-9][a-z0-9-]{0,62}\\\\.[a-z0-9]+(-[a-z0-9]+)*\\\\.[a-z0-9]+(-[a-z0-9]+)*\\\\.[a-z0-9]+(-[a-z0-9]+)*\\\\.v[1-9][0-9]*\\\\.(ev|rq|wq|dl)$\""
+        },
+        "grammar.tokens": {
+          "kind": "number",
+          "value": "7"
+        },
+        "grammar.root": {
+          "kind": "string",
+          "value": "\"pf\""
+        },
+        "grammar.suffixes": {
+          "kind": "object"
+        },
+        "grammar.suffixes.ev": {
+          "kind": "string",
+          "value": "\"Pub/sub event. Fan-out, many consumers, no reply. Past tense action.\""
+        },
+        "grammar.suffixes.rq": {
+          "kind": "string",
+          "value": "\"Synchronous request on core NATS. Exactly one responder, at-most-once, never persisted. Imperative action. Requires `replyto` and `correlationid`. The REPLY goes to the requester's private `_INBOX.…` subject, which is outside this grammar by construction — that is why there is no `rs` suffix (ADR-038).\""
+        },
+        "grammar.suffixes.wq": {
+          "kind": "string",
+          "value": "\"Durable request on the PF_WORK work-queue stream. Deferred work, at-least-once, exactly one consumer group takes each message. Requires `correlationid`. A `wq` type has no synchronous reply; it MUST name a `completion` type — a registered `.ev` event correlated by `correlationid` — which is how the requester learns the work finished.\""
+        },
+        "grammar.suffixes.dl": {
+          "kind": "string",
+          "value": "\"Dead letter. Carries the FULL original envelope of a `wq` message that a consumer gave up on, republished by that consumer before it terminates the original. Not directly registerable: a `dl` subject is derived from its `wq` subject by swapping the suffix, so it is never listed as a type's own `subject`.\""
+        },
+        "domains": {
+          "kind": "object"
+        },
+        "domains.control": {
+          "kind": "string",
+          "value": "\"Control-plane lifecycle — tenants, environments, bootstrap.\""
+        },
+        "domains.workload": {
+          "kind": "string",
+          "value": "\"Application workloads and their rollout state.\""
+        },
+        "domains.gitops": {
+          "kind": "string",
+          "value": "\"ArgoCD Application sync, drift and health.\""
+        },
+        "domains.delivery": {
+          "kind": "string",
+          "value": "\"Pipeline, workflow and progressive-delivery lifecycle — Argo Workflows runs, Argo Rollouts steps and analysis, golden-path CI/CD and quality gates. Distinct from `gitops` (which is ArgoCD Application state) and from `workload` (which is the deployed thing, not the pipeline that moved it).\""
+        },
+        "domains.infra": {
+          "kind": "string",
+          "value": "\"Nodes, storage, network, cluster lifecycle.\""
+        },
+        "domains.identity": {
+          "kind": "string",
+          "value": "\"Principals, AI agent identities, credential lifecycle.\""
+        },
+        "domains.observability": {
+          "kind": "string",
+          "value": "\"SLO burn, alert lifecycle, verification results.\""
+        },
+        "replicas_defaults": {
+          "kind": "object"
+        },
+        "replicas_defaults.homelab": {
+          "kind": "number",
+          "value": "1"
+        },
+        "replicas_defaults.commercial": {
+          "kind": "number",
+          "value": "3"
+        },
+        "replicas_defaults.commercial_minimum_peers": {
+          "kind": "number",
+          "value": "3"
+        },
+        "max_bytes_defaults": {
+          "kind": "object"
+        },
+        "max_bytes_defaults.homelab": {
+          "kind": "object"
+        },
+        "max_bytes_defaults.homelab.PF_EVENTS": {
+          "kind": "number",
+          "value": "2147483648"
+        },
+        "max_bytes_defaults.homelab.PF_AUDIT": {
+          "kind": "number",
+          "value": "3221225472"
+        },
+        "max_bytes_defaults.homelab.PF_WORK": {
+          "kind": "number",
+          "value": "268435456"
+        },
+        "max_bytes_defaults.homelab.PF_DLQ": {
+          "kind": "number",
+          "value": "805306368"
+        },
+        "max_bytes_defaults.commercial": {
+          "kind": "object"
+        },
+        "max_bytes_defaults.commercial.PF_EVENTS": {
+          "kind": "number",
+          "value": "34359738368"
+        },
+        "max_bytes_defaults.commercial.PF_AUDIT": {
+          "kind": "number",
+          "value": "51539607552"
+        },
+        "max_bytes_defaults.commercial.PF_WORK": {
+          "kind": "number",
+          "value": "4294967296"
+        },
+        "max_bytes_defaults.commercial.PF_DLQ": {
+          "kind": "number",
+          "value": "12884901888"
+        },
+        "max_bytes_sum_rule": {
+          "kind": "string",
+          "value": "\"THE FOUR STREAMS' `max_bytes` MUST TOTAL STRICTLY LESS THAN THE JETSTREAM FILE STORE, with headroom. `max_bytes` bounds a stream against ITSELF; it does not reserve or partition the store. Four streams whose limits sum above the store are individually bounded and collectively unbounded, so the shared-store failure above is back unchanged — the peer just reaches `insufficient resources (10023)` before any stream reaches its own limit, and which stream's publish gets refused is a race rather than a policy. The headroom is not decoration either: JetStream accounts for index and metadata alongside message bytes, so a budget equal to the store fails before the last stream fills. 75% OF THE STORE IS THE CEILING, NOT THE TARGET: the chart refuses to render above it (`maxBytesBudgetFraction`), and the defaults above sit well under it — homelab budgets 6 GiB of the 20 GiB it provisions (30%), commercial 96 GiB of 128 GiB (75%). Homelab is deliberately the conservative one: RAISING a `max_bytes` is additive and safe, while lowering one below what a stream already holds makes JetStream discard or refuse at the new limit, so the reversible direction is to start low. An operator who raises one stream MUST keep the total under the ceiling — lower another or grow the store. THIS RULE IS ARITHMETIC AN OPERATOR APPLIES AT SIZING TIME, NOT SOMETHING THE STATIC GATE CAN CHECK: the file store size is a cluster fact (`nats.jetstream.storage.size` in `configuration/templates/helm-addons.tmpl`, which renders into the upstream NATS chart's `fileStore.pvc.size`), not a value in this contract. What the gate does enforce is that the numbers live in `max_bytes_defaults` where the sum is visible at all, rather than being scattered across four chart values. The runtime side of the rule is an alert on file-store utilisation, named in ADR-042 and owned by the SRE & Observability Engineer. The two failures an operator meets here are different errors: a mis-summed budget surfaces at PUBLISH as `insufficient resources` (10023), while a single stream sized above the whole store surfaces at CREATE as `insufficient storage resources available` (10047) and never starts.\""
+        },
+        "streams": {
+          "kind": "list"
+        },
+        "streams.PF_EVENTS": {
+          "kind": "object"
+        },
+        "streams.PF_EVENTS.name": {
+          "kind": "string",
+          "value": "\"PF_EVENTS\""
+        },
+        "streams.PF_EVENTS.subjects": {
+          "kind": "list",
+          "members": [
+            "\"pf.*.*.*.*.*.ev\""
+          ]
+        },
+        "streams.PF_EVENTS.storage": {
+          "kind": "string",
+          "value": "\"file\""
+        },
+        "streams.PF_EVENTS.replicas": {
+          "kind": "string",
+          "value": "\"<replicas>\""
+        },
+        "streams.PF_EVENTS.retention": {
+          "kind": "string",
+          "value": "\"limits\""
+        },
+        "streams.PF_EVENTS.max_age": {
+          "kind": "string",
+          "value": "\"168h\""
+        },
+        "streams.PF_EVENTS.max_bytes": {
+          "kind": "string",
+          "value": "\"<max_bytes>\""
+        },
+        "streams.PF_EVENTS.max_msg_size": {
+          "kind": "number",
+          "value": "983040",
+          "bound": "max"
+        },
+        "streams.PF_EVENTS.discard": {
+          "kind": "string",
+          "value": "\"old\""
+        },
+        "streams.PF_EVENTS.duplicate_window": {
+          "kind": "string",
+          "value": "\"2m\""
+        },
+        "streams.PF_EVENTS.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "streams.PF_EVENTS.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "streams.PF_EVENTS.notes": {
+          "kind": "string",
+          "value": "\"The general fan-out stream, and the ONLY ingestion point for `.ev`. `duplicate_window` de-duplicates on the `Nats-Msg-Id` header, which the SDK sets to the CloudEvents `id`. That window makes publish effectively-once for a retry burst SHORTER THAN THE WINDOW and nothing more: see `limits.publish_retry_budget`. It does NOT make end-to-end delivery exactly-once, because a consumer can still crash between handling and acking.\""
+        },
+        "streams.PF_AUDIT": {
+          "kind": "object"
+        },
+        "streams.PF_AUDIT.name": {
+          "kind": "string",
+          "value": "\"PF_AUDIT\""
+        },
+        "streams.PF_AUDIT.subjects": {
+          "kind": "list",
+          "members": []
+        },
+        "streams.PF_AUDIT.sources": {
+          "kind": "list"
+        },
+        "streams.PF_AUDIT.sources.PF_EVENTS": {
+          "kind": "object"
+        },
+        "streams.PF_AUDIT.sources.PF_EVENTS.name": {
+          "kind": "string",
+          "value": "\"PF_EVENTS\""
+        },
+        "streams.PF_AUDIT.sources.PF_EVENTS.filters": {
+          "kind": "list",
+          "members": [
+            "\"pf.*.control.*.*.*.ev\"",
+            "\"pf.*.identity.*.*.*.ev\""
+          ]
+        },
+        "streams.PF_AUDIT.storage": {
+          "kind": "string",
+          "value": "\"file\""
+        },
+        "streams.PF_AUDIT.replicas": {
+          "kind": "string",
+          "value": "\"<replicas>\""
+        },
+        "streams.PF_AUDIT.retention": {
+          "kind": "string",
+          "value": "\"limits\""
+        },
+        "streams.PF_AUDIT.max_age": {
+          "kind": "string",
+          "value": "\"8760h\""
+        },
+        "streams.PF_AUDIT.max_bytes": {
+          "kind": "string",
+          "value": "\"<max_bytes>\""
+        },
+        "streams.PF_AUDIT.discard": {
+          "kind": "string",
+          "value": "\"new\""
+        },
+        "streams.PF_AUDIT.duplicate_window": {
+          "kind": "string",
+          "value": "\"2m\""
+        },
+        "streams.PF_AUDIT.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "streams.PF_AUDIT.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "streams.PF_AUDIT.notes": {
+          "kind": "string",
+          "value": "\"A retention policy applied to a subset of the event log, NOT a second ingestion path. An earlier draft gave PF_AUDIT its own subject filters overlapping PF_EVENTS; a real nats-server refuses that with `subjects overlap with an existing stream (10065)`, so the stream could not be created at all. Sourcing fixes three things at once: the stream is creatable; a consumer binds ONE stream so nobody sees an event twice; and one publish yields one PubAck and therefore one unambiguous envelope `sequence`, from PF_EVENTS. `discard: new` means what it should ONLY BECAUSE `max_bytes` IS SET — when the audit stream reaches its own ceiling it refuses ITS OWN writes rather than dropping history, and it does not block live publishes on PF_EVENTS. Without a ceiling that sentence was false: 365d of retention with no limit can only exhaust the shared file store, and that refuses writes for every stream on the peer including PF_EVENTS, which is the opposite of the isolation claimed here. PF_AUDIT's own stream sequences are internal and are never the envelope's `sequence`. (ADR-038, ADR-042)\""
+        },
+        "streams.PF_WORK": {
+          "kind": "object"
+        },
+        "streams.PF_WORK.name": {
+          "kind": "string",
+          "value": "\"PF_WORK\""
+        },
+        "streams.PF_WORK.subjects": {
+          "kind": "list",
+          "members": [
+            "\"pf.*.*.*.*.*.wq\""
+          ]
+        },
+        "streams.PF_WORK.storage": {
+          "kind": "string",
+          "value": "\"file\""
+        },
+        "streams.PF_WORK.replicas": {
+          "kind": "string",
+          "value": "\"<replicas>\""
+        },
+        "streams.PF_WORK.retention": {
+          "kind": "string",
+          "value": "\"workqueue\""
+        },
+        "streams.PF_WORK.max_age": {
+          "kind": "string",
+          "value": "\"24h\""
+        },
+        "streams.PF_WORK.max_bytes": {
+          "kind": "string",
+          "value": "\"<max_bytes>\""
+        },
+        "streams.PF_WORK.discard": {
+          "kind": "string",
+          "value": "\"new\""
+        },
+        "streams.PF_WORK.duplicate_window": {
+          "kind": "string",
+          "value": "\"2m\""
+        },
+        "streams.PF_WORK.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "streams.PF_WORK.ordering": {
+          "kind": "string",
+          "value": "\"none\""
+        },
+        "streams.PF_WORK.notes": {
+          "kind": "string",
+          "value": "\"Requests that need durability (deferred work), carried on the `wq` suffix. `retention: workqueue` means exactly one consumer group takes each message. Synchronous request/reply (`rq`, with a live `replyto`) deliberately matches no stream: it is core NATS, at-most-once, nothing persisted. The suffix is what separates them, so a reader of a subject knows the guarantee without opening the registry — the registry does not restate durability, it is DERIVED from the suffix. `discard: new` is deliberate and stays: when the queue reaches `max_bytes`, the publish is REFUSED with `maximum bytes exceeded` (err_code 10077, HTTP 503) instead of the stream silently dropping work — verified against nats-server 2.10.29, and identical on `limits` retention, so a work queue needs no special case. Match the DESCRIPTION, not the number: 10077 is a wrapper code whose description carries the real reason, so `maximum bytes exceeded` (this stream is at its own ceiling, backpressure working) and `insufficient resources` (10023, the peer is out of store, a bus-wide outage) both arrive as 503 and mean opposite things. Backpressure belongs on the producer, and it only exists because the ceiling exists — an unbounded PF_WORK never fills, so it grows until the shared file store is exhausted and the error surfaces as `insufficient resources (10023)` on every stream at once rather than as backpressure on this one. See `silent_loss` below for what `max_age` costs here; `max_bytes` bounds the queue's SIZE and `max_age` bounds its messages' LIFETIME, and neither substitutes for the other. (ADR-042)\""
+        },
+        "streams.PF_WORK.silent_loss": {
+          "kind": "string",
+          "value": "\"AGE EXPIRY ON THIS STREAM IS A SILENT DATA-LOSS PATH. `max_age` deletes unacked work-queue messages with no per-message signal on the path that matters, and `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>` does not fire because nothing was ever redelivered. Precisely: a message that was IN FLIGHT on a consumer when the budget expired emits exactly one `io.nats.jetstream.advisory.v1.terminated`; a message that was QUEUED AND NEVER DELIVERED emits nothing at all. The second is the shape of every consumer outage — a consumer that is down fetches nothing, so nothing is ever in flight — which is why the advisory cannot be the control here. Measured: 8s `max_age`, 3 messages, 1 fetched, 1 `terminated`, nothing for the other two (MCAA-134). A consumer outage longer than `max_age` destroys every queued request without a trace, and the blast radius is the whole tenant's deferred work, not one message. `max_age` is therefore set to exceed the worst consumer outage the platform intends to survive (24h — longer than a weekend on-call gap), and the loss is covered by a STREAM-level monitor, not a consumer advisory: alert when PF_WORK's oldest unacked message approaches `max_age`. The metric is `nats_stream_first_seq{stream_name=\\\"PF_WORK\\\"}` from prometheus-nats-exporter (`-jsz=all`), NOT the stream's `state.first_ts`: the exporter publishes no message age and no timestamp at all — pinned against 0.18.0, the tag the NATS chart pins, and against the exporter's `main`. On a work queue the head leaves only when it is acked, so a `first_seq` frozen while the stream was never empty IS the age of the oldest unacked message; depth (`nats_stream_total_messages`) cannot substitute, because a queue nobody drains and a busy queue have identical depth. The alerts are `PFWorkOldestUnackedAging` (warning at 12h of head age, critical at 18h, leaving 6h of the budget to act), `PFWorkMessagesExpiredUnacked` (the head advanced further than every consumer ack floor, so messages left unacked) and `PFWorkStreamMetricsAbsent` (the monitor went blind), in the `homelab-nats-jetstream` group of charts/addons; runbook docs/runbooks/pf-work-age-expiry.md. The REQUIREMENT that the alert exists is contract, and a PF_WORK consumer with no such alert fails the boundary quality gate (ADR-030).\""
+        },
+        "streams.PF_DLQ": {
+          "kind": "object"
+        },
+        "streams.PF_DLQ.name": {
+          "kind": "string",
+          "value": "\"PF_DLQ\""
+        },
+        "streams.PF_DLQ.subjects": {
+          "kind": "list",
+          "members": [
+            "\"pf.*.*.*.*.*.dl\""
+          ]
+        },
+        "streams.PF_DLQ.storage": {
+          "kind": "string",
+          "value": "\"file\""
+        },
+        "streams.PF_DLQ.replicas": {
+          "kind": "string",
+          "value": "\"<replicas>\""
+        },
+        "streams.PF_DLQ.retention": {
+          "kind": "string",
+          "value": "\"limits\""
+        },
+        "streams.PF_DLQ.max_age": {
+          "kind": "string",
+          "value": "\"720h\""
+        },
+        "streams.PF_DLQ.max_bytes": {
+          "kind": "string",
+          "value": "\"<max_bytes>\""
+        },
+        "streams.PF_DLQ.discard": {
+          "kind": "string",
+          "value": "\"old\""
+        },
+        "streams.PF_DLQ.duplicate_window": {
+          "kind": "string",
+          "value": "\"2m\""
+        },
+        "streams.PF_DLQ.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "streams.PF_DLQ.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "streams.PF_DLQ.notes": {
+          "kind": "string",
+          "value": "\"The real dead-letter path for `wq` work. JetStream's max-deliveries advisory is metadata only — it carries `stream`, `consumer`, `stream_seq` and `deliveries`, and NO body, NO subject and NO `correlationid` — so an operator holding one cannot tell what the work was without stream-admin rights the failing component does not have, and the poison message then sits in the workqueue undeliverable until `max_age` deletes it silently. PF_DLQ carries the full original envelope instead. See `consumers.dead_letter`. (ADR-038)\""
+        },
+        "limits": {
+          "kind": "object"
+        },
+        "limits.server_max_payload": {
+          "kind": "number",
+          "value": "1048576"
+        },
+        "limits.max_event_bytes": {
+          "kind": "number",
+          "value": "983040",
+          "bound": "max"
+        },
+        "limits.producer_budget_rule": {
+          "kind": "string",
+          "value": "\"`max_event_bytes` IS A PRODUCER BUDGET, NOT THE SERVER LIMIT, and it is deliberately BELOW `server_max_payload`. An earlier version set the two equal at 1 MiB, which made the budget unreachable: `max_payload` bounds the whole NATS message, HEADERS PLUS BODY. THE BOUND IS INCLUSIVE — `len(headers) + len(body) <= max_payload` is accepted, verified at the protocol level — so a 1 MiB envelope is refused not because equality fails but because the SDK always adds `Nats-Msg-Id` on top of it. A well-behaved client knows `max_payload` from INFO and refuses locally (`nats: maximum payload exceeded`, nothing sent, connection intact); only a client that sends anyway gets `-ERR 'Maximum Payload Violation'` and the server closing the connection. The 64 KiB reserved between the two covers the headers every publish carries — `Nats-Msg-Id` (the CloudEvents `id`, which the SDK always sets) plus whatever a tracing propagator adds. Measured worst case: `Nats-Msg-Id` with `traceparent`, `tracestate` and `baggage` all at the W3C SHOULD-limits is 8862 wire bytes, so the reserve is 7.4x the worst propagator and costs 6.67% of the producer budget — deliberate, because a budget that a header someone adds later can silently invalidate is the same defect one size down. A producer checks its serialised envelope against `max_event_bytes`; it never checks against `server_max_payload`. PF_EVENTS' `max_msg_size` equals `max_event_bytes` so the budget is ENFORCED by the stream rather than restated as advice. The checker requires at least one stream producers publish into directly to declare `max_msg_size`, checks EVERY such stream against `max_event_bytes`, and pins the strict inequality above — deleting the cap is a violation rather than a skipped rule, because absence is what made this sentence silently false before. (ADR-042)\""
+        },
+        "limits.body_rule": {
+          "kind": "string",
+          "value": "\"The whole structured-JSON event — envelope plus `data` — must fit inside `max_event_bytes`. A payload that does not is REFERENCED, never embedded: publish a URI or an object key in `data` and leave the bytes where they already live. An event is a notification, not a transport.\""
+        },
+        "limits.publish_retry_budget": {
+          "kind": "string",
+          "value": "\"A publisher MUST cap its TOTAL publish-retry duration below the target stream's `duplicate_window` (2m), or treat the publish as plainly at-least-once and rely on consumer idempotency on `(source, id)`. Retrying the same `Nats-Msg-Id` at window+1s persists a genuine duplicate. The de-duplication window is a bound on a retry burst, not a property of the stream.\""
+        },
+        "consumers": {
+          "kind": "object"
+        },
+        "consumers.durability": {
+          "kind": "string",
+          "value": "\"Every consumer of a `.ev` subject is a durable pull consumer with an explicit name of the form `<component>-<domain>-v<major>`. Ephemeral consumers are permitted only for human debugging; a service that uses one has no replay story after a restart. This domain-scoped naming rule applies to `.ev` CONSUMERS ONLY — see `workqueue_binding`.\""
+        },
+        "consumers.workqueue_binding": {
+          "kind": "string",
+          "value": "\"EVERY PF_WORK CONSUMER BINDS EXACTLY ONE FULLY-SPECIFIED SUBJECT, NEVER A WILDCARD, and is named `<component>-<entity>-<action>-v<major>`. On a work-queue stream consumer filters must be unique and non-overlapping: the server rejects the second one with `filtered consumer not unique on workqueue stream (10100)`. Because PF_WORK spans every domain, the first component to create a domain-wide `wq` consumer would permanently foreclose every other component in that domain, and it would be discovered in whichever environment the second component deployed to. (ADR-038)\""
+        },
+        "consumers.workqueue_tenancy": {
+          "kind": "string",
+          "value": "\"THIS RULE ASSUMES ONE NATS ACCOUNT, AND THEREFORE ONE PF_WORK, PER TENANT. That is what makes \\\"exactly one fully-specified subject\\\" and a tenant-free consumer name mutually consistent: a fully-specified subject names a concrete `<tenant>` token, the consumer name grammar has no tenant token, so the tenant must be constant within the account. See security.tenancy in `docs/contracts/event-contract.md` §5, which this makes explicit rather than implied. It is normative because the single-account reading fails SILENTLY and destructively, and `10100` does not catch it: a durable consumer create with an EXISTING NAME is an UPDATE, not a conflict. Two tenants' `platform-api` deployments both create `platform-api-deployment-promote-v1`; the second repoints the first's filter with no error and no warning. Tenant one's queued `wq` work then has no consumer at all — and because a work queue RETAINS rather than drops it, nothing alerts until `max_age` deletes it 24h later down the no-advisory path in PF_WORK's `silent_loss`. `10100` fires on an overlapping filter under a DIFFERENT name and stays silent on an identical one, which is exactly the asymmetry that makes this reachable by a routine second-tenant deployment rather than by a misconfiguration. (ADR-038, D2)\""
+        },
+        "consumers.ack_policy": {
+          "kind": "string",
+          "value": "\"explicit\""
+        },
+        "consumers.max_deliver": {
+          "kind": "number",
+          "value": "5",
+          "bound": "max"
+        },
+        "consumers.ack_wait": {
+          "kind": "string",
+          "value": "\"30s\""
+        },
+        "consumers.max_ack_pending": {
+          "kind": "number",
+          "value": "256",
+          "bound": "max"
+        },
+        "consumers.ordering_reality": {
+          "kind": "string",
+          "value": "\"`ordering: per_subject` IS A PROPERTY OF THE STREAM, NOT OF DELIVERY. A consumer with `max_deliver > 1` observes reordering after any failure: a message that fails and waits out `ack_wait` is redelivered AFTER later messages on the same subject have already been handled and acked. `max_ack_pending` (256 by default above) puts that many messages in flight concurrently, which removes delivery order entirely. Ordered handling requires `max_ack_pending: 1` AND serial processing, and costs throughput; take it deliberately. Otherwise use the envelope `sequence` to DETECT reordering rather than assuming its absence. `sequence` is OPTIONAL in the envelope: it is present on every event a consumer received from a stream (the broker assigns it from the PubAck), and absent on the `rq` path, which has no stream and no PubAck to assign one from. A `.ev` or `wq` consumer may therefore rely on it; a responder on `rq` has no sequence to reason about and no ordering claim to check. The gate pins the attribute's presence and type in the envelope baseline (`envelope-attribute-removed`, `envelope-attribute-retyped`), so this instruction cannot outlive the field.\""
+        },
+        "consumers.dead_letter": {
+          "kind": "string",
+          "value": "\"On final failure of a `wq` message — the delivery on which `max_deliver` exhausts, or an error the handler knows is not retryable — the consumer REPUBLISHES THE FULL ORIGINAL ENVELOPE to the `dl` subject derived from the message's own subject (same seven tokens, suffix `wq` -> `dl`), preserving the original `id`, `source` and `correlationid`, and THEN calls `Term()` on the original. The consumer does this itself because only the consumer holds the body. JetStream's `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>` advisory remains useful as a counter and an alert source, but it is NOT the dead-letter path: it carries no payload, no subject and no `correlationid`, and it only fires on the next fetch attempt after exhaustion, so a consumer that crashes at exhaustion emits nothing at all. A component with no `dl` republish path has no failure path and fails the boundary quality gate (ADR-030).\""
+        },
+        "consumers.no_core_nats_bridge": {
+          "kind": "string",
+          "value": "\"ANYTHING CONSUMING A `.ev` SUBJECT DOES SO THROUGH A DURABLE PULL CONSUMER. In particular, an Argo Events `nats` EventSource is a CORE-NATS subscribe — at-most-once, no durability, no replay — and pointing one at a `.ev` subject silently downgrades an at-least-once path to at-most-once with nothing in its own documentation to warn you. The bridge between this bus and the Argo Events bus is an explicit component with a named durable consumer, never an event source pointed at `pf.>`.\""
+        },
+        "consumers.filter": {
+          "kind": "string",
+          "value": "\"Consumers filter by subject, never by decoding the body and discarding. Body-level filtering hides the real coupling from the subject taxonomy and defeats the wildcard guarantees above.\""
+        },
+        "guarantees": {
+          "kind": "list"
+        },
+        "guarantees.#0": {
+          "kind": "object"
+        },
+        "guarantees.#0.path": {
+          "kind": "string",
+          "value": "\"pub/sub via PF_EVENTS (mirrored to PF_AUDIT by sourcing)\""
+        },
+        "guarantees.#0.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "guarantees.#0.ordering": {
+          "kind": "string",
+          "value": "\"per_subject on the stream; NOT on delivery — see consumers.ordering_reality\""
+        },
+        "guarantees.#0.dedup": {
+          "kind": "string",
+          "value": "\"consumer-side on (source, id); publish-side within duplicate_window\""
+        },
+        "guarantees.#1": {
+          "kind": "object"
+        },
+        "guarantees.#1.path": {
+          "kind": "string",
+          "value": "\"durable request via PF_WORK (`wq`)\""
+        },
+        "guarantees.#1.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "guarantees.#1.ordering": {
+          "kind": "string",
+          "value": "\"none\""
+        },
+        "guarantees.#1.dedup": {
+          "kind": "string",
+          "value": "\"consumer-side on (source, id)\""
+        },
+        "guarantees.#1.completion": {
+          "kind": "string",
+          "value": "\"No synchronous reply. The requester learns the outcome from the `wq` type's declared `completion` type, a registered `.ev` event carrying the same `correlationid`.\""
+        },
+        "guarantees.#2": {
+          "kind": "object"
+        },
+        "guarantees.#2.path": {
+          "kind": "string",
+          "value": "\"dead letter via PF_DLQ (`dl`)\""
+        },
+        "guarantees.#2.delivery": {
+          "kind": "string",
+          "value": "\"at_least_once\""
+        },
+        "guarantees.#2.ordering": {
+          "kind": "string",
+          "value": "\"per_subject\""
+        },
+        "guarantees.#2.dedup": {
+          "kind": "string",
+          "value": "\"consumer-side on (source, id) — the ORIGINAL id is preserved\""
+        },
+        "guarantees.#3": {
+          "kind": "object"
+        },
+        "guarantees.#3.path": {
+          "kind": "string",
+          "value": "\"synchronous request/reply on core NATS (`rq`, reply to `_INBOX.…`)\""
+        },
+        "guarantees.#3.delivery": {
+          "kind": "string",
+          "value": "\"at_most_once\""
+        },
+        "guarantees.#3.ordering": {
+          "kind": "string",
+          "value": "\"none\""
+        },
+        "guarantees.#3.dedup": {
+          "kind": "string",
+          "value": "\"Not applicable at the transport. THE RESPONDER MUST BE IDEMPOTENT: the requester retries on timeout and cannot tell a lost request from a lost reply, so a second identical request must not cause a second effect. The obligation is the responder's; the requester's retry is what creates it.\""
+        },
+        "guarantees.#4": {
+          "kind": "object"
+        },
+        "guarantees.#4.path": {
+          "kind": "string",
+          "value": "\"operator reconcile (not an event path)\""
+        },
+        "guarantees.#4.delivery": {
+          "kind": "string",
+          "value": "\"not applicable\""
+        },
+        "guarantees.#4.ordering": {
+          "kind": "string",
+          "value": "\"not applicable\""
+        },
+        "guarantees.#4.dedup": {
+          "kind": "string",
+          "value": "\"Convergent. The operator reads observed state and rewrites desired state; events are a notification that a reconcile should happen sooner, never the carrier of the state itself. Losing an event must only cost latency, never correctness (ADR-025).\""
+        }
+      }
+    }
+  }
+}

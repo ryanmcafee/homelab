@@ -3,11 +3,21 @@
 /**
  * contract-check.ts
  *
- * The compatibility gate for the platform event contract (contracts/events/).
- * ADR-026 fixes the subject taxonomy and ADR-030 makes this check a boundary
- * quality gate; this script is the half a machine can enforce.
+ * The compatibility gate for everything under contracts/. ADR-026 fixes the
+ * subject taxonomy, ADR-030 makes this check a boundary quality gate,
+ * extended past contracts/events/ to every contract directory; this script is
+ * the half a machine can enforce.
  *
- * Two things are checked, and they fail for different reasons:
+ * It has two legs, and they know different amounts about what they are reading.
+ * The event leg below understands registered types, subjects, streams and
+ * delivery guarantees, and applies only to contracts/events/. The structural leg
+ * in lib/contract-shape.ts understands fields, and applies to every directory
+ * including that one: a contract is a tree, and a field disappearing, being
+ * renamed, changing type or losing a declared value breaks a consumer whatever
+ * the document means. Before MCAA-431 the second leg did not exist and three
+ * contracts outside events/ were held by review.
+ *
+ * Two things are checked on the event leg, and they fail for different reasons:
  *
  *   1. Internal consistency — every registered type's subject parses under the
  *      seven-token grammar, lands on a declared domain, carries the suffix its
@@ -50,8 +60,15 @@
  * 2 = usage error or unreadable input.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  diffShape,
+  type DocumentShape,
+  projectShape,
+  type ShapeCounts,
+  shapeCounts,
+} from "./lib/contract-shape.ts";
 import { parse as parseYaml } from "./lib/yaml.ts";
 
 // ============================================================================
@@ -1659,6 +1676,212 @@ export function renderViolations(violations: Violation[]): string {
 }
 
 // ============================================================================
+// Every other contract directory
+// ============================================================================
+
+export const CONTRACTS_ROOT = "contracts";
+/**
+ * The structural baseline, one per directory, keyed by document filename. Named
+ * so it cannot collide with a document and so `events/` keeps the historical
+ * `registry.v1.baseline.json` name for its event-specific pins; the two sit side
+ * by side there and pin different things.
+ */
+export const SHAPE_BASELINE_FILE = "shape.baseline.json";
+
+export interface ShapeBaseline {
+  version: number;
+  documents: Record<string, DocumentShape>;
+}
+
+/**
+ * Every directory under `contracts/` at any depth, sorted.
+ *
+ * Recursive rather than one level deep, because a constant naming a depth is
+ * the same defect as the constant naming a directory that this change removes:
+ * `contracts/events/data/` already holds 12 payload schemas one level below
+ * where a depth-1 walk stops, so nesting is the repository's own convention
+ * rather than a hypothetical. An undiscovered directory cannot be reported by
+ * `contract-baseline-missing` — the loop never visits it — so the only fix is
+ * for the walk to reach it.
+ */
+export function discoverContractDirs(root = CONTRACTS_ROOT): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const child = join(dir, entry.name);
+      found.push(child);
+      walk(child);
+    }
+  };
+  walk(root);
+  return found.sort();
+}
+
+/**
+ * Every document in one contract directory: any YAML or JSON file that is not
+ * itself a baseline. Deliberately a denylist of one suffix rather than an
+ * allowlist of known filenames — a contract added under a name nobody predicted
+ * has to be picked up, because the whole defect this replaces was a scope that
+ * excluded whatever landed next.
+ */
+export function contractDocuments(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true })
+    .filter(
+      (e) =>
+        e.isFile() &&
+        /\.(ya?ml|json)$/.test(e.name) &&
+        !e.name.endsWith(".baseline.json"),
+    )
+    .map((e) => e.name)
+    .sort();
+}
+
+/** Parsed by extension; both loaders throw on an unparseable file. */
+export function loadDocument(dir: string, file: string): unknown {
+  const body = readFileSync(join(dir, file), "utf8");
+  return file.endsWith(".json") ? JSON.parse(body) : parseYaml(body);
+}
+
+export function toShapeBaseline(dir: string): ShapeBaseline {
+  const documents: Record<string, DocumentShape> = {};
+  for (const file of contractDocuments(dir)) {
+    documents[file] = projectShape(loadDocument(dir, file));
+  }
+  return { version: 1, documents };
+}
+
+/** `null` when the directory has no structural baseline at all. */
+export function loadShapeBaseline(dir: string): ShapeBaseline | null {
+  const path = join(dir, SHAPE_BASELINE_FILE);
+  if (!existsSync(path)) return null;
+  return JSON.parse(readFileSync(path, "utf8")) as ShapeBaseline;
+}
+
+/**
+ * The structural rules for one contract directory.
+ *
+ * A directory with no baseline, or a document the baseline does not pin, is a
+ * violation rather than a skip. That is the property the paragraph this change
+ * deletes did not have: the old scope was a constant naming one directory, so
+ * every contract added after it was silently outside the gate. Here, adding a
+ * contract directory or a document without refreshing the baseline fails the
+ * gate and the failure names the command that fixes it.
+ */
+export function checkShapes(dir: string): Violation[] {
+  const documents = contractDocuments(dir);
+  const baseline = loadShapeBaseline(dir);
+
+  // A directory that only holds other directories pins nothing and has nothing
+  // to lose, so it needs no baseline. One that had documents and a baseline is
+  // still answerable below for having dropped them.
+  if (documents.length === 0 && baseline === null) return [];
+
+  if (baseline === null) {
+    return [
+      {
+        rule: "contract-baseline-missing",
+        subject: dir,
+        message: `${documents.length} contract document(s) and no ${SHAPE_BASELINE_FILE}, so no compatibility rule ran against any of them. Freeze the current shape with \`bun scripts/contract-check.ts baseline --write\` and commit it.`,
+      },
+    ];
+  }
+
+  const out: Violation[] = [];
+  for (const file of documents) {
+    const pinned = baseline.documents[file];
+    if (pinned === undefined) {
+      out.push({
+        rule: "contract-document-unpinned",
+        subject: join(dir, file),
+        message: `not in ${SHAPE_BASELINE_FILE}, so no compatibility rule ran against it. Refresh with \`bun scripts/contract-check.ts baseline --write\` and commit the result.`,
+      });
+      continue;
+    }
+    out.push(
+      ...diffShape(
+        pinned,
+        projectShape(loadDocument(dir, file)),
+        join(dir, file),
+      ),
+    );
+  }
+
+  // A baseline entry with no document is the removal of a whole contract file.
+  for (const file of Object.keys(baseline.documents).sort()) {
+    if (documents.includes(file)) continue;
+    out.push({
+      rule: "contract-document-removed",
+      subject: join(dir, file),
+      message: `pinned by ${SHAPE_BASELINE_FILE} and no longer present. Withdrawing a published contract breaks every consumer of it; keep it published and add its successor beside it.`,
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Every rule the `check` command applies, across every contract directory.
+ *
+ * `events/` gets both legs: the event-specific rules, which speak of delivery
+ * guarantees and stream filters, and the structural rules, which speak of fields
+ * and apply to every directory. The one overlap is `required` on the envelope
+ * schema, pinned by `checkEnvelopeCompatibility` and by
+ * `contract-required-added`/`-removed`; two verdicts on one defect is the
+ * deliberate cost of not keeping two copies of the structural rules.
+ */
+export function collectViolations(root = CONTRACTS_ROOT): Violation[] {
+  const out: Violation[] = [];
+
+  // A baseline belongs to a directory, so a document sitting at the root of
+  // `contracts/` belongs to no baseline and no rule can run against it. Naming
+  // that a violation is what keeps "gated by default" true for a file added
+  // where nobody thought to look, rather than only for one added in a
+  // directory the walk already visits.
+  for (const file of contractDocuments(root)) {
+    out.push({
+      rule: "contract-document-at-root",
+      subject: join(root, file),
+      message: `a contract document directly under \`${root}/\` sits in no contract directory, so no ${SHAPE_BASELINE_FILE} pins it and no compatibility rule ran against it. Move it into a subdirectory beside the contracts it belongs with, then run \`bun scripts/contract-check.ts baseline --write\` and commit the baseline.`,
+    });
+  }
+
+  for (const dir of discoverContractDirs(root)) {
+    if (dir === CONTRACTS_DIR) {
+      const registry = loadRegistry(dir);
+      const taxonomy = loadTaxonomy(dir);
+      const envelope = loadEnvelope(dir);
+      const baseline = loadBaseline(dir);
+      out.push(
+        ...validateTaxonomy(taxonomy),
+        ...validateRegistry(registry, taxonomy, envelope, dir),
+        ...checkCompatibility(baseline, registry),
+        ...checkEnvelopeCompatibility(baseline, envelope),
+        ...checkTaxonomyCompatibility(baseline, taxonomy),
+        ...checkPayloadCompatibility(baseline, loadPayloads(registry, dir)),
+      );
+    }
+    out.push(...checkShapes(dir));
+  }
+  return out;
+}
+
+/** Totals across one directory's documents, for the command's own output. */
+export function dirCounts(dir: string): ShapeCounts {
+  return contractDocuments(dir)
+    .map((file) => shapeCounts(projectShape(loadDocument(dir, file))))
+    .reduce(
+      (a, b) => ({
+        fields: a.fields + b.fields,
+        scalarLists: a.scalarLists + b.scalarLists,
+        entries: a.entries + b.entries,
+        bounds: a.bounds + b.bounds,
+      }),
+      { fields: 0, scalarLists: 0, entries: 0, bounds: 0 },
+    );
+}
+
+// ============================================================================
 // CLI
 // ============================================================================
 
@@ -1684,6 +1907,18 @@ async function main(argv: string[]): Promise<number> {
       log.ok(
         `wrote ${join(dir, BASELINE_FILE)} (${baseline.types.length} stable types, ${baseline.streams.length} streams, ${Object.keys(baseline.envelope.properties).length} envelope attributes of which ${baseline.envelope.required.length} required, ${pinnedProps} payload properties, ${pinnedLengthCount(baseline)} length bounds)`,
       );
+      for (const contractDir of discoverContractDirs()) {
+        if (contractDocuments(contractDir).length === 0) continue;
+        const shape = toShapeBaseline(contractDir);
+        writeFileSync(
+          join(contractDir, SHAPE_BASELINE_FILE),
+          `${JSON.stringify(shape, null, 2)}\n`,
+        );
+        const counts = dirCounts(contractDir);
+        log.ok(
+          `wrote ${join(contractDir, SHAPE_BASELINE_FILE)} (${Object.keys(shape.documents).length} document(s), ${counts.fields} fields, ${counts.entries} list entries, ${counts.scalarLists} declared sets, ${counts.bounds} direction-classified bounds)`,
+        );
+      }
       return 0;
     }
     process.stdout.write(body);
@@ -1695,21 +1930,7 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
-  const registry = loadRegistry(dir);
-  const taxonomy = loadTaxonomy(dir);
-  const envelope = loadEnvelope(dir);
-  const baseline = loadBaseline(dir);
-
-  const payloads = loadPayloads(registry, dir);
-
-  const violations = [
-    ...validateTaxonomy(taxonomy),
-    ...validateRegistry(registry, taxonomy, envelope, dir),
-    ...checkCompatibility(baseline, registry),
-    ...checkEnvelopeCompatibility(baseline, envelope),
-    ...checkTaxonomyCompatibility(baseline, taxonomy),
-    ...checkPayloadCompatibility(baseline, payloads),
-  ];
+  const violations = collectViolations();
 
   if (violations.length > 0) {
     log.fail(`${violations.length} contract violation(s)`);
@@ -1717,6 +1938,9 @@ async function main(argv: string[]): Promise<number> {
     return 1;
   }
 
+  const registry = loadRegistry(dir);
+  const taxonomy = loadTaxonomy(dir);
+  const baseline = loadBaseline(dir);
   const pinnedProps = baseline.types.reduce(
     (n, t) => n + Object.keys(t.payload?.properties ?? {}).length,
     0,
@@ -1724,6 +1948,13 @@ async function main(argv: string[]): Promise<number> {
   log.ok(
     `${registry.types.length} registered types across ${taxonomy.streams.length} streams; ${baseline.types.length} stable types, ${baseline.streams.length} streams, the envelope's ${Object.keys(baseline.envelope.properties ?? {}).length} attributes (${baseline.envelope.required.length} required), ${pinnedProps} payload properties, ${pinnedLengthCount(baseline)} length bounds and the subject grammar all compatible with the baseline`,
   );
+  for (const contractDir of discoverContractDirs()) {
+    if (contractDocuments(contractDir).length === 0) continue;
+    const counts = dirCounts(contractDir);
+    log.ok(
+      `${contractDir}: ${contractDocuments(contractDir).length} document(s), ${counts.fields} fields, ${counts.entries} list entries, ${counts.scalarLists} declared sets and ${counts.bounds} bounds structurally compatible with ${SHAPE_BASELINE_FILE}`,
+    );
+  }
   return 0;
 }
 
