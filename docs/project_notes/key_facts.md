@@ -154,7 +154,7 @@ trusting a prose table.
 | Health Lua | `charts/bootstrap/files/health/<group>_<kind>.lua`, fixtures `tests/health/<group>_<kind>/*.yaml` |
 | e2e | `tests/e2e/<name>/chainsaw-test.yaml`, config `tests/e2e/.chainsaw.yaml` (4 parallel, assert 10m) |
 | Reaching apps | in-cluster through `envoy-internal.envoy-gateway-system.svc.cluster.local` (or `envoy-external`) port 443 with SNI and `Host: <app>.homelab.local`; from the host, `task localdev:gateway` |
-| CI | `.github/workflows/tilt-ci.yml`: `kind-argocd` (required, 45 min, artifact `verify-level2`), `kind-direct`, `yaml-lint` |
+| CI | `.github/workflows/tilt-ci.yml`: `kind-argocd` (required, 60 min including post-job cache save, artifact `verify-level2`), `kind-direct`, `yaml-lint` |
 | Tracked revision | `task localdev:argocd -- --revision <ref>` / `LOCALDEV_REVISION`; default the upstream branch of HEAD, `main` (with a warning) when the branch is not pushed. Flows root → `addons`/`applications` via `helm.valuesObject.global.targetRevision` → every git-path child. CI sets it to the PR head SHA (same-repo PRs; `github.sha` on push) |
 | Expected state | every Application `Synced` (tree equals the pushed head) after a local sync; `OutOfSync` = unpushed local changes or the `main` fallback; `Healthy` + `Succeeded` is the contract, sync status never decides |
 | Report base | `task localdev:report -- --base <ref>` (default `main`, CI passes the PR base) diffs every git-path Application with `argocd app diff --revision <base>` |

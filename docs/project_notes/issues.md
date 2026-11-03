@@ -13,6 +13,10 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-10-22 - MCAA-1390: Keep passing PR #535 Kind verification within job budget
+- **Status**: CI rerun pending on PR #535.
+- **Description**: Run 39841828820 finished every level-2 check and post step but reached the 45-minute job limit during a 7.76 GB registry cache save. The required Kind job now has a 60-minute total budget, with verification and reporting unchanged. See `bugs.md` (2026-10-22).
+
 ### 2026-09-28 - Paperclip CPU limit 2 -> 4 cores for concurrent agent runs
 - **Status**: PR open from branch `triage/cputhrottlinghigh-dd84a884` (alert triage); paperclip-0 restarts once on sync, so merge when no agent runs are active
 - **Description**: `CPUThrottlingHigh` on paperclip-0 (74.55% throttled at ~1.94/2 cores) because agent CLIs run as child processes and CPU tracks runs in flight; homelab limit raised to 4, request stays 500m. Details in `bugs.md` (2026-09-28)
@@ -37,6 +41,11 @@ Each entry should include:
 - **Status**: PR #536 ready, rebased onto `main` for MCAA-970; new-head checks pending
 - **Description**: QA reproduced the ECR Public `toomanyrequests: Data limit exceeded` response in run 36713254067. Kind ArgoCD now selects Docker Hub's official Redis image at the pinned chart tag, and CI retains pod events plus ECR/Docker proxy logs. The Redis test passes with Docker Hub and fails with the old ECR Public repository.
 - **URL**: https://github.com/ryanmcafee/homelab/pull/536
+
+### 2026-09-30 - Scope upstream values exceptions to pinned chart identity
+- **Status**: In review on branch `feat/mcaa-848-upstream-values-identity`
+- **Description**: MCAA-848 follows reviewer condition 4 on PR #483. All 48 allowlist entries now bind repository URL, chart name and pinned revision. Before and after: 82 Application sources, 42 pinned charts, 224 allowed findings, zero unused entries. Staged repository and revision mutations proved `upstream-values/undeclared-key`; a later argo-cd revision mutation showed the old false removal guidance and the new pin-aware re-review message with 13 findings. ADR-054 now records identity keying and chart-bump re-review for Principal Platform Architect review before merge.
+- **2026-10-22 rebase**: Fresh `main` contains 88 Application sources and 45 pinned charts. Plex moved from 1.6.0 to 1.9.0; before pin review the gate reported 2 `upstream-values/undeclared-key` findings and 1 unused entry. The 1.9.0 template still reads the key, so its entry was repinned. Afterward: 226 allowed findings, 0 undeclared, 0 unused, 0 pull errors. A staged unrelated-repository mutation reported the exact rule ID for both istio-base Applications, with 0 pull errors. Level 0: 296 passed, 0 failed, 1 environment skip.
 
 ### 2026-09-30 - Upstream Helm values declaration gate follow-up
 - **Status**: PR #483 open; rebased after PR #469 merged
@@ -129,6 +138,8 @@ Each entry should include:
 - **2026-09-30** - PR dependency triage cross-PR cancellation: workflow concurrency now keys PR events by number and schedule/manual sweeps separately; focused regression test reproduced the prior collision and passes after the fix. [MCAA-1070](/MCAA/issues/MCAA-1070).
 - **2026-09-30** - Cold-draw script test stabilization for PR #460: injectable command runner removes real `kubectl`/`docker` calls from the no-cluster unit test while retaining missing-evidence assertions; 25 focused and 619 script cases pass locally. [MCAA-1007](/MCAA/issues/MCAA-1007).
 - **2026-09-30** - PR dependency triage label-write 403: Security-reviewed PR #533 merged the narrow `pull-requests: write` grant. Run 36656956730 records the old-grant 403; post-merge run 36725989394 and the #511 `github-actions[bot]` label event prove a real write. The pre-merge targeted dispatch was missed; focused negative tests now assert that denied writes and malformed targets fail. https://github.com/ryanmcafee/homelab/pull/533
+- **2026-09-30** - [MCAA-1018](/MCAA/issues/MCAA-1018): PR #535 integrates the deterministic absent-cluster evidence test and bounded command runner after review; 26 focused and 650 script tests pass, with a 1/1 negative mutation failure.
+- **2026-09-30** - PR dependency triage label-write 403: PR #533 (`1cc4189`) scopes the job to `pull-requests: write` and adds targeted dispatch; run 36656956730 is the known-bad case. Security signed off on the scope, but this integration's targeted dispatch of #511 returns Actions HTTP 403, so a live known-good label write remains pending — https://github.com/ryanmcafee/homelab/pull/533
 - **2026-09-25** - Envoy Gateway becomes the ingress (Gateways `envoy-internal`/`envoy-external`, wildcard TLS at the Gateway, every Ingress converted to an HTTPRoute, external-dns `gateway-httproute`, OIDC plugin dropped) and Istio gateways deployed for comparison (ADR-040, docs/runbooks/envoy-gateway.md) — PR #387 (https://github.com/ryanmcafee/homelab/pull/387)
 - **2026-09-21** - PR #316: Paperclip `adapters.apiKeys.anthropic.enabled` / `adapters.apiKeys.openai.enabled` (both default false) replace the operator's all-or-nothing `apiKeysSecretRef`, so `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are wired independently and neither reaches the pod by default; subscription tokens stay wired through `adapters.extraSecretEnv` — https://github.com/ryanmcafee/homelab/pull/316
 - **2026-09-13** - Issue #260: Paperclip via paperclip-operator + CloudNativePG (4 Applications) — PR #280 open, level 2 runs in CI (`kind-argocd`); 2026-09-14: the same PR moves the Kind loop to the PR head (`localdev:argocd --revision` / `LOCALDEV_REVISION`, `localdev:report --base`, CI checks out the head SHA; ADR-012 amendment) — https://github.com/ryanmcafee/homelab/pull/280
