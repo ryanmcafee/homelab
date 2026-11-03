@@ -106,7 +106,8 @@ jobs:
   kind-argocd:
     name: Kind + ArgoCD loop (level 2)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Measured p95 44m (n=79, 2026-10); a p95 past 50m is a regression to cut (MCAA-1232).
+    timeout-minutes: 60
     permissions:
       # Read-only on contents: nothing is committed. pull-requests: write is
       # for the kind-preview sticky comment only.
