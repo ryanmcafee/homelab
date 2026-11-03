@@ -47,6 +47,7 @@ on:
     paths:
       - 'charts/**'
       - 'configuration/**'
+      - 'contracts/**'
       - 'tests/**'
       - 'cmd/**'
       - 'internal/**'
@@ -163,6 +164,9 @@ jobs:
 
       - name: Install script dependencies from bun.lock
         run: bun install --frozen-lockfile
+
+      - name: Contract compatibility (contracts/events vs baseline)
+        run: task contracts:check
 
       - name: Tool versions
         run: argocd version --client
