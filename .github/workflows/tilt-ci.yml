@@ -261,7 +261,7 @@ jobs:
             docker logs kind-registry-docker 2>&1 || true
             echo "=== Host kernel, AppArmor and LSM denials ==="
             uname -a || true
-            sudo aa-status --summary 2>&1 || true
+            sudo aa-status 2>&1 | head -n 40 || true
             sudo dmesg 2>&1 | grep -iE 'apparmor="DENIED"|avc:|denied' | tail -n 50 || true
             echo "=== local-path volume directories on each node ==="
             for node in $(kind get nodes --name "${KIND_CONTEXT#kind-}" 2>/dev/null); do
