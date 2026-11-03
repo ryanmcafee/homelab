@@ -61,9 +61,11 @@ Steps, in order: `setWeight: 50` -> `analysis` -> `setWeight: 100`.
   the number decides how many pods run the new revision, not how requests are split.
   `paperclip-exporter` runs `replicas: 1`, where 50% is not representable in whole pods.
 - **Both revisions run at once as pods, which is what a workload has to tolerate.** The stable and
-  canary ReplicaSets are up together during the canary window. A revision that cannot share a
-  database, a stream or a consumer group with its predecessor needs `blueGreen`, not `canary`:
-  pinning the stable Service keeps requests off the canary, not the canary off a shared backend.
+  canary ReplicaSets are up together during the canary window. Pinning the stable Service keeps
+  requests off the canary, not the canary off a shared backend. `blueGreen` does not change that:
+  its preview ReplicaSet also runs while the active one serves. A revision that cannot share a
+  database, a stream or a consumer group with its predecessor needs an explicit coexistence,
+  migration or cutover plan; choose `blueGreen` only when its Service switch serves that plan.
 - **An aborted Rollout stays `Degraded` with `status.abort: true`** until a new revision is
   pushed. It does not retry the same image.
 
