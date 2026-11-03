@@ -1,4 +1,113 @@
 ---
+# Source: paperclip-database/templates/backup.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: paperclip-db-backup
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/instance: paperclip-postgres
+    app.kubernetes.io/name: paperclip-db-backup
+
+---
+# Source: paperclip-database/templates/backup.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperclip-postgres-backups
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/instance: paperclip-postgres
+    app.kubernetes.io/name: paperclip-db-backup
+  annotations:
+    # The dumps are the only copy of the data once the database is gone.
+    argocd.argoproj.io/sync-options: Delete=false
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: democratic-csi-nfs
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# Source: paperclip-database/templates/backup.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: paperclip-db-backup
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/instance: paperclip-postgres
+    app.kubernetes.io/name: paperclip-db-backup
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [workflowtaskresults]
+    verbs: [create, patch]
+  - apiGroups: [paperclip.inc]
+    resources: [instances]
+    resourceNames: [paperclip]
+    verbs: [get, patch]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    resourceNames: [paperclip]
+    verbs: [get]
+
+---
+# Source: paperclip-database/templates/backup.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: paperclip-db-backup-paperclip
+  namespace: argocd
+  labels:
+    app.kubernetes.io/instance: paperclip-postgres
+    app.kubernetes.io/name: paperclip-db-backup
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    resourceNames: [paperclip]
+    verbs: [get, patch]
+
+---
+# Source: paperclip-database/templates/backup.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: paperclip-db-backup
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/instance: paperclip-postgres
+    app.kubernetes.io/name: paperclip-db-backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: paperclip-db-backup
+subjects:
+  - kind: ServiceAccount
+    name: paperclip-db-backup
+    namespace: paperclip
+
+---
+# Source: paperclip-database/templates/backup.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: paperclip-db-backup-paperclip
+  namespace: argocd
+  labels:
+    app.kubernetes.io/instance: paperclip-postgres
+    app.kubernetes.io/name: paperclip-db-backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: paperclip-db-backup-paperclip
+subjects:
+  - kind: ServiceAccount
+    name: paperclip-db-backup
+    namespace: paperclip
+
+---
 # Source: paperclip-database/templates/cluster.yaml
 # CloudNativePG Cluster for Paperclip. The operator (cloudnative-pg addon,
 # cnpg-system) creates the StatefulSet-like pods, the -rw/-ro/-r Services and
@@ -40,3 +149,417 @@ spec:
     parameters:
       max_connections: "100"
       shared_buffers: 128MB
+
+---
+# Source: paperclip-database/templates/backup.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: paperclip-db-backup
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/instance: paperclip-postgres
+    app.kubernetes.io/name: paperclip-db-backup
+spec:
+  schedules:
+    - "15 3 * * *"
+  timezone: "America/New_York"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  workflowSpec:
+    workflowTemplateRef:
+      name: paperclip-db-backup
+
+---
+# Source: paperclip-database/templates/backup.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: argo-workflows-artifacts
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/instance: paperclip-postgres
+    app.kubernetes.io/name: paperclip-db-backup
+spec:
+  itemPath: "vaults/homelab/items/argo-workflows-artifacts"
+
+---
+# Source: paperclip-database/templates/backup.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: paperclip-db-backup
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/instance: paperclip-postgres
+    app.kubernetes.io/name: paperclip-db-backup
+spec:
+  entrypoint: backup
+  serviceAccountName: paperclip-db-backup
+  activeDeadlineSeconds: 3600
+  # A backup and a restore never overlap.
+  synchronization:
+    mutexes:
+      - name: paperclip-db
+  podGC:
+    strategy: OnPodSuccess
+  ttlStrategy:
+    secondsAfterSuccess: 604800
+    secondsAfterFailure: 1209600
+  podMetadata:
+    labels:
+      app.kubernetes.io/name: paperclip-db-backup
+      app.kubernetes.io/instance: paperclip-postgres
+      istio.io/dataplane-mode: none
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 26
+    runAsGroup: 26
+    fsGroup: 26
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  volumes:
+    - name: backups
+      persistentVolumeClaim:
+        claimName: paperclip-postgres-backups
+    - name: tmp
+      emptyDir: {}
+  templates:
+    - name: backup
+      script:
+        image: ghcr.io/cloudnative-pg/postgresql:17.11
+        command: [/bin/sh]
+        volumeMounts:
+          - name: backups
+            mountPath: /backups
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        env:
+          - name: DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: paperclip-postgres-app
+                key: uri
+          - name: RETENTION_DAYS
+            value: "14"
+          - name: KEEP
+            value: "3"
+        source: |
+          set -eu
+          umask 077
+          file="/backups/paperclip-$(date -u +%Y%m%dT%H%M%SZ).dump"
+          pg_dump --format=custom --no-owner --no-privileges --dbname="$DATABASE_URL" --file="$file.partial"
+          pg_restore --list "$file.partial" > /dev/null
+          mv "$file.partial" "$file"
+          echo "wrote $file ($(du -h "$file" | cut -f1))"
+          find /backups -maxdepth 1 -name '*.partial' -mmin +1440 -print -delete
+          for prefix in paperclip prerestore-paperclip; do
+            ls -1 /backups/"$prefix"-2*.dump 2>/dev/null | sort -r | tail -n +"$((KEEP + 1))" |
+              while read -r old; do
+                if [ -n "$(find "$old" -mtime +"$RETENTION_DAYS")" ]; then echo "retention: deleting $old"; rm -f "$old"; fi
+              done
+          done
+          echo "backups on the volume:"
+          ls -lh /backups
+
+---
+# Source: paperclip-database/templates/backup.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: paperclip-db-restore
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/instance: paperclip-postgres
+    app.kubernetes.io/name: paperclip-db-backup
+spec:
+  entrypoint: restore
+  onExit: resume
+  serviceAccountName: paperclip-db-backup
+  activeDeadlineSeconds: 7200
+  synchronization:
+    mutexes:
+      - name: paperclip-db
+  ttlStrategy:
+    secondsAfterCompletion: 1209600
+  arguments:
+    parameters:
+      - name: backup
+        value: latest
+        description: File name under /backups (paperclip-<UTC>.dump), or latest.
+      - name: confirm
+        value: ""
+        description: Must be restore-paperclip; the restore replaces the whole database.
+  podMetadata:
+    labels:
+      app.kubernetes.io/name: paperclip-db-backup
+      app.kubernetes.io/instance: paperclip-postgres
+      istio.io/dataplane-mode: none
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 26
+    runAsGroup: 26
+    fsGroup: 26
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  volumes:
+    - name: backups
+      persistentVolumeClaim:
+        claimName: paperclip-postgres-backups
+    - name: tmp
+      emptyDir: {}
+  templates:
+    - name: restore
+      steps:
+        - - name: preflight
+            template: preflight
+        - - name: pause-argocd
+            template: pause-argocd
+        - - name: suspend
+            template: suspend
+        - - name: wait-stopped
+            template: wait-stopped
+        - - name: safety-dump
+            template: safety-dump
+        - - name: pg-restore
+            template: pg-restore
+            arguments:
+              parameters:
+                - name: file
+                  value: "{{steps.preflight.outputs.parameters.file}}"
+
+    # Runs after any confirmed restore, failed or not; a refused one leaves the app as it found it.
+    - name: resume
+      steps:
+        - - name: unsuspend
+            template: unsuspend
+            when: "'{{workflow.parameters.confirm}}' == 'restore-paperclip'"
+        - - name: resume-argocd
+            template: resume-argocd
+            when: "'{{workflow.parameters.confirm}}' == 'restore-paperclip'"
+        - - name: wait-ready
+            template: wait-ready
+            when: "'{{workflow.parameters.confirm}}' == 'restore-paperclip'"
+
+    - name: preflight
+      script:
+        image: ghcr.io/cloudnative-pg/postgresql:17.11
+        command: [/bin/sh]
+        volumeMounts:
+          - name: backups
+            mountPath: /backups
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        env:
+          - name: BACKUP
+            value: "{{workflow.parameters.backup}}"
+          - name: CONFIRM
+            value: "{{workflow.parameters.confirm}}"
+        source: |
+          set -eu
+          if [ "$CONFIRM" != "restore-paperclip" ]; then
+            echo "refusing to restore: pass -p confirm=restore-paperclip (the restore replaces the whole paperclip database)" >&2
+            exit 1
+          fi
+          if [ "$BACKUP" = "latest" ]; then
+            file="$(ls -1 /backups/paperclip-2*.dump 2>/dev/null | sort | tail -n 1)"
+            [ -n "$file" ] || { echo "no /backups/paperclip-*.dump to restore" >&2; exit 1; }
+          else
+            file="/backups/$(basename "$BACKUP")"
+          fi
+          [ -f "$file" ] || { echo "backup $file not found; available:" >&2; ls -1 /backups >&2; exit 1; }
+          pg_restore --list "$file" > /dev/null
+          echo "restoring $file ($(du -h "$file" | cut -f1))"
+          printf '%s' "$file" > /tmp/file
+      outputs:
+        parameters:
+          - name: file
+            valueFrom:
+              path: /tmp/file
+
+    # skip-reconcile stops sync and self-heal; the parent uses server-side apply, so it keeps the annotation.
+    - name: pause-argocd
+      resource:
+        action: patch
+        mergeStrategy: merge
+        manifest: |
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: paperclip
+            namespace: argocd
+            annotations:
+              argocd.argoproj.io/skip-reconcile: "true"
+
+    - name: resume-argocd
+      resource:
+        action: patch
+        mergeStrategy: merge
+        manifest: |
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: paperclip
+            namespace: argocd
+            annotations:
+              argocd.argoproj.io/skip-reconcile: null
+
+    - name: suspend
+      resource:
+        action: patch
+        mergeStrategy: merge
+        manifest: |
+          apiVersion: paperclip.inc/v1alpha1
+          kind: Instance
+          metadata:
+            name: paperclip
+          spec:
+            suspended: true
+
+    - name: unsuspend
+      resource:
+        action: patch
+        mergeStrategy: merge
+        manifest: |
+          apiVersion: paperclip.inc/v1alpha1
+          kind: Instance
+          metadata:
+            name: paperclip
+          spec:
+            suspended: null
+
+    - name: wait-stopped
+      retryStrategy:
+        limit: 30
+        backoff:
+          duration: 10s
+      resource:
+        action: get
+        successCondition: status.replicas == 0
+        manifest: |
+          apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: paperclip
+
+    - name: wait-ready
+      retryStrategy:
+        limit: 60
+        backoff:
+          duration: 10s
+      resource:
+        action: get
+        successCondition: status.readyReplicas > 0
+        manifest: |
+          apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: paperclip
+
+    # The database as it was before the restore, so the restore itself can be undone.
+    - name: safety-dump
+      script:
+        image: ghcr.io/cloudnative-pg/postgresql:17.11
+        command: [/bin/sh]
+        volumeMounts:
+          - name: backups
+            mountPath: /backups
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        env:
+          - name: DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: paperclip-postgres-app
+                key: uri
+        source: |
+          set -eu
+          umask 077
+          file="/backups/prerestore-paperclip-$(date -u +%Y%m%dT%H%M%SZ).dump"
+          pg_dump --format=custom --no-owner --no-privileges --dbname="$DATABASE_URL" --file="$file.partial"
+          mv "$file.partial" "$file"
+          echo "pre-restore state saved to $file"
+
+    - name: pg-restore
+      inputs:
+        parameters:
+          - name: file
+      script:
+        image: ghcr.io/cloudnative-pg/postgresql:17.11
+        command: [/bin/sh]
+        volumeMounts:
+          - name: backups
+            mountPath: /backups
+          - name: tmp
+            mountPath: /tmp
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        env:
+          - name: DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: paperclip-postgres-app
+                key: uri
+          - name: FILE
+            value: "{{inputs.parameters.file}}"
+        source: |
+          set -eu
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND usename = current_user AND pid <> pg_backend_pid()"
+          pg_restore --clean --if-exists --no-owner --no-privileges --single-transaction --exit-on-error \
+            --dbname="$DATABASE_URL" "$FILE"
+          echo "restored $FILE"
