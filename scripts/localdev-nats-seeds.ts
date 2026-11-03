@@ -57,13 +57,93 @@ export interface SeedResult {
 export class LocaldevSeedError extends Error {}
 
 /**
- * Refuses any context Kind did not create. The homelab context has no `kind-` prefix, so this is
- * the difference between minting throwaway credentials and writing a Secret into production.
+ * Refuses a context not named like a Kind context. A name proves nothing on its own, so writes
+ * also go through `assertKindTarget`.
  */
 export function assertLocaldevContext(context: string): void {
   if (!context.startsWith(KIND_CONTEXT_PREFIX)) {
     throw new LocaldevSeedError(
       `refusing to mint NATS seeds against context ${context}: only a Kind context (${LOCALDEV_CONTEXT}) generates its own key material, and every other surface takes its seeds from a vault`,
+    );
+  }
+}
+
+/** The API endpoint a kubeconfig cluster entry points at, and the CA that signs it. */
+export interface ClusterEndpoint {
+  server: string;
+  certificateAuthorityData: string;
+}
+
+/** Reads the endpoints a context resolves to and the one Kind recorded for its cluster. */
+export interface KindTargetProbe {
+  selected(context: string): Promise<ClusterEndpoint>;
+  kind(cluster: string): Promise<ClusterEndpoint>;
+}
+
+function clusterEntries(kubeconfig: unknown): unknown[] {
+  if (typeof kubeconfig !== "object" || kubeconfig === null) return [];
+  const clusters: unknown = Reflect.get(kubeconfig, "clusters");
+  return Array.isArray(clusters) ? clusters : [];
+}
+
+function stringField(value: unknown, key: string): string {
+  if (typeof value !== "object" || value === null) return "";
+  const field: unknown = Reflect.get(value, key);
+  return typeof field === "string" ? field : "";
+}
+
+/**
+ * The single cluster entry of a minified or Kind-issued kubeconfig. Credentials in the same
+ * document are never read, so they cannot reach an error message.
+ */
+export function endpointFromKubeconfig(
+  kubeconfig: unknown,
+  source: string,
+): ClusterEndpoint {
+  const entries = clusterEntries(kubeconfig);
+  if (entries.length !== 1) {
+    throw new LocaldevSeedError(
+      `${source} has ${entries.length} cluster entries; exactly one is needed to identify the target before minting NATS seeds`,
+    );
+  }
+  const cluster: unknown = Reflect.get(Object(entries[0]), "cluster");
+  const endpoint = {
+    server: stringField(cluster, "server"),
+    certificateAuthorityData: stringField(
+      cluster,
+      "certificate-authority-data",
+    ),
+  };
+  if (!endpoint.server || !endpoint.certificateAuthorityData) {
+    throw new LocaldevSeedError(
+      `${source} has no server or certificate-authority-data; the target cluster cannot be identified, so no NATS seed is minted`,
+    );
+  }
+  return endpoint;
+}
+
+/**
+ * Proves the selected context is the Kind cluster this bootstrap manages, not merely a context
+ * named like one: its API server and CA must match what `kind get kubeconfig` issued.
+ */
+export async function assertKindTarget(
+  probe: KindTargetProbe,
+  context: string,
+  cluster: string,
+): Promise<void> {
+  assertLocaldevContext(context);
+  const [selected, kind] = await Promise.all([
+    probe.selected(context),
+    probe.kind(cluster),
+  ]);
+  if (selected.server !== kind.server) {
+    throw new LocaldevSeedError(
+      `refusing to mint NATS seeds: context ${context} points at ${selected.server}, but Kind cluster ${cluster} serves ${kind.server}; select the context Kind created (kind export kubeconfig --name ${cluster})`,
+    );
+  }
+  if (selected.certificateAuthorityData !== kind.certificateAuthorityData) {
+    throw new LocaldevSeedError(
+      `refusing to mint NATS seeds: context ${context} reaches ${selected.server} but trusts a different CA than Kind cluster ${cluster}; select the context Kind created (kind export kubeconfig --name ${cluster})`,
     );
   }
 }

@@ -6,7 +6,7 @@
  *   bun test scripts/localdev-nats-seeds_test.ts
  */
 
-import { afterEach, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,8 +17,11 @@ import {
   LocaldevSeedError,
   PUBLIC_MAP_PATH,
   SEED_KEY,
+  type ClusterEndpoint,
   applySecretArgs,
+  assertKindTarget,
   assertLocaldevContext,
+  endpointFromKubeconfig,
   deliverSeeds,
   publicMapContents,
   readSeedArgs,
@@ -311,4 +314,115 @@ test("the map names every principal charts/addons will accept a key for", async 
     names,
     expectedPrincipals(readDeclaration()).filter((n) => n !== "system"),
   );
+});
+
+const KIND_ENDPOINT: ClusterEndpoint = {
+  server: "https://127.0.0.1:39123",
+  certificateAuthorityData: "a2luZC1jYQ==",
+};
+
+function probeOf(
+  selected: ClusterEndpoint,
+  kind: ClusterEndpoint = KIND_ENDPOINT,
+) {
+  const calls: string[] = [];
+  return {
+    calls,
+    probe: {
+      selected: async (context: string) => {
+        calls.push(`selected:${context}`);
+        return selected;
+      },
+      kind: async (cluster: string) => {
+        calls.push(`kind:${cluster}`);
+        return kind;
+      },
+    },
+  };
+}
+
+async function refusal(fn: () => Promise<unknown>): Promise<Error> {
+  try {
+    await fn();
+  } catch (e) {
+    assert(
+      e instanceof LocaldevSeedError,
+      `expected LocaldevSeedError, got ${e}`,
+    );
+    return e;
+  }
+  throw new Error("expected a refusal");
+}
+
+test("the Kind target is accepted only when its server and CA match what Kind issued", async () => {
+  const { probe, calls } = probeOf(KIND_ENDPOINT);
+  await assertKindTarget(probe, LOCALDEV_CONTEXT, "homelab-localdev");
+  assertEquals(calls.sort(), [
+    "kind:homelab-localdev",
+    `selected:${LOCALDEV_CONTEXT}`,
+  ]);
+});
+
+test("a kind- prefixed context pointing at another cluster is refused", async () => {
+  const { probe } = probeOf({
+    server: "https://homelab.example.internal:6443",
+    certificateAuthorityData: "cHJvZC1jYQ==",
+  });
+  assertStringIncludes(
+    (
+      await refusal(() =>
+        assertKindTarget(probe, "kind-prod-lookalike", "homelab-localdev"),
+      )
+    ).message,
+    "points at https://homelab.example.internal:6443",
+  );
+});
+
+test("a context at the Kind address but trusting another CA is refused", async () => {
+  const { probe } = probeOf({
+    ...KIND_ENDPOINT,
+    certificateAuthorityData: "b3RoZXI=",
+  });
+  assertStringIncludes(
+    (
+      await refusal(() =>
+        assertKindTarget(probe, LOCALDEV_CONTEXT, "homelab-localdev"),
+      )
+    ).message,
+    "different CA",
+  );
+});
+
+test("a context without the kind- prefix is refused before any cluster is probed", async () => {
+  const { probe, calls } = probeOf(KIND_ENDPOINT);
+  await refusal(() =>
+    assertKindTarget(probe, "admin@homelab", "homelab-localdev"),
+  );
+  assertEquals(calls, []);
+});
+
+test("a kubeconfig endpoint needs exactly one cluster with a server and CA", () => {
+  const entry = (cluster: Record<string, string>) => ({
+    clusters: [{ name: "c", cluster }],
+  });
+  assertEquals(
+    endpointFromKubeconfig(
+      entry({
+        server: KIND_ENDPOINT.server,
+        "certificate-authority-data": "a2luZC1jYQ==",
+      }),
+      "test",
+    ),
+    KIND_ENDPOINT,
+  );
+  for (const bad of [
+    {},
+    { clusters: [] },
+    entry({ server: KIND_ENDPOINT.server }),
+    entry({ "certificate-authority-data": "a2luZC1jYQ==" }),
+  ]) {
+    expect(() => endpointFromKubeconfig(bad, "test")).toThrow(
+      LocaldevSeedError,
+    );
+  }
 });
