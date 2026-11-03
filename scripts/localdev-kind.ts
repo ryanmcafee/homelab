@@ -59,9 +59,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isNotFound } from "./lib/errors.ts";
 import {
+  type ClusterEndpoint,
+  type KindTargetProbe,
   PUBLIC_MAP_PATH,
+  assertKindTarget,
   assertLocaldevContext,
   deliverSeeds,
+  endpointFromKubeconfig,
   writePublicMap,
 } from "./localdev-nats-seeds.ts";
 import {
@@ -1212,6 +1216,45 @@ async function fillGeneratedSecrets(ctx: Ctx, dir: string): Promise<void> {
 // NATS principal seeds
 // ============================================================================
 
+async function kindEndpoint(
+  ctx: Ctx,
+  cmd: string[],
+  source: string,
+): Promise<ClusterEndpoint> {
+  const r = await ctx.exec.run(cmd);
+  if (r.code !== 0) {
+    throw new Error(
+      `${source} failed (exit ${r.code}); the target cluster cannot be identified, so no NATS seed is minted:\n${r.stderr.trim()}`,
+    );
+  }
+  return endpointFromKubeconfig(parseYaml(r.stdout), source);
+}
+
+const kindTargetProbe = (ctx: Ctx): KindTargetProbe => ({
+  selected: (context) =>
+    kindEndpoint(
+      ctx,
+      [
+        "kubectl",
+        "config",
+        "view",
+        "--raw",
+        "--minify",
+        "--context",
+        context,
+        "-o",
+        "json",
+      ],
+      `kubectl config view --context ${context}`,
+    ),
+  kind: (cluster) =>
+    kindEndpoint(
+      ctx,
+      ["kind", "get", "kubeconfig", "--name", cluster],
+      `kind get kubeconfig --name ${cluster}`,
+    ),
+});
+
 /**
  * Mints the ADR-043 principal seeds into Secrets before anything connects to the bus, and writes
  * the PUBLIC map to a git-ignored file. Kind has no vault, and a committed Kind seed is still a
@@ -1220,7 +1263,15 @@ async function fillGeneratedSecrets(ctx: Ctx, dir: string): Promise<void> {
  * context (MCAA-487).
  */
 async function deliverNatsSeeds(ctx: Ctx): Promise<void> {
-  assertLocaldevContext(ctx.args.context);
+  if (ctx.args.dryRun) {
+    assertLocaldevContext(ctx.args.context);
+  } else {
+    await assertKindTarget(
+      kindTargetProbe(ctx),
+      ctx.args.context,
+      ctx.args.cluster,
+    );
+  }
   const namespace = NATS_NAMESPACE;
   await ctx.exec.must(
     [
