@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/component: config-storage
 spec:
   capacity:
-    storage: 5Gi
+    storage: 10Gi
   accessModes: ["ReadWriteOnce"]
   persistentVolumeReclaimPolicy: Retain
   storageClassName: democratic-csi-iscsi-hdd
@@ -42,4 +42,4 @@ spec:
   volumeName: nzbget-config-pv
   resources:
     requests:
-      storage: 5Gi
+      storage: 10Gi
