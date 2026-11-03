@@ -1,0 +1,23 @@
+# openclaw-dependencies values: 1Password items the OpenClawInstance reads
+# (wave 12 < openclaw 13). Item paths arrive through the parent Application's
+# helm.valuesObject from configuration/ (OPENCLAW_API_KEYS_1P_PATH,
+# OPENCLAW_GATEWAY_1P_PATH); nothing here is environment-specific.
+
+namespace: openclaw
+
+# Each OnePasswordItem needs the toggle and its own path: an item with an empty
+# itemPath renders but is inert (the operator has nothing to fetch). Localdev
+# has no secret store (SECRETS_PROVIDER=none) and seeds the same Secrets in
+# localdev/fakes/secrets.yaml.
+onePassword:
+  enabled: false
+  # Secret openclaw-api-keys. Field ANTHROPIC_OAUTH_TOKEN carries the Claude
+  # subscription (`claude setup-token`) and is the default provider path;
+  # ANTHROPIC_API_KEY / OPENAI_API_KEY are only read when the matching
+  # charts/openclaw adapters.apiKeys.<provider>.enabled is on (docs/apps/openclaw.md).
+  # A separate item from PAPERCLIP_API_KEYS_1P_PATH so the two rotate independently.
+  apiKeysItemPath: ""
+  # Secret openclaw-gateway, field `token`: the Control UI bearer token
+  # (spec.gateway.existingSecret). Without it the operator generates one, which
+  # would be regenerated out of band and is not recoverable from git.
+  gatewayItemPath: ""

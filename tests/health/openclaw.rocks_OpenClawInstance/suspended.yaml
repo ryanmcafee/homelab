@@ -1,0 +1,14 @@
+# expect: Suspended
+# message: suspended
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  suspended: true
+  image:
+    repository: ghcr.io/openclaw/openclaw
+    tag: "2026.9.6"
+status:
+  phase: Suspended

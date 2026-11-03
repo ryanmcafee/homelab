@@ -1,0 +1,142 @@
+# openclaw values: one openclaw.rocks/v1alpha1 OpenClawInstance (wave 13, after
+# the operator at 11 and the 1Password items at 12). Hostname, image tag, Gateway
+# and storage class arrive through the parent Application's helm.valuesObject from
+# configuration/ (ADR-010); nothing environment-specific lives in this chart.
+
+namespace: openclaw
+
+# Instance name = StatefulSet, Service, ConfigMap and PVC name.
+name: openclaw
+
+# Hostname of the HTTPRoute on the internal Gateway (OPENCLAW_HOSTNAME).
+hostname: ""
+
+# The CRD rejects an Instance whose tag and digest are both empty (no :latest);
+# the tag is pinned in configuration/versions.yaml images.openclaw.
+image:
+  repository: ghcr.io/openclaw/openclaw
+  tag: ""
+
+# Agent credentials (docs/apps/openclaw.md). One Secret carries whichever
+# credential kind is in use; empty name = no credentials wired at all.
+adapters:
+  secretName: openclaw-api-keys
+  # API billing, one toggle per provider. Each enabled key becomes its own
+  # optional secretKeyRef environment variable (spec.env) read from secretName;
+  # the others are never declared. The chart deliberately does not use the
+  # operator's whole-Secret environment reference, which the upstream samples use
+  # to inject every key at once and cannot expose one without the rest. Both off by
+  # default: the subscription token below is the intended path, and an unused
+  # API key in the pod is spend waiting for a misconfiguration.
+  apiKeys:
+    anthropic:
+      enabled: false   # ANTHROPIC_API_KEY
+    openai:
+      enabled: false   # OPENAI_API_KEY
+  # Further keys of the same Secret exposed the same way.
+  #   ANTHROPIC_OAUTH_TOKEN  Claude subscription (`claude setup-token`, sk-ant-oat01-...)
+  # This is NOT CLAUDE_CODE_OAUTH_TOKEN, which charts/paperclip uses: this chart
+  # wires OpenClaw's native Anthropic provider, whose only OAuth variable is
+  # ANTHROPIC_OAUTH_TOKEN (extensions/anthropic/provider-contract-api.ts envVars,
+  # src/secrets/provider-env-vars.ts). It carries the same `claude setup-token`
+  # value, per that provider's `setup-token` auth method.
+  # A key missing from the Secret is simply unset.
+  extraSecretEnv:
+    - ANTHROPIC_OAUTH_TOKEN
+  # OpenClaw's own credential precedence per provider, copied from
+  # CORE_PROVIDER_AUTH_ENV_VAR_CANDIDATES (src/secrets/provider-env-vars.ts).
+  # The first variable of a provider that this chart actually wires becomes that
+  # provider's config.models.providers apiKey; a provider with none is not
+  # rendered at all, which is what makes the block an allowlist. Unlike Claude
+  # Code, OpenClaw ranks the OAuth token ABOVE the API key, so a key that leaks
+  # into the Secret cannot quietly take over billing — but it still must not be
+  # in the pod unless someone asked for it.
+  providerEnvPrecedence:
+    anthropic:
+      - ANTHROPIC_OAUTH_TOKEN
+      - ANTHROPIC_API_KEY
+    openai:
+      - CODEX_API_KEY
+      - OPENAI_API_KEY
+
+# Control UI bearer token (spec.gateway.existingSecret, key `token`) from the
+# openclaw-gateway Secret. Without it the operator generates a token that exists
+# only in the cluster; rotation is then invisible to git. Empty name lets the
+# operator generate one anyway, which is the Kind-without-fakes case only.
+gateway:
+  existingSecret: openclaw-gateway
+  secretKey: token
+
+# openclaw.json. mergeMode: merge keeps what the agents change at runtime
+# (channels, settings) across restarts, and forcePaths lists the subtrees the
+# operator rebuilds from this CR on every restart regardless. models.providers is
+# there for a reason: under merge alone an agent could persist its own provider
+# entry through the Control UI and route inference through a third-party key.
+config:
+  mergeMode: merge
+  forcePaths:
+    - gateway
+    - models.providers
+  # agents.defaults.model.primary. The canonical Anthropic ref; the runtime is
+  # whichever credential is wired (docs/providers/anthropic.md).
+  defaultModel: anthropic/claude-opus-5-5
+
+# Agents requesting changes to their own spec (OpenClawSelfConfig). Off: the
+# paths worth protecting are exactly the ones config.forcePaths above covers,
+# and self-config is a privilege-escalation surface with no stated requirement
+# yet. Enabling it needs allowedActions too — empty means nothing is allowed.
+selfConfigure:
+  enabled: false
+  allowedActions: []
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+
+service:
+  type: ClusterIP
+
+# HTTPRoute (spec.networking.httpRoute) on the https listener of a Gateway that
+# terminates TLS; the parent passes GATEWAY_INTERNAL/GATEWAY_NAMESPACE.
+# Off by default: the internal Gateway reaches the whole LAN as well as the
+# tailnet (configuration/templates/helm-addons.tmpl gateways.internal), and an
+# OpenClaw gateway holding a Claude subscription token is not something to put
+# on the LAN behind a bearer token alone. Enabling it is a deliberate choice;
+# a tailnet-only endpoint is tracked separately. There is no route on the
+# external Gateway either, which would need oauth2-proxy in front.
+route:
+  enabled: false
+  gateway:
+    name: envoy-internal
+    namespace: envoy-gateway-system
+
+# The operator's NetworkPolicy denies by default and allows DNS plus HTTPS
+# egress (the LLM APIs) and same-namespace ingress (which covers the PostSync
+# smoke Job). The Gateway's namespace has to be named explicitly or the
+# HTTPRoute resolves to a backend nothing may reach.
+security:
+  networkPolicy:
+    enabled: true
+
+# Instance metrics on the operator's default port, scraped through a
+# ServiceMonitor when kube-prometheus-stack is present.
+observability:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+  logging:
+    level: info
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+# Extra environment for the agent container, appended after the credential
+# variables. Never put a credential here; it would be committed in plain text.
+extraEnv: []

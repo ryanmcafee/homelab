@@ -25,6 +25,9 @@ charts:
   - intel-device-plugins-operator
   - kube-prometheus-stack
   - nvidia-gpu-operator
+  # measured at chart 0.40.0: the OpenClawInstance CRD renders to 639,539 bytes
+  # (~625 KiB), well past the cap; the other two kinds are small (19 KiB, 5.6 KiB)
+  - openclaw-operator
   # the Instance CRD alone is several hundred KiB of OpenAPI schema
   - paperclip-operator
   # the Prometheus and Alertmanager CRDs alone exceed the limit several times over

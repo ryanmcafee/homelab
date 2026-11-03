@@ -24,6 +24,9 @@ providers:
   # paperclip-operator ships its CRDs as chart templates (crds.install); the
   # paperclip Application (wave 14) renders the Instance after it (wave 11).
   paperclip.inc: paperclip-operator
+  # openclaw-operator does the same (crds.install); the openclaw Application
+  # (wave 13) renders the OpenClawInstance after it (wave 11).
+  openclaw.rocks: openclaw-operator
   # altinity-clickhouse-operator ships its CRDs in the chart's crds/ directory
   # (crdHook off); charts/clickhouse (wave 11) renders the installation after it (10).
   clickhouse.altinity.com: clickhouse-operator
