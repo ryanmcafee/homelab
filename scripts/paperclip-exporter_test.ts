@@ -23,6 +23,7 @@ import {
   renderMetrics,
   startServer,
   summarize,
+  type WakeSweepCache,
 } from "../charts/paperclip/files/paperclip-exporter.ts";
 import {
   assert,
@@ -141,11 +142,14 @@ const COMPANIES = [
 
 let server: ReturnType<typeof Bun.serve>;
 const seenPaths: string[] = [];
+// Knobs for the sweep tests: delay or fail every /diagnostics/wakes response.
+let wakeDelayMs = 0;
+let wakeStatus = 200;
 
 beforeAll(() => {
   server = Bun.serve({
     port: 0,
-    fetch(req) {
+    async fetch(req) {
       const url = new URL(req.url);
       seenPaths.push(url.pathname + url.search);
       if (req.headers.get("authorization") !== `Bearer ${API_KEY}`) {
@@ -163,6 +167,10 @@ beforeAll(() => {
         /^\/api\/issues\/([^/]+)\/diagnostics\/wakes$/,
       );
       if (wakeMatch) {
+        if (wakeDelayMs > 0) await Bun.sleep(wakeDelayMs);
+        if (wakeStatus !== 200) {
+          return Response.json({ error: "boom" }, { status: wakeStatus });
+        }
         const found = WAKES[wakeMatch[1] as string];
         return found === undefined
           ? Response.json({ error: "not found" }, { status: 404 })
@@ -191,6 +199,7 @@ function config(overrides: Partial<ExporterConfig> = {}): ExporterConfig {
     staleWakeMinutes: 30,
     staleWakeIntervalSeconds: 300,
     staleWakeMaxIssues: 200,
+    staleWakeWaitMs: 2000,
     phantomStaleSeconds: PHANTOM_STALE,
     ...overrides,
   };
@@ -772,7 +781,7 @@ test("collect caps the sweep and reports it as truncated", async () => {
 test("a failed sweep keeps the previous count instead of reporting zero", async () => {
   const cache = new Map();
   await collect(config(), NOW, () => {}, cache);
-  assertEquals(cache.get(ACTIVE)?.stranded, 1);
+  assertEquals(cache.get(ACTIVE)?.last?.stranded, 1);
   const errors: string[] = [];
   // Re-sweep past the interval against an API that now rejects the key, so the
   // sweep throws while the cached result is still present.
@@ -784,8 +793,95 @@ test("a failed sweep keeps the previous count instead of reporting zero", async 
   );
   // The whole scrape is down, but the cached sweep survived for the next one.
   assertEquals(result.up, false);
-  assertEquals(cache.get(ACTIVE)?.stranded, 1);
-  assertEquals(cache.get(ACTIVE)?.sweptAtMs, NOW);
+  assertEquals(cache.get(ACTIVE)?.last?.stranded, 1);
+  assertEquals(cache.get(ACTIVE)?.last?.sweptAtMs, NOW);
+});
+
+const sweepStarts = () =>
+  seenPaths.filter((p) => p.includes("/issues?status=")).length;
+
+test("a slow sweep does not hold up the scrape and lands on the next one", async () => {
+  const cache: WakeSweepCache = new Map();
+  wakeDelayMs = 500;
+  try {
+    const started = performance.now();
+    const first = await collect(
+      config({ staleWakeWaitMs: 50 }),
+      NOW,
+      () => {},
+      cache,
+    );
+    const elapsedMs = performance.now() - started;
+    assert(
+      elapsedMs < 400,
+      `the scrape waited ${elapsedMs}ms for a 500ms sweep`,
+    );
+    assertEquals(first.up, true);
+    assertEquals(first.companies[0]?.wakeSweep, null);
+    // The sweep keeps running in the background and fills the cache.
+    await cache.get(ACTIVE)?.inFlight;
+    const second = await collect(
+      config({ staleWakeWaitMs: 50 }),
+      NOW + 60_000,
+      () => {},
+      cache,
+    );
+    assertEquals(second.companies[0]?.wakeSweep?.stranded, 1);
+    assertEquals(second.companies[0]?.wakeSweep?.sweptAtMs, NOW);
+  } finally {
+    wakeDelayMs = 0;
+    await cache.get(ACTIVE)?.inFlight;
+  }
+});
+
+test("concurrent scrapes share one sweep", async () => {
+  const cache: WakeSweepCache = new Map();
+  seenPaths.length = 0;
+  wakeDelayMs = 200;
+  try {
+    await Promise.all([
+      collect(config({ staleWakeWaitMs: 50 }), NOW, () => {}, cache),
+      collect(config({ staleWakeWaitMs: 50 }), NOW, () => {}, cache),
+    ]);
+    await cache.get(ACTIVE)?.inFlight;
+    assertEquals(sweepStarts(), 1);
+    assertEquals(cache.get(ACTIVE)?.last?.stranded, 1);
+  } finally {
+    wakeDelayMs = 0;
+    await cache.get(ACTIVE)?.inFlight;
+  }
+});
+
+test("a failed sweep backs off for the interval instead of retrying every scrape", async () => {
+  const cache: WakeSweepCache = new Map();
+  await collect(config(), NOW, () => {}, cache);
+  seenPaths.length = 0;
+  const errors: string[] = [];
+  wakeStatus = 500;
+  try {
+    const failed = await collect(
+      config(),
+      NOW + 400_000,
+      (msg) => errors.push(msg),
+      cache,
+    );
+    assertEquals(sweepStarts(), 1);
+    assertStringIncludes(errors.join("\n"), "wake sweep for company");
+    // The scrape stays up and serves the last good sweep.
+    assertEquals(failed.up, true);
+    assertEquals(failed.companies[0]?.wakeSweep?.sweptAtMs, NOW);
+    // One minute later, inside the interval since the failed attempt: no retry.
+    await collect(config(), NOW + 460_000, () => {}, cache);
+    assertEquals(sweepStarts(), 1);
+    assertEquals(cache.get(ACTIVE)?.last?.sweptAtMs, NOW);
+    // Past the interval since the attempt, it retries.
+    wakeStatus = 200;
+    const retried = await collect(config(), NOW + 710_000, () => {}, cache);
+    assertEquals(sweepStarts(), 2);
+    assertEquals(retried.companies[0]?.wakeSweep?.sweptAtMs, NOW + 710_000);
+  } finally {
+    wakeStatus = 200;
+  }
 });
 
 test("readConfig applies the stale-wake defaults", () => {
@@ -796,6 +892,7 @@ test("readConfig applies the stale-wake defaults", () => {
   assertEquals(cfg.staleWakeMinutes, 30);
   assertEquals(cfg.staleWakeIntervalSeconds, 300);
   assertEquals(cfg.staleWakeMaxIssues, 200);
+  assertEquals(cfg.staleWakeWaitMs, 5000);
   assertEquals(cfg.phantomStaleSeconds, 1800);
   assertThrows(
     () =>
@@ -805,5 +902,14 @@ test("readConfig applies the stale-wake defaults", () => {
       }),
     Error,
     "STALE_WAKE_MINUTES",
+  );
+  assertThrows(
+    () =>
+      readConfig({
+        PAPERCLIP_API_URL: "http://x/api",
+        STALE_WAKE_WAIT_MS: "0",
+      }),
+    Error,
+    "STALE_WAKE_WAIT_MS",
   );
 });

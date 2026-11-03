@@ -22,6 +22,9 @@
  *   STALE_WAKE_MINUTES   a claimed wake older than this is stale (default 30)
  *   STALE_WAKE_INTERVAL_SECONDS  seconds between wake sweeps (default 300)
  *   STALE_WAKE_MAX_ISSUES        issues read per sweep (default 200)
+ *   STALE_WAKE_WAIT_MS           how long a scrape waits for a sweep it
+ *                                started before serving the cached one
+ *                                (default 5000)
  *   PHANTOM_STALE_SECONDS        an agent heartbeat older than this is not
  *                                credible evidence of life (default 1800)
  */
@@ -91,7 +94,18 @@ export interface WakeSweep {
   truncated: boolean;
   sweptAtMs: number;
 }
-export type WakeSweepCache = Map<string, WakeSweep>;
+/**
+ * Per-company sweep state. `last` is the last successful sweep, so its
+ * sweptAtMs is what paperclip_wake_sweep_age_seconds reports. `attemptedAtMs`
+ * is when the latest sweep started, successful or not, and `inFlight` is that
+ * sweep while it runs (it never rejects).
+ */
+export interface WakeSweepState {
+  last: WakeSweep | null;
+  attemptedAtMs: number;
+  inFlight: Promise<void> | null;
+}
+export type WakeSweepCache = Map<string, WakeSweepState>;
 export interface Recovery {
   thresholdPercent: number;
   breached: boolean;
@@ -129,6 +143,7 @@ export interface ExporterConfig {
   staleWakeMinutes: number;
   staleWakeIntervalSeconds: number;
   staleWakeMaxIssues: number;
+  staleWakeWaitMs: number;
   phantomStaleSeconds: number;
 }
 export type Logger = (msg: string) => void;
@@ -527,7 +542,8 @@ async function mapLimit<T, R>(
  *
  * One request per open issue, so it is rate-limited by
  * STALE_WAKE_INTERVAL_SECONDS rather than run on every scrape, and capped at
- * STALE_WAKE_MAX_ISSUES so a large board cannot stall the exporter.
+ * STALE_WAKE_MAX_ISSUES so a large board cannot overload the Paperclip API.
+ * It can still outlast a scrape, so cachedSweep runs it off the scrape path.
  */
 export async function sweepWakes(
   cfg: ExporterConfig,
@@ -602,7 +618,14 @@ async function collectCompany(
 }
 
 /**
- * Serve the cached sweep until it ages past STALE_WAKE_INTERVAL_SECONDS.
+ * Serve the cached sweep, starting at most one new sweep per company per
+ * STALE_WAKE_INTERVAL_SECONDS.
+ *
+ * The interval counts from the last attempt, not the last success, so a
+ * failing sweep backs off instead of re-running on every scrape. A sweep can
+ * take far longer than Prometheus' scrape timeout, so the scrape that starts
+ * it waits at most STALE_WAKE_WAIT_MS and otherwise serves the previous result
+ * while the sweep finishes in the background for a later scrape.
  *
  * A failed sweep keeps the previous result rather than blanking the series —
  * paperclip_wake_sweep_age_seconds is what shows the value went stale, so a
@@ -617,11 +640,16 @@ async function cachedSweep(
   cache: WakeSweepCache,
   logError: Logger,
 ): Promise<WakeSweep | null> {
-  const previous = cache.get(company.id) ?? null;
-  const fresh =
-    previous !== null &&
-    now - previous.sweptAtMs < cfg.staleWakeIntervalSeconds * 1000;
-  if (fresh) return previous;
+  const interval = cfg.staleWakeIntervalSeconds * 1000;
+  let state = cache.get(company.id);
+  if (state === undefined) {
+    state = { last: null, attemptedAtMs: 0, inFlight: null };
+    cache.set(company.id, state);
+  }
+  const fresh = state.last !== null && now - state.last.sweptAtMs < interval;
+  const backingOff =
+    state.attemptedAtMs > 0 && now - state.attemptedAtMs < interval;
+  if (fresh || backingOff || state.inFlight !== null) return state.last;
   // Missing a live run id here would report its healthy wake as stranded, so
   // widen past the capped /live-runs with the live rows heartbeat-runs returns.
   const liveRunIds = new Set(
@@ -630,18 +658,31 @@ async function cachedSweep(
       .map((r) => r.id)
       .filter((id): id is string => id !== null),
   );
-  try {
-    const sweep = await sweepWakes(cfg, company, liveRunIds, now);
-    cache.set(company.id, sweep);
-    return sweep;
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    logError(`wake sweep for company ${company.id} failed: ${detail}`);
-    return previous;
-  }
+  const entry = state;
+  entry.attemptedAtMs = now;
+  const inFlight = (async () => {
+    try {
+      entry.last = await sweepWakes(cfg, company, liveRunIds, now);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      logError(`wake sweep for company ${company.id} failed: ${detail}`);
+    } finally {
+      entry.inFlight = null;
+    }
+  })();
+  entry.inFlight = inFlight;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    inFlight,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, cfg.staleWakeWaitMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  return entry.last;
 }
 
-/** Wake sweeps outlive a single scrape; see cachedSweep. */
+/** Wake sweeps outlive a single scrape, and may run past one; see cachedSweep. */
 const defaultWakeSweepCache: WakeSweepCache = new Map();
 
 export async function collect(
@@ -706,6 +747,7 @@ export function readConfig(
     staleWakeMinutes: intEnv(env, "STALE_WAKE_MINUTES", 30),
     staleWakeIntervalSeconds: intEnv(env, "STALE_WAKE_INTERVAL_SECONDS", 300),
     staleWakeMaxIssues: intEnv(env, "STALE_WAKE_MAX_ISSUES", 200),
+    staleWakeWaitMs: intEnv(env, "STALE_WAKE_WAIT_MS", 5000),
     phantomStaleSeconds: intEnv(env, "PHANTOM_STALE_SECONDS", 1800),
   };
 }
