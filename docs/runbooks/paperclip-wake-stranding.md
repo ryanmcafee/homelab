@@ -160,3 +160,25 @@ constant load on the Paperclip API.
 
 `paperclip_issues_wake_swept` below `paperclip_issues_open` means the cap is
 truncating the sweep, so the stranded count is a floor, not a total.
+
+## If `TargetDown` fires for `paperclip-exporter`
+
+Prometheus could not scrape the exporter at all, which is different from
+`paperclip_up 0` (the exporter answered but the Paperclip API did not). First
+check whether scrapes are timing out or there is no endpoint to scrape:
+
+```bash
+kubectl -n paperclip get rollout,pods,endpoints paperclip-exporter
+```
+
+In Prometheus, `scrape_duration_seconds{job="paperclip-exporter"}` close to the
+ServiceMonitor's 30s `scrapeTimeout` means a scrape is too slow. The wake sweep
+is the expensive part (one request per open issue), so it does not run inside
+the scrape. A scrape starts at most one sweep per company per
+`STALE_WAKE_INTERVAL_SECONDS`, counted from the last attempt, so a failing sweep
+backs off instead of re-running on every scrape. The scrape waits up to
+`STALE_WAKE_WAIT_MS` (default 5s) for that sweep, then serves the previous result
+while the sweep finishes in the background. The cost is that the stranded count
+can lag by one interval, which `paperclip_wake_sweep_age_seconds` shows. A
+`wake sweep for company … failed` log line means the sweep itself is failing; see
+the section above.
