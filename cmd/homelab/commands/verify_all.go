@@ -25,7 +25,7 @@ const defaultKubeContext = "kind-homelab-localdev"
 
 // newVerifyAllCmd wires every check of a verification level into one command:
 //
-//	level 0: render → gitops graph → runbook coverage → golden snapshots → conftest policy → ADR record → event contract
+//	level 0: render → gitops graph → runbook coverage → golden snapshots → conftest policy → ADR record → event contract → fork-ability check 2
 //	level 1: level 0 → kubectl server-side dry run of the localdev render
 //	level 2: level 1 → ArgoCD Application state → chainsaw e2e
 //
@@ -171,7 +171,17 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 			// 6. The event contract in contracts/events/ (ADR-026, ADR-030).
 			result.Add(verify.EventContract(ctx, runner, repoRoot))
 
-			// 7. Cluster-backed levels. Every check reads the Kind cluster
+			// 7. Fork-ability check 2, read through the published
+			// `bootstrap --print-required-keys` document so that contract stays under test.
+			if self, err := os.Executable(); err != nil {
+				result.Add(verify.FailCheck("forkability/required-keys/contract", start,
+					"locating the running homelab binary", err.Error()))
+			} else {
+				result.Add(verify.ForkAbilityCheck2(ctx, repoRoot,
+					verify.CLIRequiredKeysProducer(runner, repoRoot, self))...)
+			}
+
+			// 8. Cluster-backed levels. Every check reads the Kind cluster
 			// through the same Runner, so the fake in tests covers them too.
 			if level >= levelDryRun {
 				cluster := verify.ClusterOptions{
@@ -208,7 +218,7 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 		},
 	}
 
-	cmd.Flags().IntVar(&level, "level", levelStatic, "Verification level: 0 = static (render, schema, gitops graph, runbook coverage, snapshots, policy, ADR record, event contract); 1 = level 0 + server-side dry run of the localdev render against Kind; 2 = level 1 + ArgoCD Application state + chainsaw e2e")
+	cmd.Flags().IntVar(&level, "level", levelStatic, "Verification level: 0 = static (render, schema, gitops graph, runbook coverage, snapshots, policy, ADR record, event contract, fork-ability check 2); 1 = level 0 + server-side dry run of the localdev render against Kind; 2 = level 1 + ArgoCD Application state + chainsaw e2e")
 	cmd.Flags().StringVar(&envList, "env", "all", "Environments to verify (all, localdev, homelab, homelab-preview, or a comma-separated list); levels 1 and 2 need localdev")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the machine-readable result contract")
 	cmd.Flags().BoolVar(&keep, "keep-render-dir", false, "Keep the temporary render directory and print its path")
