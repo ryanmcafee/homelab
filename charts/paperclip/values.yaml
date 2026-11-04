@@ -269,3 +269,21 @@ agentPolicy:
     limits:
       cpu: 200m
       memory: 192Mi
+
+# templates/db-indexes.yaml: PostSync Job that builds expression indexes on
+# heartbeat_runs which the pinned image's migrations lack. Every read of the
+# issue, comment and heartbeat-context routes otherwise detoasts each run's
+# context_snapshot (paperclipai/paperclip#13681, #15543, #17203). Upstream
+# names are reused so its own migration (0345, not yet released) is a no-op
+# here; drop the homelab_* ones once a release covers their queries.
+# image: a postgresql image with psql, from configuration/ through the parent.
+dbIndexes:
+  enabled: true
+  image: ""
+  indexes:
+    heartbeat_runs_company_ctx_paperclip_issue_created_idx: >-
+      (company_id, (context_snapshot -> 'paperclipIssue' ->> 'id'), created_at DESC NULLS LAST)
+    heartbeat_runs_homelab_conv_issue_idx: >-
+      (company_id, (coalesce(native_issue_id::text, context_snapshot ->> 'issueId')), created_at DESC, id DESC)
+    heartbeat_runs_homelab_company_agent_created_idx: >-
+      (company_id, agent_id, created_at)
