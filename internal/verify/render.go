@@ -88,9 +88,6 @@ type envRender struct {
 	// rc is the env's resolved configuration, kept so the committed-values
 	// check can re-export the templates without resolving twice.
 	rc *config.ResolvedConfig
-	// domain is the env's resolved DOMAIN. Two-stage envs hand it to the
-	// gitops chart with --set, mirroring the Terraform root Application.
-	domain string
 	// generated maps a two-stage chart name to the absolute path of its
 	// config-export-generated values file.
 	generated map[string]string
@@ -619,7 +616,6 @@ func prepareEnv(opts RenderOptions, env Env, k8sVersion string) (*envRender, Che
 	er := &envRender{
 		env:         env,
 		rc:          rc,
-		domain:      domain,
 		generated:   map[string]string{},
 		inherited:   map[string]inheritedValues{},
 		parentFiles: map[string]string{},
@@ -813,11 +809,12 @@ func valuesArgs(opts RenderOptions, er *envRender, c Chart) ([]string, string) {
 	detail := "values: " + strings.Join(sources, ", ") + missing
 
 	// The root Application that Terraform creates for the gitops chart passes
-	// global.domain as a helm parameter; nothing in git carries the real
-	// domain. Level 0 injects the example env's domain the same way.
+	// ConfigSet values as helm parameters; nothing in git carries them. Level 0
+	// injects the example env's values the same way.
 	if c.Name == "gitops" && er.env.TwoStage {
-		args = append(args, "--set", "global.domain="+er.domain)
-		detail += "; --set global.domain=" + er.domain + " (mirrors the Terraform root Application helm.parameters)"
+		root := rootParameterArgs(er.rc)
+		args = append(args, root...)
+		detail += "; " + strings.Join(root, " ") + " (mirrors the Terraform root Application helm.parameters)"
 	}
 
 	// A preview env's own charts get the arguments the CMP adds for
@@ -1188,4 +1185,21 @@ func sortedValues(m map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// rootParameters are the helm parameters the Terraform root Application
+// (terragrunt/modules/gitops-bootstrap) passes the gitops chart, by ConfigSet key.
+var rootParameters = []struct{ name, key string }{
+	{"global.domain", "DOMAIN"},
+	{"bootstrap.argocdNotificationsGithubItemPath", "ARGOCD_NOTIFICATIONS_GITHUB_1P_PATH"},
+	{"bootstrap.environmentConfigItemPath", "HOMELAB_ENVIRONMENT_CONFIG_1P_PATH"},
+}
+
+// rootParameterArgs is rootParameters as helm --set arguments for rc.
+func rootParameterArgs(rc *config.ResolvedConfig) []string {
+	args := make([]string, 0, 2*len(rootParameters))
+	for _, p := range rootParameters {
+		args = append(args, "--set", p.name+"="+rc.Values[p.key].Value)
+	}
+	return args
 }

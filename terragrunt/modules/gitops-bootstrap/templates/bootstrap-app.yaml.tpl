@@ -21,6 +21,10 @@ spec:
       parameters:
         - name: global.domain
           value: ${base_fqdn}
+        - name: bootstrap.argocdNotificationsGithubItemPath
+          value: ${argocd_notifications_github_1p_path}
+        - name: bootstrap.environmentConfigItemPath
+          value: ${environment_config_1p_path}
   destination:
     server: https://kubernetes.default.svc
     namespace: ${namespace}

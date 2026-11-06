@@ -137,7 +137,9 @@ at the internal `argocd.<domain>` (tailnet only).
    (`vaults/homelab/items/argocd-notifications-github`) with three fields whose labels are exactly
    `github-appID`, `github-installationID` and `github-privateKey` (the full PEM). The 1Password
    operator turns them into the keys of Secret `argocd/argocd-notifications-secret`, and
-   `service.github` reads them as `$github-appID` and so on.
+   `service.github` reads them as `$github-appID` and so on. Another vault or item name goes in
+   `ARGOCD_NOTIFICATIONS_GITHUB_1P_PATH`, applied with
+   `task tf:apply:component COMPONENT=gitops-bootstrap` (the root Application carries it).
 3. PR 1: set `argocd.notificationsGithub.enabled: true` in `charts/bootstrap/values-homelab.yaml`.
    After merge, check that OnePasswordItem `argocd-notifications-secret` is Ready and `bootstrap` is
    Healthy. If the item is missing, the OnePasswordItem health check marks it Degraded and

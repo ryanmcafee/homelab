@@ -117,16 +117,18 @@ resource "kubectl_manifest" "bootstrap_app" {
   depends_on = [helm_release.argocd]
 
   yaml_body = templatefile("${path.module}/templates/bootstrap-app.yaml.tpl", {
-    app_name        = "gitops"
-    namespace       = kubernetes_namespace_v1.argocd.metadata[0].name
-    repo_url        = var.repo_url
-    target_revision = var.target_revision
-    path            = var.gitops_chart_path
-    environment     = var.environment
-    base_fqdn       = var.base_fqdn
-    auto_sync       = var.auto_sync_enabled
-    auto_prune      = var.auto_prune_enabled
-    self_heal       = var.self_heal_enabled
+    app_name                            = "gitops"
+    namespace                           = kubernetes_namespace_v1.argocd.metadata[0].name
+    repo_url                            = var.repo_url
+    target_revision                     = var.target_revision
+    path                                = var.gitops_chart_path
+    environment                         = var.environment
+    base_fqdn                           = var.base_fqdn
+    auto_sync                           = var.auto_sync_enabled
+    argocd_notifications_github_1p_path = var.argocd_notifications_github_1p_path
+    environment_config_1p_path          = var.environment_config_1p_path
+    auto_prune                          = var.auto_prune_enabled
+    self_heal                           = var.self_heal_enabled
   })
 }
 

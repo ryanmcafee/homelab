@@ -13,6 +13,16 @@ variable "base_fqdn" {
   type        = string
 }
 
+variable "argocd_notifications_github_1p_path" {
+  description = "1Password item path for argocd-notifications-secret (ConfigSet ARGOCD_NOTIFICATIONS_GITHUB_1P_PATH)"
+  type        = string
+}
+
+variable "environment_config_1p_path" {
+  description = "1Password item path for the homelab-environment-config Secret (ConfigSet HOMELAB_ENVIRONMENT_CONFIG_1P_PATH)"
+  type        = string
+}
+
 # ArgoCD Configuration
 variable "argocd_namespace" {
   description = "Namespace for ArgoCD installation"
