@@ -14,6 +14,7 @@
 {{- $cilium := eq .Values.CNI_PROVIDER.Value "cilium" -}}
 {{- $csi := eq .Values.STORAGE_PROVIDER.Value "democratic-csi" -}}
 {{- $onepassword := eq .Values.SECRETS_PROVIDER.Value "onepassword" -}}
+{{- /* Paths a child chart `required`s stay unguarded: blanking one swaps a Degraded item for a misleading render error. */ -}}
 {{- $automated := eq .Values.ARGOCD_AUTOMATED_SYNC.Value "true" -}}
 {{- $logging := eq .Values.LOGGING_ENABLED.Value "true" -}}
 # Addons Chart - {{ .Set }} Environment Values
