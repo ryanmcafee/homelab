@@ -200,8 +200,8 @@ management plugin. Parents render before children, and a child chart receives
 the helm.valuesObject its parent Application passes it as an extra values
 file (<out>/<env>/_inherited/<chart>.yaml), so derived values such as the
 domain and the iSCSI portal reach children exactly as they do in ArgoCD. The
-gitops chart gets --set global.domain=<DOMAIN> for homelab, mirroring the
-helm parameter the Terraform root Application injects.
+gitops chart gets --set global.domain=<DOMAIN> and the other helm parameters
+the Terraform root Application injects for homelab.
 
 Exit status: 0 when every check passes, 1 when a check fails, 2 on a usage
 error.`,
