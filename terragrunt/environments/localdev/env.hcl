@@ -22,6 +22,9 @@ locals {
   # resolve its own or the modules' required variable stays unset.
   base_fqdn = local.config.DOMAIN
 
+  argocd_notifications_github_1p_path = local.config.ARGOCD_NOTIFICATIONS_GITHUB_1P_PATH
+  environment_config_1p_path          = local.config.HOMELAB_ENVIRONMENT_CONFIG_1P_PATH
+
   # Kind's own pod network, not the operator's LAN: Kind assigns it and it is
   # identical in every fork, so it is not a ConfigSet value.
   vlan_id     = null

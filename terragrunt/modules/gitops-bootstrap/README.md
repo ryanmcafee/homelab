@@ -217,6 +217,8 @@ spec:
 | cluster_name | Cluster name | `string` | n/a | yes |
 | environment | Environment | `string` | n/a | yes |
 | base_fqdn | Base FQDN | `string` | n/a | yes |
+| argocd_notifications_github_1p_path | 1Password item for argocd-notifications-secret (ConfigSet `ARGOCD_NOTIFICATIONS_GITHUB_1P_PATH`), passed as the Helm parameter `bootstrap.argocdNotificationsGithubItemPath` | `string` | n/a | yes |
+| environment_config_1p_path | 1Password item for homelab-environment-config (ConfigSet `HOMELAB_ENVIRONMENT_CONFIG_1P_PATH`), passed as the Helm parameter `bootstrap.environmentConfigItemPath` | `string` | n/a | yes |
 | repo_url | Git repository URL | `string` | n/a | yes |
 | target_revision | Git branch/tag | `string` | "HEAD" | no |
 | argocd_version | ArgoCD chart version (units read configuration/versions.yaml charts.argocd) | `string` | — | yes |

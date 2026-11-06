@@ -437,9 +437,11 @@ func TestRenderGitopsDomainMirrorsTerraform(t *testing.T) {
 		t.Fatalf("expected pass, got:\n%s", buf.String())
 	}
 
-	// homelab: the Terraform root Application sets global.domain as a helm
-	// parameter, so the two-stage env injects the example domain the same way.
-	const set = "--set global.domain=replaceme-domain.com"
+	// homelab: the Terraform root Application sets ConfigSet values as helm
+	// parameters, so the two-stage env injects the example ones the same way.
+	const set = "--set global.domain=replaceme-domain.com" +
+		" --set bootstrap.argocdNotificationsGithubItemPath=vaults/homelab/items/argocd-notifications-github" +
+		" --set bootstrap.environmentConfigItemPath=vaults/homelab/items/homelab-environment-config"
 	cmd, ok := fr.find("helm", "template gitops ", set)
 	if !ok {
 		t.Fatalf("no homelab helm template gitops with %q; recorded:\n%s", set, fr.dump())
@@ -1734,5 +1736,32 @@ func TestRenderEmitsCommittedValuesCheckForPlainHelmEnvsOnly(t *testing.T) {
 		if other.Name == "render/homelab/_committed-values" {
 			t.Errorf("homelab must not get a committed-values check; it generates its parent values at render time")
 		}
+	}
+}
+
+// TestRootParametersMatchTheTerraformRootApplication keeps the level 0 --set
+// mirror and the helm.parameters Terraform actually sets from drifting apart.
+func TestRootParametersMatchTheTerraformRootApplication(t *testing.T) {
+	root, err := FindRepoRoot(mustGetwd(t))
+	if err != nil {
+		t.Skip("not in repo")
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "terragrunt", "modules", "gitops-bootstrap", "templates", "bootstrap-app.yaml.tpl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inTemplate []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if name, ok := strings.CutPrefix(strings.TrimSpace(line), "- name: "); ok {
+			inTemplate = append(inTemplate, name)
+		}
+	}
+	var mirrored []string
+	for _, p := range rootParameters {
+		mirrored = append(mirrored, p.name)
+	}
+	if strings.Join(inTemplate, ",") != strings.Join(mirrored, ",") {
+		t.Errorf("bootstrap-app.yaml.tpl helm.parameters = %v, rootParameters = %v; level 0 must --set exactly what Terraform sets",
+			inTemplate, mirrored)
 	}
 }
