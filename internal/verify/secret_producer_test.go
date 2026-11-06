@@ -25,6 +25,7 @@ type onePasswordPathKey struct {
 	chart  string   // child chart directory that renders the OnePasswordItem
 	item   string   // OnePasswordItem metadata.name
 	values []string // the child chart's values path for the item path
+	set    []string // child --set flags the item needs to render at all
 }
 
 // onePasswordPathKeys is every *_1P_PATH key consumed by a separate child
@@ -52,6 +53,11 @@ var onePasswordPathKeys = []onePasswordPathKey{
 		values: []string{"onePasswordItemPath"}},
 	{key: "RENOVATE_1P_PATH", parent: "applications", chart: "renovate-config", item: "renovate-token",
 		values: []string{"onePasswordItemPath"}},
+	{key: "ARGOCD_NOTIFICATIONS_GITHUB_1P_PATH", parent: "gitops", chart: "bootstrap", item: "argocd-notifications-secret",
+		values: []string{"argocd", "notificationsGithub", "onePasswordItemPath"},
+		set:    []string{"argocd.notificationsGithub.enabled=true"}},
+	{key: "HOMELAB_ENVIRONMENT_CONFIG_1P_PATH", parent: "gitops", chart: "bootstrap", item: "homelab-environment-config",
+		values: []string{"homelab-environment-config", "itemPath"}},
 }
 
 // TestOnePasswordItemPathsAreNotCommittedInChildOverlays keeps the duplication
@@ -154,22 +160,29 @@ func renderOnePasswordItems(t *testing.T, root, fork string, overrides map[strin
 
 	rc := resolveForkConfig(t, root, overrides)
 
-	// Stage 1: the CMP template, per parent chart that needs one.
+	// Stage 1: the CMP template per two-stage parent, or for gitops the helm
+	// parameters of the Terraform root Application.
 	inherited := map[string]string{}
-	for _, parent := range []string{"addons", "applications"} {
-		tmpl := filepath.Join(root, "configuration", "templates", TwoStageCharts[parent]+".tmpl")
-		values, err := config.Export(rc, tmpl)
-		if err != nil {
-			t.Fatalf("%s: exporting %s: %v", fork, tmpl, err)
-		}
-		valuesFile := filepath.Join(dir, parent+"-values.yaml")
-		if err := os.WriteFile(valuesFile, []byte(values), 0o644); err != nil {
-			t.Fatal(err)
+	for _, parent := range []string{"addons", "applications", "gitops"} {
+		args := []string{"-f", filepath.ToSlash(filepath.Join("charts", parent, "values.yaml"))}
+		if parent == "gitops" {
+			args = append(args, "-f", filepath.ToSlash(filepath.Join("charts", parent, "values-homelab.yaml")))
+			args = append(args, rootParameterArgs(rc)...)
+		} else {
+			tmpl := filepath.Join(root, "configuration", "templates", TwoStageCharts[parent]+".tmpl")
+			values, err := config.Export(rc, tmpl)
+			if err != nil {
+				t.Fatalf("%s: exporting %s: %v", fork, tmpl, err)
+			}
+			valuesFile := filepath.Join(dir, parent+"-values.yaml")
+			if err := os.WriteFile(valuesFile, []byte(values), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			args = append(args, "-f", valuesFile)
 		}
 
 		// Stage 2: the parent chart, exactly as level 0 renders it.
-		out := helmTemplate(ctx, t, runner, root, parent, filepath.Join("charts", parent),
-			"-f", filepath.ToSlash(filepath.Join("charts", parent, "values.yaml")), "-f", valuesFile)
+		out := helmTemplate(ctx, t, runner, root, parent, filepath.Join("charts", parent), args...)
 		for chart, body := range valuesObjectsByChart(t, parent, fork, out) {
 			file := filepath.Join(dir, "inherited-"+chart+".yaml")
 			if err := os.WriteFile(file, body, 0o644); err != nil {
@@ -197,6 +210,9 @@ func renderOnePasswordItems(t *testing.T, root, fork string, overrides map[strin
 			args = append(args, "-f", f)
 		}
 		args = append(args, "-f", file)
+		for _, s := range k.set {
+			args = append(args, "--set", s)
+		}
 		out := helmTemplate(ctx, t, runner, root, k.chart, filepath.Join("charts", k.chart), args...)
 		docs, err := ParseMultiDoc(k.chart, fork, out)
 		if err != nil {

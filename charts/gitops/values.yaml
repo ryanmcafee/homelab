@@ -51,6 +51,11 @@ bootstrap:
   # Sync wave - deploy before everything else
   syncWave: "0"
 
+  # ARGOCD_NOTIFICATIONS_GITHUB_1P_PATH and HOMELAB_ENVIRONMENT_CONFIG_1P_PATH,
+  # set by the Terraform root Application; empty keeps the bootstrap default.
+  argocdNotificationsGithubItemPath: ""
+  environmentConfigItemPath: ""
+
   # Source configuration
   source:
     # Path to bootstrap chart in repository
