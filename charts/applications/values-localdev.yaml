@@ -51,6 +51,9 @@ plex:
   enabled: true
   namespace: media
 
+  # Claim-token item for the plex-config child chart; empty renders no item.
+  onePasswordItemPath: ""
+
   # Official Plex helm chart
   chart:
     name: plex-media-server
@@ -895,6 +898,7 @@ duckdns:
 
 renovate:
   enabled: false
+  onePasswordItemPath: vaults/homelab/items/renovate
   chart:
     version: 46.106.12
   config:

@@ -21,7 +21,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      # valuesObject overrides valueFiles, so PLEX_1P_PATH reaches the item.
       valuesObject:
+        onePasswordItemPath: {{ .Values.plex.onePasswordItemPath | quote }}
         iscsi:
           portal: {{ .Values.global.iscsi.portal | quote }}
   destination:

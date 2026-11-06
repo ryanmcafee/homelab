@@ -1920,7 +1920,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # valuesObject overrides valueFiles, so PLEX_1P_PATH reaches the item.
       valuesObject:
+        onePasswordItemPath: "vaults/homelab/items/plex"
         iscsi:
           portal: "198.51.100.50:3260"
   destination:
@@ -2379,6 +2381,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # valuesObject overrides valueFiles, so RENOVATE_1P_PATH reaches the item.
+      valuesObject:
+        onePasswordItemPath: "vaults/homelab/items/renovate"
   destination:
     server: https://kubernetes.default.svc
     namespace: renovate
