@@ -1691,7 +1691,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      # valuesObject overrides valueFiles, so PLEX_1P_PATH reaches the item.
       valuesObject:
+        onePasswordItemPath: ""
         iscsi:
           portal: "127.0.0.1:3260"
   destination:

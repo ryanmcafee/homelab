@@ -65,6 +65,9 @@ plex:
   enabled: true
   namespace: media
 
+  # Claim-token item for the plex-config child chart; empty renders no item.
+  onePasswordItemPath: "{{ if $onepassword }}{{ .Values.PLEX_1P_PATH.Value }}{{ end }}"
+
   # Official Plex helm chart
   chart:
     name: plex-media-server
@@ -1089,6 +1092,7 @@ duckdns:
 
 renovate:
   enabled: {{ $onepassword }}
+  onePasswordItemPath: {{ .Values.RENOVATE_1P_PATH.Value }}
   chart:
     version: {{ .Versions.Charts.renovate }}
   config:

@@ -2,4 +2,5 @@
 
 namespace: renovate
 
-onePasswordItemPath: vaults/homelab/items/renovate
+# onePasswordItemPath is NOT set here: the applications renovate-config
+# Application passes it through helm.valuesObject from RENOVATE_1P_PATH.

@@ -110,6 +110,9 @@ plex:
   enabled: true
   namespace: media
 
+  # 1Password item for the claim token (plex-config child chart); empty renders none
+  onePasswordItemPath: ""
+
   # Official Plex helm chart
   # https://github.com/plexinc/pms-docker/tree/master/charts/plex-media-server
   chart:
@@ -991,6 +994,9 @@ duckdns:
 renovate:
   enabled: true
   namespace: renovate
+
+  # 1Password item for the renovate-token Secret (renovate-config child chart)
+  onePasswordItemPath: ""
 
   # Renovate Helm chart (OCI)
   # https://github.com/renovatebot/helm-charts
