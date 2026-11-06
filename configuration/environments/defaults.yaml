@@ -40,6 +40,8 @@ EXTERNAL_DNS_UNIFI_1P_PATH: vaults/homelab/items/unifi
 GOOGLE_OAUTH_1P_PATH: vaults/homelab/items/google-oauth
 UNIFI_PORT_FORWARD_1P_PATH: vaults/homelab/items/unifi
 DUCKDNS_1P_PATH: vaults/homelab/items/duckdns
+PLEX_1P_PATH: vaults/homelab/items/plex
+RENOVATE_1P_PATH: vaults/homelab/items/renovate
 PAPERCLIP_AUTH_1P_PATH: vaults/homelab/items/paperclip-auth
 PAPERCLIP_API_KEYS_1P_PATH: vaults/homelab/items/paperclip-api-keys
 PAPERCLIP_EXPORTER_1P_PATH: vaults/homelab/items/paperclip-exporter
