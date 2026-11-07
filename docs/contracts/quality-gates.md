@@ -48,6 +48,12 @@ is point 4, including a test that runs the checker against the committed record.
 merge-result run reports without blocking, so the collision stops the merge at the rebase
 rather than at the merge button (ADR-039, `docs/runbooks/verification.md`).
 
+The required head check skips `renovate/*` pull requests, and GitHub considers that
+skipped context satisfied. The merge-result `Level 0` check is not currently required.
+Requiring it would make failures block merges, but its result can become stale when
+`main` advances without a new pull request run. See MCAA-164 for the required-context
+change and the separate freshness decision.
+
 Consumer-side: each consumer of an event type keeps a fixture of the event it expects and
 asserts it validates against the published schema. That is what catches "the producer's
 additive change was additive for the schema but not for my parser".
