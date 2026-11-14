@@ -25,6 +25,12 @@ import {
   assignGeneratedValues,
   generatedSecretStubs,
   DEFAULT_CLUSTER,
+  INOTIFY_MINIMUMS,
+  apparmorRemoveCommand,
+  enforcedHostConflicts,
+  inotifyShortfalls,
+  sysctlProcPath,
+  sysctlRaiseCommand,
   extractCiliumValues,
   formatCommand,
   formatStatusTable,
@@ -494,4 +500,83 @@ test("assignGeneratedValues: one value per group, existing values win", () => {
     "observability/clickhouse-grafana": "kept",
     "monitoring/clickhouse-grafana": "kept",
   });
+});
+
+// ----------------------------------------------------------------------------
+// Host inotify limits
+// ----------------------------------------------------------------------------
+test("INOTIFY_MINIMUMS: kind's documented minimums for instances and watches", () => {
+  assertEquals(
+    INOTIFY_MINIMUMS.map((m) => `${m.key}=${m.min}`),
+    ["fs.inotify.max_user_instances=512", "fs.inotify.max_user_watches=524288"],
+  );
+});
+
+test("sysctlProcPath: dotted key maps onto /proc/sys", () => {
+  assertEquals(
+    sysctlProcPath("fs.inotify.max_user_instances"),
+    "/proc/sys/fs/inotify/max_user_instances",
+  );
+});
+
+test("inotifyShortfalls: only keys below the minimum, unreadable keys skipped", () => {
+  assertEquals(
+    inotifyShortfalls({
+      "fs.inotify.max_user_instances": 128,
+      "fs.inotify.max_user_watches": 524288,
+    }),
+    [{ key: "fs.inotify.max_user_instances", current: 128, min: 512 }],
+  );
+  assertEquals(
+    inotifyShortfalls({
+      "fs.inotify.max_user_instances": 1280,
+      "fs.inotify.max_user_watches": 655360,
+    }),
+    [],
+  );
+  assertEquals(inotifyShortfalls({}), []);
+});
+
+test("sysctlRaiseCommand: non-interactive sudo, one key=min per shortfall", () => {
+  assertEquals(
+    sysctlRaiseCommand([
+      { key: "fs.inotify.max_user_instances", current: 128, min: 512 },
+      { key: "fs.inotify.max_user_watches", current: 8192, min: 524288 },
+    ]),
+    [
+      "sudo",
+      "-n",
+      "sysctl",
+      "-w",
+      "fs.inotify.max_user_instances=512",
+      "fs.inotify.max_user_watches=524288",
+    ],
+  );
+});
+
+// ----------------------------------------------------------------------------
+// Host AppArmor profiles that confine binaries the localdev pods run
+// ----------------------------------------------------------------------------
+test("enforcedHostConflicts: only enforced profiles named for a localdev binary", () => {
+  const profiles = [
+    "mosquitto (enforce)",
+    "/usr/bin/man (enforce)",
+    "systemd-detect-virt (enforce)",
+    "",
+  ].join("\n");
+  assertEquals(enforcedHostConflicts(profiles), ["mosquitto"]);
+  assertEquals(enforcedHostConflicts("mosquitto (complain)\n"), []);
+  assertEquals(enforcedHostConflicts("/usr/sbin/mosquitto (enforce)\n"), [
+    "/usr/sbin/mosquitto",
+  ]);
+  assertEquals(enforcedHostConflicts(""), []);
+});
+
+test("apparmorRemoveCommand: non-interactive sudo tee into the kernel's .remove", () => {
+  assertEquals(apparmorRemoveCommand(), [
+    "sudo",
+    "-n",
+    "tee",
+    "/sys/kernel/security/apparmor/.remove",
+  ]);
 });
