@@ -189,6 +189,11 @@ allow:
       _helpers.tpl ztunnel.resources explicitly ranges "limits" and "requests",
       and daemonset.yaml reads (.Values.resources.limits).cpu; values.yaml ships
       requests only.
+  - chart: codesearch
+    path: resources
+    reason: >-
+      templates/deployment.yaml toYamls .Values.resources; values.yaml seeds
+      both requests and limits.memory but not limits.cpu.
   - chart: node-feature-discovery
     path: master.resources
     reason: >-
