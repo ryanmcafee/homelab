@@ -68,7 +68,7 @@ spec:
         # POSIX backend: every top-level directory is a bucket.
         - name: bucket
           image: versity/versitygw:v1.8.0
-          command: ["/bin/sh", "-c", "mkdir -p /data/argo-workflows-logs"]
+          command: ["/bin/sh", "-c", "mkdir -p /data/argo-workflows-logs /data/codesearch-backups"]
           resources:
             limits:
               cpu: 500m
@@ -131,7 +131,8 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
-        # Hourly: delete log objects older than retentionDays, then empty directories.
+        # Hourly: delete log objects older than retentionDays, then empty
+        # directories; of each backup bucket keep only the newest `keep` tarballs.
         - name: retention
           image: versity/versitygw:v1.8.0
           command:
@@ -141,6 +142,7 @@ spec:
               while true; do
                 find /data/argo-workflows-logs -mindepth 1 -type f -mmin +43200 -delete
                 find /data/argo-workflows-logs -mindepth 1 -type d -empty -delete
+                find /data/codesearch-backups -mindepth 1 -type f -name '*.tar.gz' ! -path '*/.*' | sort -r | tail -n +15 | xargs -r rm -f
                 sleep 3600
               done
           resources:

@@ -109,6 +109,13 @@ spec:
           resources:
             {{- toYaml (index .Values "argo-workflows" "server" "resources") | nindent 12 }}
         controller:
+          {{- if index .Values "argo-workflows" "controller" "serviceMonitor" }}
+          # Workflow custom metrics appear here as argo_workflows_<name>.
+          metricsConfig:
+            enabled: true
+          serviceMonitor:
+            enabled: true
+          {{- end }}
           resources:
             {{- toYaml (index .Values "argo-workflows" "controller" "resources") | nindent 12 }}
           workflowDefaults:

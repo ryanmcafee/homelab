@@ -991,7 +991,8 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        prs="$(gh pr list --repo "${GITHUB_REPOSITORY:-ryanmcafee/homelab}" --state open --limit 100 \
+        repo="${GITHUB_REPOSITORY:-}"
+        prs="$(gh pr list ${repo:+--repo "$repo"} --state open --limit 100 \
           --json headRefName,body \
           --jq '[.[] | select(.headRefName | startswith("renovate/"))]')"
         # In the workflow this gate runs only on a renovate/* head, so the PR it is

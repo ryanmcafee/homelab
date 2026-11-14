@@ -1,0 +1,399 @@
+---
+# Source: codesearch-dependencies/templates/rbac.yaml
+# Backup steps: report step results to the Argo controller, nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codesearch-backup
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: homelab
+
+---
+# Source: codesearch-dependencies/templates/rbac.yaml
+# Restore steps: the executor role plus patching the codesearch Deployment's
+# pod template, which replaces the pod so its init container applies the backup.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codesearch-restore
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: homelab
+
+---
+# Source: codesearch-dependencies/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codesearch-executor
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: homelab
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [workflowtaskresults]
+    verbs: [create, patch]
+
+---
+# Source: codesearch-dependencies/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codesearch-restart
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: homelab
+rules:
+  - apiGroups: [apps]
+    resources: [deployments]
+    resourceNames: [codesearch]
+    verbs: [get, patch]
+
+---
+# Source: codesearch-dependencies/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codesearch-backup
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: homelab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codesearch-executor
+subjects:
+  - kind: ServiceAccount
+    name: codesearch-backup
+    namespace: codesearch
+
+---
+# Source: codesearch-dependencies/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codesearch-restore-executor
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: homelab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codesearch-executor
+subjects:
+  - kind: ServiceAccount
+    name: codesearch-restore
+    namespace: codesearch
+
+---
+# Source: codesearch-dependencies/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codesearch-restore-restart
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: homelab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codesearch-restart
+subjects:
+  - kind: ServiceAccount
+    name: codesearch-restore
+    namespace: codesearch
+
+---
+# Source: codesearch-dependencies/templates/workflows.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: codesearch-backup
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: homelab
+spec:
+  schedules:
+    - 30 3 * * *
+  timezone: UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  workflowSpec:
+    entrypoint: backup
+    serviceAccountName: codesearch-backup
+    activeDeadlineSeconds: 3600
+    podGC:
+      strategy: OnPodSuccess
+    ttlStrategy:
+      secondsAfterFailure: 604800
+      secondsAfterSuccess: 86400
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    affinity:
+      podAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/instance: codesearch
+                app.kubernetes.io/name: codesearch
+            topologyKey: kubernetes.io/hostname
+    volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: codesearch-data
+      - name: work
+        emptyDir: {}
+    templates:
+      - name: backup
+        metrics:
+          prometheus:
+            # Exposed by the workflow controller as argo_workflows_<name>.
+            - name: codesearch_backup_last_success_timestamp_seconds
+              help: Unix time of the last successful codesearch backup
+              when: "{{status}} == Succeeded"
+              gauge:
+                realtime: false
+                value: "{{outputs.parameters.timestamp}}"
+        outputs:
+          parameters:
+            - name: timestamp
+              valueFrom:
+                path: /work/timestamp
+          artifacts:
+            - name: backup
+              path: /work/codesearch.tar.gz
+              archive:
+                none: {}
+              s3:
+                endpoint: argo-workflows-logs.argo-workflows.svc:7070
+                bucket: codesearch-backups
+                insecure: true
+                accessKeySecret:
+                  name: argo-workflows-artifacts
+                  key: accessKey
+                secretKeySecret:
+                  name: argo-workflows-artifacts
+                  key: secretKey
+                key: "codesearch/{{workflow.creationTimestamp.Y}}{{workflow.creationTimestamp.m}}{{workflow.creationTimestamp.d}}T{{workflow.creationTimestamp.H}}{{workflow.creationTimestamp.M}}{{workflow.creationTimestamp.S}}Z.tar.gz"
+            - name: latest
+              path: /work/codesearch.tar.gz
+              archive:
+                none: {}
+              s3:
+                endpoint: argo-workflows-logs.argo-workflows.svc:7070
+                bucket: codesearch-backups
+                insecure: true
+                accessKeySecret:
+                  name: argo-workflows-artifacts
+                  key: accessKey
+                secretKeySecret:
+                  name: argo-workflows-artifacts
+                  key: secretKey
+                key: "codesearch/latest.tar.gz"
+        container:
+          image: ghcr.io/ryanmcafee/codesearch:1.7.0
+          command: ["/bin/sh", "-c"]
+          # mdb_copy -c is a consistent, compacted copy under a live writer.
+          args:
+            - |
+              set -eu
+              config=/data/home/.codesearch
+              out=/work/backup
+              mkdir -p "$out/embedding_cache"
+              for env in "$config"/embedding_cache/*/; do
+                [ -f "$env/data.mdb" ] || continue
+                name=$(basename "$env")
+                mkdir -p "$out/embedding_cache/$name"
+                mdb_copy -c "$env" "$out/embedding_cache/$name"
+                echo "copied embedding cache $name"
+              done
+              if [ -f "$config/repos.json" ]; then cp "$config/repos.json" "$out/repos.json"; fi
+              if [ ! -f "$out/repos.json" ] && [ -z "$(ls -A "$out/embedding_cache")" ]; then
+                echo "nothing to back up: no repos.json and no embedding cache in $config" >&2
+                exit 1
+              fi
+              tar -czf /work/codesearch.tar.gz -C "$out" .
+              date +%s > /work/timestamp
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: work
+              mountPath: /work
+
+---
+# Source: codesearch-dependencies/templates/onepassworditems.yaml
+# The Argo Workflows log store credentials, read into this namespace for the
+# backup and restore artifacts.
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: argo-workflows-artifacts
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: homelab
+spec:
+  itemPath: "vaults/homelab/items/argo-workflows-artifacts"
+
+---
+# Source: codesearch-dependencies/templates/workflows.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: codesearch-restore
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: homelab
+spec:
+  entrypoint: restore
+  serviceAccountName: codesearch-restore
+  activeDeadlineSeconds: 1800
+  arguments:
+    parameters:
+      # A key in s3://codesearch-backups; latest.tar.gz is the newest backup.
+      - name: key
+        value: "codesearch/latest.tar.gz"
+  podGC:
+    strategy: OnPodSuccess
+  ttlStrategy:
+    secondsAfterFailure: 604800
+    secondsAfterSuccess: 86400
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: codesearch-data
+  templates:
+    - name: restore
+      steps:
+        - - name: stage
+            template: stage
+        - - name: restart
+            template: restart
+
+    - name: stage
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/instance: codesearch
+                  app.kubernetes.io/name: codesearch
+              topologyKey: kubernetes.io/hostname
+      inputs:
+        artifacts:
+          - name: backup
+            path: /input/codesearch.tar.gz
+            s3:
+              endpoint: argo-workflows-logs.argo-workflows.svc:7070
+              bucket: codesearch-backups
+              insecure: true
+              accessKeySecret:
+                name: argo-workflows-artifacts
+                key: accessKey
+              secretKeySecret:
+                name: argo-workflows-artifacts
+                key: secretKey
+              key: "{{workflow.parameters.key}}"
+      container:
+        image: ghcr.io/ryanmcafee/codesearch:1.7.0
+        command: ["/bin/sh", "-c"]
+        # Only what the backup writes: repos.json and embedding_cache/<model>/data.mdb.
+        args:
+          - |
+            set -eu
+            tarball=/input/codesearch.tar.gz
+            staging=/data/restore-staging
+            unexpected=$(tar -tzf "$tarball" | sed 's#^\./##; s#/$##' \
+              | grep -vE '^(|repos\.json|embedding_cache|embedding_cache/[A-Za-z0-9_-][A-Za-z0-9._-]*(/data\.mdb)?)$' || true)
+            links=$(tar -tzvf "$tarball" | grep -vE '^[-d]' || true)
+            if [ -n "$unexpected$links" ]; then
+              echo "refusing $tarball, unexpected entries: $unexpected $links" >&2
+              exit 1
+            fi
+            rm -rf "$staging/incoming"
+            mkdir -p "$staging/incoming"
+            tar -xzf "$tarball" --no-same-owner --no-same-permissions -C "$staging/incoming"
+            rm -rf "$staging/ready"
+            mv "$staging/incoming" "$staging/ready"
+            echo "staged the backup in $staging/ready"
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+          - name: data
+            mountPath: /data
+
+    # A new pod-template annotation replaces the pod (Recreate); its init
+    # container applies the staged backup before serve starts.
+    - name: restart
+      resource:
+        action: patch
+        mergeStrategy: merge
+        manifest: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: codesearch
+            namespace: codesearch
+          spec:
+            template:
+              metadata:
+                annotations:
+                  homelab.codesearch/restored-at: "{{workflow.creationTimestamp}}"
