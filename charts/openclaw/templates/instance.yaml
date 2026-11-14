@@ -1,0 +1,120 @@
+---
+# OpenClawInstance. openclaw-operator turns it into a StatefulSet, Service
+# (gateway 18789, canvas 18793), ConfigMap, Secret, PVC, ServiceAccount,
+# Role/RoleBinding, NetworkPolicy and the HTTPRoute. Health for ArgoCD comes from
+# charts/bootstrap/files/health/openclaw.rocks_OpenClawInstance.lua.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  image:
+    repository: {{ .Values.image.repository }}
+    tag: {{ .Values.image.tag | quote }}
+  {{- $secretKeys := list }}
+  {{- if .Values.adapters.apiKeys.anthropic.enabled }}
+  {{- $secretKeys = append $secretKeys "ANTHROPIC_API_KEY" }}
+  {{- end }}
+  {{- if .Values.adapters.apiKeys.openai.enabled }}
+  {{- $secretKeys = append $secretKeys "OPENAI_API_KEY" }}
+  {{- end }}
+  {{- $secretKeys = concat $secretKeys (.Values.adapters.extraSecretEnv | default list) }}
+  {{- $wired := list }}
+  {{- $secretEnv := list }}
+  {{- if .Values.adapters.secretName }}
+  {{- $wired = $secretKeys | uniq }}
+  {{- range $wired }}
+  {{- $secretEnv = append $secretEnv (dict "name" . "valueFrom" (dict "secretKeyRef" (dict "name" $.Values.adapters.secretName "key" . "optional" true))) }}
+  {{- end }}
+  {{- end }}
+  {{- $env := concat $secretEnv (.Values.extraEnv | default list) }}
+  {{- with $env }}
+  # Optional keys of the credentials Secret (the enabled per-provider API keys,
+  # then extraSecretEnv) followed by extraEnv. Named one by one on purpose: a
+  # whole-Secret reference would inject every key, including the ones no toggle
+  # asked for (tests/policy/openclaw.rego enforces this).
+  env:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  config:
+    mergeMode: {{ .Values.config.mergeMode }}
+    {{- with .Values.config.forcePaths }}
+    # Subtrees rebuilt from this CR on every restart, so nothing an agent
+    # persists at runtime can replace them.
+    forcePaths:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    raw:
+      {{- $providers := dict }}
+      {{- range $provider, $candidates := .Values.adapters.providerEnvPrecedence }}
+      {{- range $candidates }}
+      {{- if and (not (hasKey $providers $provider)) (has . $wired) }}
+      {{- $providers = set $providers $provider (dict "apiKey" (printf "${%s}" .)) }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
+      models:
+        # One entry per provider this chart actually wires a credential for, each
+        # pointing at that provider's highest-precedence wired variable. Under
+        # config.forcePaths this is the complete allowlist.
+        providers:
+          {{- if $providers }}
+          {{- toYaml $providers | nindent 10 }}
+          {{- else }} {}
+          {{- end }}
+      agents:
+        defaults:
+          model:
+            primary: {{ .Values.config.defaultModel | quote }}
+  {{- if .Values.gateway.existingSecret }}
+  gateway:
+    # Key `token`; the operator skips generating its own token when this is set.
+    existingSecret: {{ .Values.gateway.existingSecret }}
+  {{- end }}
+  selfConfigure:
+    enabled: {{ .Values.selfConfigure.enabled }}
+    {{- with .Values.selfConfigure.allowedActions }}
+    allowedActions:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  storage:
+    persistence:
+      enabled: {{ .Values.persistence.enabled }}
+      size: {{ .Values.persistence.size }}
+      {{- with .Values.persistence.storageClass }}
+      storageClass: {{ . }}
+      {{- end }}
+  networking:
+    service:
+      type: {{ .Values.service.type }}
+    {{- if .Values.route.enabled }}
+    httpRoute:
+      enabled: true
+      annotations:
+        external-dns.alpha.kubernetes.io/hostname: {{ .Values.hostname }}
+      parentRefs:
+        - name: {{ .Values.route.gateway.name }}
+          namespace: {{ .Values.route.gateway.namespace }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.hostname }}
+    {{- end }}
+  security:
+    networkPolicy:
+      enabled: {{ .Values.security.networkPolicy.enabled }}
+      {{- if .Values.route.enabled }}
+      # The default policy allows same-namespace ingress only, so the Gateway's
+      # namespace has to be named or the HTTPRoute backend is unreachable.
+      allowedIngressNamespaces:
+        - {{ .Values.route.gateway.namespace }}
+      {{- end }}
+  observability:
+    metrics:
+      enabled: {{ .Values.observability.metrics.enabled }}
+      serviceMonitor:
+        enabled: {{ .Values.observability.metrics.serviceMonitor.enabled }}
+    logging:
+      level: {{ .Values.observability.logging.level }}
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}

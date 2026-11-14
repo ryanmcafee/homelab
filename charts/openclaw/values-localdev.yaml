@@ -1,0 +1,10 @@
+# openclaw — local development overrides
+#
+# Kind gets its sizing, hostname and image tag from the parent Application the
+# same way homelab does; the Secrets openclaw-api-keys and openclaw-gateway are
+# seeded by localdev/fakes/secrets.yaml instead of 1Password. The file still has
+# to exist: the parent Application always appends values-localdev.yaml to
+# spec.source.helm.valueFiles, and ArgoCD fails the sync when a declared value
+# file is missing.
+
+namespace: openclaw

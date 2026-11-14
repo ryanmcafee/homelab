@@ -158,3 +158,18 @@ Each entry should include:
 - Level 0: 277 passed / 0 failed / 1 expected preview repository-secret skip. Full scripts initially: 565 passed / 0 failed. Biome and TypeScript pass via `bun x --no-install`; `task scripts:lint` is affected by the runner's nested-shell PATH reset (`biome: command not found`), even after locked dependency installation.
 - Live acceptance remains unverified: await a naturally occurring level-2 image-pull failure and inspect its kubelet event for registry/HTTP status. Do not rerun CI to manufacture this evidence. A `/v2/` mirror response demonstrates reachability only, not a successful upstream image pull.
 - Tooling limits: Serena MCP and `bd` are unavailable in this runner; the Paperclip issue and this log hold continuity. No production or registry configuration changed.
+
+### 2026-09-28: OpenClaw verification gate (MCAA-496)
+
+- Review revision: restrict parameter paths to canonical identifiers/indexes and
+  reject duplicate or overlapping assignments. Offline cases cover both input
+  orders and preserve valid unambiguous Helm overrides (PR #496).
+
+- Added exact namespace/aggregation intent validation from rendered Applications,
+  resolving inline values and Helm parameters offline with the pinned Helm binary.
+- Added an independent full-chart RBAC assertion to upgrade verification; unchanged
+  sources and unavailable base comparisons cannot bypass it. Upgrade runs on every PR.
+- Corrected upstream inline-value precedence and literal-comma parameter handling
+  to match Argo CD; unresolved external values now fail rather than disappear.
+- Validation and revision evidence are recorded privately on the task. Existing
+  platform/security/QA merge holds remain; no production changes were made.
