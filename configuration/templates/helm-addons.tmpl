@@ -1844,8 +1844,9 @@ logging:
           cpu: "1"
           memory: 1Gi
 {{- else }}
-      # 90 days of logs, traces, Hubble and UniFi flows; estimate in docs/logging.md.
-      storageSize: 100Gi
+      # 90 days of logs, traces, Hubble and UniFi flows. Measured usage (~86 GB by
+      # 2026-11-14) passed the 35-55 GB estimate in docs/logging.md, so 200Gi.
+      storageSize: 200Gi
       resources:
         requests:
           cpu: 250m
