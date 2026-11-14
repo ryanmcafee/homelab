@@ -188,6 +188,7 @@ Changed the localdev architecture override to a chart-schema-valid empty string.
 - Security handoff MCAA-44: remove host mise/Task execution and stream committed HEAD directly to an uncached Docker build; retain read-only token and credential-free checkout.
 - Pin the official Ubuntu manifest digest, preserve mise checksum-before-execution, and add parsed policy tests with negative fixtures. Local task wrappers require trusted checkouts; update instructions are in readme.md.
 - Regression evidence and final cold-build timing are recorded on MCAA-44 and PR #353.
+
 ### 2026-09-25 - Retained cold-bootstrap negative fixture (PR #353)
 
 - Added the missing end-to-end regression check to `Dockerfile.toolchain`, before any valid tool installation. It strips runtime declarations only from a temporary copy and uses an isolated HOME.
