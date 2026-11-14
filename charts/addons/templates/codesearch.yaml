@@ -17,6 +17,14 @@ of configuration/templates/helm-addons.tmpl.
 {{- $values := deepCopy $app.values }}
 {{- $repositories := merge (dict "urls" $urls) (get $values "repositories" | default dict) }}
 {{- $_ := set $values "repositories" $repositories }}
+{{- $image := printf "%s:%s" $app.image.repository (toString $app.chart.version) }}
+{{- $inits := list }}
+{{- range (get $values "extraInitContainers" | default list) }}
+{{- $init := deepCopy . }}
+{{- if not (get $init "image") }}{{ $_ := set $init "image" $image }}{{ end }}
+{{- $inits = append $inits $init }}
+{{- end }}
+{{- if $inits }}{{ $_ := set $values "extraInitContainers" $inits }}{{ end }}
 ---
 # Baseline, not restricted: the Argo Workflows executor containers the
 # controller injects into the backup and restore pods carry no container
@@ -56,7 +64,7 @@ spec:
       # Derived from configuration/ (ADR-010); the child's values stay environment-free.
       valuesObject:
         namespace: {{ $app.namespace | quote }}
-        image: {{ $app.dependencies.image | quote }}
+        image: {{ $image | quote }}
         git:
           itemPath: {{ $app.dependencies.gitItemPath | quote }}
         workflows:

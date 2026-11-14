@@ -1852,9 +1852,9 @@ codesearch:
   namespace: codesearch
 
   # ArgoCD source: configuration/versions.yaml charts.codesearch is the only place to bump it.
+  # The chart repo and image repository default in charts/addons/values.yaml.
   chart:
     name: codesearch
-    repo: https://ryanmcafee.github.io/codesearch
     version: "1.7.0"
 
   # Comma-separated https URLs (CODESEARCH_REPOS); templates/codesearch.yaml
@@ -1900,9 +1900,9 @@ codesearch:
       annotations: {}
     # Swaps a backup staged by the codesearch-restore workflow into place
     # before serve starts (charts/codesearch-dependencies, docs/runbooks/codesearch.md).
+    # templates/codesearch.yaml sets the image of any init container without one.
     extraInitContainers:
       - name: restore-apply
-        image: "ghcr.io/ryanmcafee/codesearch:1.7.0"
         command:
           - /bin/sh
           - -c
@@ -1942,8 +1942,6 @@ codesearch:
   # restore WorkflowTemplate. Backups need Argo Workflows and its S3 log store,
   # which need the secret store.
   dependencies:
-    # The upstream image, which carries mdb_copy and tar for the backup steps.
-    image: "ghcr.io/ryanmcafee/codesearch:1.7.0"
     gitItemPath: ""
     artifactsItemPath: ""
     backupBucket: codesearch-backups
