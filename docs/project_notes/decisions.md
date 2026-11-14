@@ -865,7 +865,7 @@ Each decision should include:
 - **3b is recorded as never executed, now, and independently of whether hardware is ever funded.** The candour is not contingent on the budget answer: "never executed" is a true statement today and costs nothing to write, whereas leaving the row implicitly green is a false statement that the table's own format manufactures. The hardware question is escalated separately, on its own merits
 - The check table carries a **Status** column. A check may be listed as specified-and-not-implemented; it may not be listed with no status at all. This applies to checks 1 and 2 as much as to 3b
 - **The release anchor is replaced by a cadence**, because a trigger a reader cannot look up is a trigger that gets missed: 3a runs weekly by cron and on demand; 3b runs before a declared platform milestone, and its written result is dated in `docs/contracts/fork-ability.md`
-- **"For any change to bootstrap, secrets or identity" is enforced by a `paths:` trigger, not by a CODEOWNERS rule.** `.github/CODEOWNERS` assigns `*` to the single repository owner and gives every listed path that same single owner, so a CODEOWNERS entry cannot carry this obligation in this repository — it would be prose wearing a machine-readable costume. `fork-path-cold.yml`'s own `paths:` filter still covers only the workflow file itself, so the obligation is carried by the `Fork-ability check 3a change gate` job in `verify.yml` (`scripts/fork-path-gate.ts`)
+- **"For any change to bootstrap, secrets or identity" is enforced by a `paths:` trigger, not by a CODEOWNERS rule.** `.github/CODEOWNERS` assigns `*` to the single repository owner and gives every listed path that same single owner, so a CODEOWNERS entry cannot carry this obligation in this repository — it would be prose wearing a machine-readable costume. `fork-path-cold.yml`'s own `paths:` filter still covers only the workflow file itself, so the obligation was carried by the `Fork-ability check 3a change gate` job in `verify.yml` until ADR-046 replaced it with a nightly run
 - Checks 1 and 2 remain unchanged in intent and unimplemented in fact. ADR-029's "belong in the existing level-0 gate" is a specification, not a description of `main`: `internal/verify/` has no fork-ability module, and there is no synthetic ConfigSet to render against
 - Normative detail and per-check status: `docs/contracts/fork-ability.md`
 
@@ -1803,6 +1803,24 @@ Each decision should include:
 - **The rule set is now written in three places -- this ADR, the script docstring, and the allowlist header -- and they must move together.** That is one coupling more than ADR-037 would like, and it is the honest count; the mitigation is that this ADR is the record and the other two are summaries that cite it. One drift already exists to fix rather than inherit: both the docstring and the allowlist header say "three rules" and then list three, with *arrays are leaves* documented separately at `declaredPaths`. There are four rules. Count them the same way in all three places
 - **#483 is not blocked by this ADR** -- the docstring is adequate for the implementing engineer and a green-able gate should not wait on the record -- but the four conditions from its design review are: multi-source and parameter shapes failing loudly, the untar-directory assumption, and the chart-name collision. They belong on #483 if they are cheap and on a filed follow-up otherwise, which is the condition the review set on merge
 - **This changes no event contract, subject, envelope or delivery guarantee.** It constrains what an `Application` may pass to a chart, and the gate that says so lives in CI, not in the cluster
+
+### ADR-046: Fork-ability check 3a runs nightly, not as a pull-request gate (2026-11-14); refines ADR-033
+
+*Numbering note: 041 is claimed by the open RED-metric-contract branch (#433); 046 was claimed by #362, which closed unmerged.*
+
+**Context:**
+- The `Fork-ability check 3a change gate` job in `verify.yml` failed every pull request touching the cold-path surface (tool pins, `localdev` scripts, documented commands) until the author linked a successful `fork-path-cold` run at the head SHA or applied the `fork-path: cold-run-waived` label with a reason
+- A cold run takes 19-23 minutes plus queueing, so each Tier 1 pull request waited on it or carried a waiver. The gate failed on at least seven open pull requests at once (#615, #617, #506, #487, #440, #439, #434), including Renovate tool bumps that cannot discharge it themselves
+
+**Decision:**
+- Remove the gate job and `scripts/fork-path-gate.ts`. No pull request is blocked on check 3a
+- `fork-path-cold.yml` runs nightly at 06:17 UTC on `main` (was weekly) and on demand through `workflow_dispatch`. Its `pull_request` trigger is removed too, so it never appears on a pull request
+- Checks 1 and 2 stay in level 0 on every pull request; they cost seconds
+
+**Consequences:**
+- A cold-path regression is found by the next nightly run, up to a day after merge, instead of before merge. An author who wants it earlier dispatches `fork-path-cold.yml` on their branch
+- The nightly run is a standing cost of one cold Kind loop per day
+- ADR-033's "every pull request that changes the surface 3a executes" trigger no longer holds; `docs/contracts/fork-ability.md` states the nightly cadence
 
 ## Tips
 
