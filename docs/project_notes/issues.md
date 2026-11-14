@@ -158,6 +158,7 @@ Each entry should include:
 - Level 0: 277 passed / 0 failed / 1 expected preview repository-secret skip. Full scripts initially: 565 passed / 0 failed. Biome and TypeScript pass via `bun x --no-install`; `task scripts:lint` is affected by the runner's nested-shell PATH reset (`biome: command not found`), even after locked dependency installation.
 - Live acceptance remains unverified: await a naturally occurring level-2 image-pull failure and inspect its kubelet event for registry/HTTP status. Do not rerun CI to manufacture this evidence. A `/v2/` mirror response demonstrates reachability only, not a successful upstream image pull.
 - Tooling limits: Serena MCP and `bd` are unavailable in this runner; the Paperclip issue and this log hold continuity. No production or registry configuration changed.
+
 ### 2026-09-25 - Clean-machine toolchain bootstrap (issue #331)
 
 - PR: https://github.com/ryanmcafee/homelab/pull/353; branch: `fix/mcaa-28-clean-toolchain`.
@@ -170,6 +171,7 @@ Each entry should include:
 - Security handoff MCAA-44: remove host mise/Task execution and stream committed HEAD directly to an uncached Docker build; retain read-only token and credential-free checkout.
 - Pin the official Ubuntu manifest digest, preserve mise checksum-before-execution, and add parsed policy tests with negative fixtures. Local task wrappers require trusted checkouts; update instructions are in readme.md.
 - Regression evidence and final cold-build timing are recorded on MCAA-44 and PR #353.
+
 ### 2026-09-25 - Retained cold-bootstrap negative fixture (PR #353)
 
 - Added the missing end-to-end regression check to `Dockerfile.toolchain`, before any valid tool installation. It strips runtime declarations only from a temporary copy and uses an isolated HOME.
