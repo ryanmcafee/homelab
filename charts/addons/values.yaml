@@ -1247,11 +1247,13 @@ codesearch:
     repo: https://ryanmcafee.github.io/codesearch
     # Placeholder; configuration/versions.yaml charts.codesearch wins at render time.
     version: "1.7.0"
+  # Tagged with chart.version: the upstream image carries mdb_copy and tar for the backup steps.
+  image:
+    repository: ghcr.io/ryanmcafee/codesearch
   repos: ""
   # Handed verbatim to the upstream chart (spec.source.helm.values).
   values: {}
   dependencies:
-    image: ""
     gitItemPath: ""
     artifactsItemPath: ""
     backupBucket: codesearch-backups
