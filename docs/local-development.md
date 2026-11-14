@@ -536,7 +536,7 @@ use `task localdev:ui` / `task localdev:gateway` ([Host ports on macOS](#host-po
 
 | Job | What it runs | Required |
 |-----|--------------|----------|
-| `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, task, bun), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 45 minute budget. | yes |
+| `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, task, bun), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 60 minute budget. | yes |
 | `kind-direct` | Legacy: `task localdev:kind -- --no-registry`, `tilt ci --timeout 15m` with the direct-mode Tiltfile, asserts the Envoy Gateway controller and cert-manager Deployments and the Gateway API CRDs (Gateways `Programmed` is checked by the `envoy-gateway` chainsaw suite in `kind-argocd`). Kept while `localdev/Tiltfile` exists; not the loop. | |
 | `yaml-lint` | `yamllint` over `charts/`, `localdev/`, `tests/e2e`, `tests/health` | |
 

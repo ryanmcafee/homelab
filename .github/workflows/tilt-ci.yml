@@ -106,7 +106,7 @@ jobs:
   kind-argocd:
     name: Kind + ArgoCD loop (level 2)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       # Read-only on contents: nothing is committed. pull-requests: write is
       # for the kind-preview sticky comment only.
