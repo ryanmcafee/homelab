@@ -119,7 +119,7 @@ an agent. The context is overridable with `-- --kube-context <name>`.
 `task verify LEVEL=2` runs level 1, then reads every ArgoCD Application in namespace
 `argocd` and runs the chainsaw suite in `tests/e2e/` (`-- --e2e-dir` overrides). It does
 not sync anything: run `task localdev:up` (or `task localdev:ci`, which also waits for
-health and runs e2e once) first. Every Application tracks the PR head (`task localdev:argocd
+health) first. Every Application tracks the PR head (`task localdev:argocd
 -- --revision <ref>` / `LOCALDEV_REVISION`, default the upstream branch of HEAD, `main` when
 the branch is not pushed), so after a local sync `Synced` means the working tree equals the
 pushed head; a local branch may be ahead of its push, so sync status is deliberately not
@@ -169,7 +169,7 @@ same report (`--no-diff`, `--max-diff-bytes 0` for full diffs); it only reads.
 | `task test:policy` | Rego unit tests plus every negative fixture in `tests/policy/negative/` must fail with its `# expect:` rule. |
 | `task test:health` | Evaluates every ArgoCD health script in `charts/bootstrap/files/health/` against the fixtures in `tests/health/` with `argocd admin settings resource-overrides health` (the pinned `argocd` CLI); each fixture declares `# expect: <Status>`. Runs in the `policy` CI job. See `tests/health/README.md`. |
 | `task test:e2e` | The chainsaw suite against the running Kind loop (`-- --test-dir tests/e2e/<name>` for one test). Level 2 runs the same suite with a JSON report. See `tests/e2e/README.md`. |
-| `task localdev:up` / `localdev:warm` / `localdev:ci` | Kind + ArgoCD + sync everything / only addons (no bootstrap Application in localdev) / non-interactive full loop with wait + e2e. See `docs/local-development.md`. |
+| `task localdev:up` / `localdev:warm` / `localdev:ci` | Kind + ArgoCD + sync everything / only addons (no bootstrap Application in localdev) / non-interactive full loop with wait. See `docs/local-development.md`. |
 | `task localdev:diagnose` | Conditions, unhealthy resources, events and failing pod logs for every Application that is not Healthy/Succeeded. |
 | `task test:config` | Template ↔ schema ↔ `versions.yaml` contract tests (`internal/config/contract_test.go`). |
 | `task test:cmp-parity` | Runs the pinned `ghcr.io/ryanmcafee/homelab-cmp:<tag>` image with Docker and diffs its `config export` against source. Fails when the image tag lags the Go source. A tag bumped in the change under test is not a failure: `cmp-image.yml` pushes the image only on a merge to `main`, so when the pull reports the tag is unknown the script compares it with `--base-ref` (default `origin/main`) and passes if this change bumped it, failing if the tag is unchanged and the image is genuinely absent. The image is published for `linux/amd64` and `linux/arm64`, so it runs natively on an Apple Silicon workstation; `--platform` stays available for testing a tag published before multi-arch (anything at or below `0.1.12`), which is amd64 only. |

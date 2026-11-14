@@ -386,7 +386,7 @@ Run `task --list` for full list. Most commonly used:
 | `task localdev:warm` | Same with only bootstrap + addons synced; `task localdev:sync` later for applications |
 | `task localdev:sync` | Re-sync the working tree into Kind (`-- --only a,b`, `-- --warm`, `-- --dry-run`) |
 | `task localdev:wait` / `task localdev:diagnose` | Wait for every Application to be Healthy / dump conditions, events and pod logs |
-| `task localdev:ci` | Non-interactive loop CI runs: kind, argocd, sync, wait, e2e |
+| `task localdev:ci` | Non-interactive loop CI runs: kind, argocd, sync, wait (`task verify LEVEL=2` runs e2e) |
 | `task localdev:down` | Delete the Kind cluster (`-- --purge-cache` also removes the registry caches) |
 | `task localdev:report` | Markdown report of the Kind loop: Application table, level-2 verdict, `argocd app diff --revision <base>` vs the base branch (`-- --base main`; the `kind-preview` PR comment) |
 | `task verify` | Level-0 static verification: render, kubeconform, gitops graph, snapshots, policy (JSON, < 5 s); the committed PostToolUse hook runs it after every agent edit under `charts/` or `configuration/` |

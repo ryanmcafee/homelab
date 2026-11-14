@@ -175,7 +175,7 @@ jobs:
             kind-registry-
 
       # kind -> argocd -> sync every Application from the working tree ->
-      # wait until Healthy/Succeeded -> chainsaw e2e. Non-interactive; on a
+      # wait until Healthy/Succeeded; the verify step runs chainsaw e2e. Non-interactive; on a
       # timeout `localdev:wait` prints the diagnostics before exiting 1.
       - name: task localdev:ci
         run: task localdev:ci

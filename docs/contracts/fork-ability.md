@@ -190,7 +190,7 @@ Dated, because a check's status is a claim about the past and decays.
   | 2026-09-29 | [36514919340](https://github.com/ryanmcafee/homelab/actions/runs/36514919340) | pull request | `23m03s` | `1s` | **`23m04s`** |
 
   **Quote this range for the fork path, not `tilt-ci.yml`'s duration** — because tilt-ci times
-  `task localdev:ci`, which appends `test:e2e`, so it measures different work. It is *not* because
+  `task localdev:ci` plus the level-2 e2e suite, so it measures different work. It is *not* because
   tilt-ci is warmer: its `kind-registry-*` restore missed on all seven consecutive runs sampled on
   2026-09-29, so no cold-vs-cached comparison exists to make
   ([homelab#512](https://github.com/ryanmcafee/homelab/issues/512)). Earlier revisions of this line

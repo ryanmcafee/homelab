@@ -217,13 +217,12 @@ tasks:
       - bun scripts/localdev-argocd.ts sync --warm
 
   localdev:ci:
-    desc: "Non-interactive full loop (what tilt-ci.yml runs): kind -> argocd -> sync -> wait -> e2e"
+    desc: "Non-interactive full loop (what tilt-ci.yml runs): kind -> argocd -> sync -> wait; task verify LEVEL=2 then runs e2e"
     cmds:
       - task: localdev:kind
       - task: localdev:argocd
       - task: localdev:sync
       - task: localdev:wait
-      - task: test:e2e
 
   localdev:tilt:
     desc: Start Tilt for hot-reload development (direct mode, no ArgoCD)
