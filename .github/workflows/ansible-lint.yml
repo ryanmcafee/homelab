@@ -21,7 +21,7 @@ jobs:
       - name: Install ansible-core and ansible-lint from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: pipx:ansible-core pipx:ansible-lint
+          install_args: python pipx pipx:ansible-core pipx:ansible-lint
 
       - name: Install Ansible collections
         run: |
