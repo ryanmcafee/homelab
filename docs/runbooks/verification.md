@@ -9,8 +9,7 @@ production (ADR-009). The production feedback loop is tracked in
 
 | Level | Command | Needs | Adds |
 |---|---|---|---|
-| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy, ADR record, event contract |
-| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy, ADR record, schema field names |
+| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy, ADR record, event contract, schema field names |
 | 1 | `task verify LEVEL=1` | a Kind cluster (`task localdev:kind` is enough) | server-side dry run of every localdev chart |
 | 2 | `task verify LEVEL=2` | the synced loop (`task localdev:up` or `localdev:ci`) | ArgoCD Application state, chainsaw e2e suite |
 
