@@ -102,19 +102,30 @@ ALTER TABLE otel.otel_logs MODIFY TTL TimestampTime + toIntervalDay(<days>);
 Check the current TTL with `SELECT engine_full FROM system.tables WHERE name = 'otel_logs'`
 (the `logging` e2e test asserts it is set; `otel_traces` gets the same TTL).
 
-**Sizing (100Gi in homelab).** Estimate for 90 days, ClickHouse compressing text about 8-10x:
-container logs ~2-4 GB/day raw -> 20-40 GB; Envoy access logs are part of that; Hubble flow
+**Sizing (200Gi in homelab).** Original estimate for 90 days, ClickHouse compressing text about
+8-10x: container logs ~2-4 GB/day raw -> 20-40 GB; Envoy access logs are part of that; Hubble flow
 log (paperclip + envoy-gateway-system + drops) ~0.2 GB/day -> ~2 GB; UniFi IPFIX for a home network,
-~50k flows/h at ~60 B compressed -> ~6 GB; traces at 10 % sampling -> a few GB. Total ~35-55 GB,
-so 100Gi leaves headroom. Measure the real rate after a week:
+~50k flows/h at ~60 B compressed -> ~6 GB; traces at 10 % sampling -> a few GB. Total ~35-55 GB.
+The real usage was higher: ~86 GB of the first 100Gi when `KubePersistentVolumeFillingUp` fired
+on 2026-11-14, so the volume is now 200Gi. Measure where the space goes:
 
 ```sql
 SELECT table, formatReadableSize(sum(bytes_on_disk)) AS size, min(min_date), max(max_date)
 FROM system.parts WHERE database = 'otel' AND active GROUP BY table;
 ```
 
+ClickHouse's own log tables (`query_log`, `part_log`, `metric_log`, `trace_log`, `text_log`, ...)
+have no TTL here and share the volume; check them too:
+
+```sql
+SELECT table, formatReadableSize(sum(bytes_on_disk)) AS size
+FROM system.parts WHERE database = 'system' AND active GROUP BY table ORDER BY sum(bytes_on_disk) DESC;
+```
+
 `KubePersistentVolumeFillingUp` (chart default rule) warns before the volume fills; grow the
-PVC (iSCSI class supports expansion) or shorten `logging.retention`.
+PVC (iSCSI class supports expansion) or shorten `logging.retention`. After a size change, confirm
+the PVC's `status.capacity` matches the new request: the operator owns the claim, and an
+unpropagated size leaves the old capacity in place.
 
 ## UniFi gateway (syslog and NetFlow)
 

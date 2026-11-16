@@ -490,7 +490,7 @@ Each decision should include:
 
 **Decision:**
 - Collection: two releases of the upstream `opentelemetry-collector` chart with the contrib image. `otel-collector-agent` is a DaemonSet with the chart's `logsCollection` (filelog on `/var/log/pods`, CRI parser, checkpoints in `/var/lib/otelcol`) and `kubernetesAttributes` presets; `otel-collector-cluster` is one replica with the `kubernetesEvents` preset. Both export with the `clickhouse` exporter straight to ClickHouse, no gateway tier
-- Store: the Altinity `clickhouse-operator` chart (`charts.altinity-clickhouse-operator`, CRDs from its `crds/`, its `bitnami/kubectl:latest` CRD hook disabled) and one single-node `ClickHouseInstallation` `logs` (`charts/clickhouse`) on `STORAGE_CLASS_ISCSI_SSD` (100Gi, ADR-021), image pinned in `images.clickhouse-server` (26.8 LTS)
+- Store: the Altinity `clickhouse-operator` chart (`charts.altinity-clickhouse-operator`, CRDs from its `crds/`, its `bitnami/kubectl:latest` CRD hook disabled) and one single-node `ClickHouseInstallation` `logs` (`charts/clickhouse`) on `STORAGE_CLASS_ISCSI_SSD` (100Gi, ADR-021; 200Gi since 2026-11-14, see bugs.md), image pinned in `images.clickhouse-server` (26.8 LTS)
 - Retention: the exporter's `ttl: 2160h` becomes the `otel_logs` table TTL when `create_schema` creates it (90 days); `docs/logging.md` documents the `ALTER TABLE ... MODIFY TTL` needed to change it later, and the `logging` e2e test asserts the TTL exists
 - Users: `otel` (ALL on `otel.*`) and `grafana` (SELECT on `otel.*`), passwords from two 1Password items through `charts/clickhouse-dependencies` (wave 8, before Grafana at 9); ClickHouse reads them as environment variables (`valueFrom.secretKeyRef`), never from a ConfigMap
 - Grafana installs `grafana-clickhouse-datasource` (pinned in `images.grafana-clickhouse-datasource`) and provisions datasource `clickhouse-logs` with the OpenTelemetry logs settings; the password is expanded from the environment at provisioning time
@@ -560,7 +560,7 @@ Each decision should include:
 - **Keep paperclip-postgres in the mesh** -> mTLS for a same-namespace database adds a ztunnel restart as a new way to cut its connections, for no isolation gain
 
 **Consequences:**
-- ClickHouse grows to 100Gi (estimate in docs/logging.md) and the gateway collector is one more Deployment; Kind runs all of it (level 2 proves an OTLP span reaches `otel_traces` and paperclip works through its waypoint)
+- ClickHouse grows to 200Gi (100Gi until 2026-11-14; estimate in docs/logging.md) and the gateway collector is one more Deployment; Kind runs all of it (level 2 proves an OTLP span reaches `otel_traces` and paperclip works through its waypoint)
 - The in-cluster ingress probe does not cross the L2/BGP hop (Cilium short-circuits LB addresses in the cluster); hops 1-2 are judged from UniFi flow records
 - UniFi must be pointed at `OTEL_LB_IP` by hand after merge; `HomelabUniFiTelemetrySilent` fires until it is
 - Kind's ClickHouse passwords are no longer in git: `scripts/localdev-kind.ts fakes` fills annotated Secret stubs with random values once
