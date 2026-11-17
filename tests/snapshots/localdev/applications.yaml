@@ -1632,6 +1632,8 @@ spec:
         agentPolicy:
           enabled: false
           image: ""
+        dbIndexes:
+          image: ghcr.io/cloudnative-pg/postgresql:17.11
         exporter:
           enabled: true
           image: oven/bun:1.4.2-alpine
