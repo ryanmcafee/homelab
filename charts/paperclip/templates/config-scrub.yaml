@@ -1,0 +1,46 @@
+{{- /* Removes credentials onboard wrote into config.json; see files/paperclip-config-scrub.ts. */}}
+{{- define "paperclip.configScrub.script" }}{{ .Files.Get "files/paperclip-config-scrub.ts" }}{{ end }}
+{{- define "paperclip.configScrub" }}
+{{- $c := .Values.configScrub }}
+{{- $name := printf "%s-config-scrub" .Values.name }}
+podAnnotations:
+  checksum/config-scrub: {{ include "paperclip.configScrub.script" . | sha256sum }}
+initContainers:
+  - name: config-scrub
+    image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+    command: ["node", "/opt/config-scrub/paperclip-config-scrub.ts"]
+    env:
+      - name: PAPERCLIP_CONFIG_PATH
+        value: {{ $c.configPath | quote }}
+    resources:
+      {{- toYaml $c.resources | nindent 6 }}
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      capabilities:
+        drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
+    volumeMounts:
+      - name: {{ $c.dataVolume }}
+        mountPath: {{ $c.dataMountPath }}
+      - name: {{ $name }}
+        mountPath: /opt/config-scrub
+        readOnly: true
+extraVolumes:
+  - name: {{ $name }}
+    configMap:
+      name: {{ $name }}
+{{- end }}
+{{- if .Values.configScrub.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-config-scrub" .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ printf "%s-config-scrub" .Values.name }}
+data:
+  paperclip-config-scrub.ts: |-
+    {{- include "paperclip.configScrub.script" . | nindent 4 }}
+{{- end }}

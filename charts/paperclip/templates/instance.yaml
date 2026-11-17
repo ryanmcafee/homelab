@@ -36,8 +36,33 @@ spec:
   env:
     {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- $initParts := list }}
+  {{- if .Values.configScrub.enabled }}
+  {{- $initParts = append $initParts (include "paperclip.configScrub" . | fromYaml) }}
+  {{- end }}
   {{- if .Values.dotfiles.enabled }}
-  {{- include "paperclip.dotfiles" . | nindent 2 }}
+  {{- $initParts = append $initParts (include "paperclip.dotfiles" . | fromYaml) }}
+  {{- end }}
+  {{- $podAnnotations := dict }}
+  {{- $initContainers := list }}
+  {{- $extraVolumes := list }}
+  {{- range $initParts }}
+  {{- $podAnnotations = merge $podAnnotations .podAnnotations }}
+  {{- $initContainers = concat $initContainers .initContainers }}
+  {{- $extraVolumes = concat $extraVolumes .extraVolumes }}
+  {{- end }}
+  {{- with $podAnnotations }}
+  podAnnotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $initContainers }}
+  # The operator appends these after its own onboard init container.
+  initContainers:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $extraVolumes }}
+  extraVolumes:
+    {{- toYaml . | nindent 4 }}
   {{- end }}
   deployment:
     mode: {{ .Values.deployment.mode }}

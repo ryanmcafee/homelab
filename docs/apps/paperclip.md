@@ -29,6 +29,7 @@ Service `paperclip` port 3100, health path `/api/health`; the operator's default
 enabled; `security.seLinuxRelabel: false` (the operator's default privileged relabel init container is rejected by the namespace's PodSecurity baseline, and chcon has no purpose on Talos or NFS); Instance metrics off (the OTEL preload and collector do not exist here); persistence 10Gi
 on `STORAGE_CLASS_ISCSI_SSD` (block storage: the server refuses a secrets directory not owned by uid 1000, which rules out the NFS classes; the volume is `/paperclip`, the container's `HOME`, so the bundled `claude`
 and `codex` CLIs keep their logins in `/paperclip/.claude` and `/paperclip/.codex` across restarts);
+the `config-scrub` init container (`configScrub`, `files/paperclip-config-scrub.ts`) deletes `database.connectionString` from `/paperclip/instances/default/config.json` on every start, because agent runs can read that volume. The server reads `DATABASE_URL` from `paperclip-postgres-app` first. The operator appends user init containers after its `onboard` (operator 0.19.1 `internal/resources/podtemplate.go`) and skips `onboard` once the file exists, so a fresh install is scrubbed on its first boot;
 `adapters.extraSecretEnv` (default `[CLAUDE_CODE_OAUTH_TOKEN]`) exposes keys of
 `paperclip-api-keys` as optional environment variables, and `adapters.apiKeys.anthropic.enabled` /
 `adapters.apiKeys.openai.enabled` (both default `false`) add `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` one at a time, see [Agent credentials](#agent-credentials-subscriptions-or-api-keys).
