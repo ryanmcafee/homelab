@@ -14,8 +14,8 @@ name: Fork path (cold, uncached)
 # This job was also created on the premise that tilt-ci's duration is a warm
 # lower bound. That premise is unsupported, on two independent grounds:
 # tilt-ci's `kind-registry-*` restore misses on every run sampled so far
-# (homelab#512), so its runs are not warm; and `localdev:ci` runs `test:e2e`
-# after wait, so it times strictly more work than this job does. Do not publish
+# (homelab#512), so its runs are not warm; and the tilt-ci job runs the level-2
+# e2e suite after wait, so it times strictly more work than this job does. Do not publish
 # a cold-vs-cached claim from these runs — see the Summary step.
 #
 # This workflow runs the readme's three commands verbatim, in order, on a runner
@@ -281,8 +281,8 @@ jobs:
             echo "restored no cache and saved none."
             echo
             echo "What it is not: a figure comparable to tilt-ci's, for two independent reasons."
-            echo "Scope — tilt-ci times \`task localdev:ci\`, which is kind -> argocd -> sync ->"
-            echo "wait **plus \`test:e2e\`**; this job stops after wait, so tilt-ci is timing"
+            echo "Scope — tilt-ci times \`task localdev:ci\` (kind -> argocd -> sync -> wait)"
+            echo "**plus the level-2 e2e suite**; this job stops after wait, so tilt-ci is timing"
             echo "strictly more work. Warmth — tilt-ci's \`kind-registry-*\` restore misses on"
             echo "every run sampled so far (homelab#512), so its runs are not warm either."
             echo "No cold-vs-cached pair exists yet. Quote this figure as one cold measurement"

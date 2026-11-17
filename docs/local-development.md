@@ -129,7 +129,8 @@ task verify:text LEVEL=2    # level 0 + dry run + Application health + chainsaw 
 task localdev:down          # delete the cluster (registry caches are kept)
 ```
 
-`task localdev:ci` is the non-interactive version CI runs: kind, argocd, sync, wait, e2e.
+`task localdev:ci` is the non-interactive version CI runs: kind, argocd, sync, wait. CI then runs
+`task verify LEVEL=2`, which runs the e2e suite once.
 
 ### Verify Installation
 
@@ -187,7 +188,7 @@ On Linux the Kind port mapping (NodePort 30080 to host 8080) serves the UI direc
 | `task drill:restore` | kind + argocd + `sync --warm` + `test:drill`: the CloudNativePG backup/restore drill in `tests/drills/` (`.github/workflows/restore-drill.yml` runs it weekly). `task test:drill` alone on a warm cluster. | |
 | `task localdev:up` | kind + argocd + sync. | |
 | `task localdev:warm` | kind + argocd + `sync --warm`: operators and CRDs up, applications left for a later `task localdev:sync`. | |
-| `task localdev:ci` | kind + argocd + sync + wait + `test:e2e`. What the `kind-argocd` job in `tilt-ci.yml` runs (the workflow keeps its historical file name). | |
+| `task localdev:ci` | kind + argocd + sync + wait. What the `kind-argocd` job in `tilt-ci.yml` runs (the workflow keeps its historical file name). | |
 | `task localdev:ui` | `kubectl port-forward` to `argocd-server` so the UI is on http://localhost:8080 (needed on macOS, optional on Linux). | |
 | `task localdev:gateway` | `kubectl port-forward` to the `envoy-internal` Gateway Service on localhost:9080 / 9443, for `curl --resolve <app>.homelab.local:9443:127.0.0.1` from the host. | |
 | `task localdev:fakes` | Re-apply `localdev/fakes/`. | `scripts/localdev-kind.ts fakes` |
@@ -535,7 +536,7 @@ use `task localdev:ui` / `task localdev:gateway` ([Host ports on macOS](#host-po
 
 | Job | What it runs | Required |
 |-----|--------------|----------|
-| `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, task, bun), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 45 minute budget. | yes |
+| `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, task, bun), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 60 minute budget. | yes |
 | `kind-direct` | Legacy: `task localdev:kind -- --no-registry`, `tilt ci --timeout 15m` with the direct-mode Tiltfile, asserts the Envoy Gateway controller and cert-manager Deployments and the Gateway API CRDs (Gateways `Programmed` is checked by the `envoy-gateway` chainsaw suite in `kind-argocd`). Kept while `localdev/Tiltfile` exists; not the loop. | |
 | `yaml-lint` | `yamllint` over `charts/`, `localdev/`, `tests/e2e`, `tests/health` | |
 
@@ -544,9 +545,8 @@ Level 0 runs separately in `.github/workflows/verify.yml`.
 ### The cold fork path (`.github/workflows/fork-path-cold.yml`)
 
 `tilt-ci.yml` proves the loop converges, but its wall clock is not what a newcomer experiences:
-it runs `task localdev:ci`, which is `localdev:up` -> `localdev:wait` -> `test:e2e`, not the
-`task localdev:up` the quickstart above puts first. The extra `test:e2e` alone makes the two
-durations incomparable.
+it runs `task localdev:ci` (`localdev:up` -> `localdev:wait`) and then `task verify LEVEL=2`, whose
+chainsaw suite the quickstart above does not run first, so the two durations are incomparable.
 
 The `kind-registry-*` cache is not a second reason, despite what this section used to say. Its
 restore missed on all seven consecutive level-2 runs sampled on 2026-09-29, so tilt-ci is no
@@ -585,7 +585,7 @@ result.
 
 ```bash
 task localdev:down
-task localdev:ci                       # kind -> argocd -> sync -> wait -> e2e
+task localdev:ci                       # kind -> argocd -> sync -> wait
 task verify LEVEL=2 | tee verify-level2.json
 jq '.checks[] | select(.status != "pass")' verify-level2.json
 ```
