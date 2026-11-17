@@ -211,7 +211,7 @@ const MIGRATIONS: MigrateVolume[] = [
     oldNfsDatasetName: "csi-pvc-0cdae8bc-901e-473f-812f-17a4bd97a907-homelab",
     newZvolName: "csi-nzbget-config-homelab",
     pool: "storage/k8s",
-    sizeBytes: giToBytes(5),
+    sizeBytes: giToBytes(10),
     namespace: "media",
     workloadName: "nzbget",
     workloadType: "deployment",
