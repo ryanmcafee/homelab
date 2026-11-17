@@ -144,7 +144,8 @@ spec:
                 --version "$(yq '.spec.source.targetRevision' "$out/app.yaml")" \
                 --namespace "$NAMESPACE" --skip-crds -f "$out/values.yaml" \
                 --set namespaced=true --set jetstream.controlLoop=true \
-                --set jetstream.nats.url=nats://nats:4222 | kubectl -n "$NAMESPACE" apply -f -
+                --set jetstream.nats.url=nats://nats:4222 >"$out/nack-move.yaml"
+              kubectl -n "$NAMESPACE" apply -f "$out/nack-move.yaml"
               kubectl -n "$NAMESPACE" rollout status deployment/nack-move --timeout=3m
               echo "image digests under test:"
               digests='{range .items[*]}{range .status.containerStatuses[*]}{.name}{"\t"}{.imageID}{"\n"}{end}{end}'
