@@ -25,9 +25,18 @@
  */
 
 import { readFileSync } from "node:fs";
-import { lstat, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import {
+  lstat,
+  mkdir,
+  open,
+  readFile,
+  readdir,
+  realpath,
+  stat,
+} from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { createUser, fromPublic, fromSeed } from "nkeys.js";
+import { isNotFound } from "./lib/errors.ts";
 import { parse as parseYaml } from "./lib/yaml.ts";
 
 const ROOT = join(import.meta.dir, "..");
@@ -213,16 +222,34 @@ export function seedFileName(principal: string): string {
   return `${principal}.nk`;
 }
 
+/**
+ * The real path of `path`, resolving every symlinked ancestor of the part that exists. A lexical
+ * `resolve` misses a parent link that points into the checkout.
+ */
+export async function canonicalPath(path: string): Promise<string> {
+  const absolute = resolve(path);
+  try {
+    return await realpath(absolute);
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+  }
+  const parent = dirname(absolute);
+  if (parent === absolute) return absolute;
+  return join(await canonicalPath(parent), basename(absolute));
+}
+
 /** The repository is not a credential store: a seed under it is one `git add -A` from committed. */
-export function assertOutsideRepository(
+export async function assertOutsideRepository(
   dir: string,
   root: string = ROOT,
-): void {
-  const resolved = resolve(dir);
-  const repo = resolve(root);
+): Promise<void> {
+  const [resolved, repo] = await Promise.all([
+    canonicalPath(dir),
+    canonicalPath(root),
+  ]);
   if (resolved === repo || resolved.startsWith(`${repo}/`)) {
     throw new KeygenError(
-      `--dir ${dir} is inside the repository; a seed there is one \`git add\` from committed, so the seed directory must live outside the checkout`,
+      `--dir ${dir} resolves to ${resolved}, inside the repository; a seed there is one \`git add\` from committed, so the seed directory must live outside the checkout`,
     );
   }
 }
@@ -316,7 +343,7 @@ export async function generate(
   expected: readonly string[],
   options: GenerateOptions,
 ): Promise<PublicEntry[]> {
-  assertOutsideRepository(options.dir);
+  await assertOutsideRepository(options.dir);
   const rotate = new Set(options.rotate ?? []);
   for (const name of rotate) {
     if (!expected.includes(name)) {
