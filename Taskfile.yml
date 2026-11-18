@@ -108,13 +108,13 @@ tasks:
       - bun test {{.CLI_ARGS | default "tests"}}
 
   contracts:check:
-    desc: Validate the platform event contract in contracts/events/ and diff it against the compatibility baseline (ADR-026, ADR-030)
+    desc: Validate every contract under contracts/ and diff each against its frozen compatibility baseline (ADR-026, ADR-030)
     deps: [bun:install]
     cmds:
       - bun scripts/contract-check.ts check
 
   contracts:baseline:
-    desc: Refresh contracts/events/registry.v1.baseline.json after an additive contract change
+    desc: Refresh every contract baseline (registry.v1.baseline.json and each shape.baseline.json) after an additive contract change
     deps: [bun:install]
     cmds:
       - bun scripts/contract-check.ts baseline --write
