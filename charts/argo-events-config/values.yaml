@@ -1,0 +1,35 @@
+# The Argo Events EventBus. This is Argo Events' internal trigger bus and holds
+# no platform events: the `.ev`, `.wq` and `.dl` subjects live on the platform
+# NATS and reach a Sensor only through a named durable pull consumer
+# (contracts/events/subjects.v1.yaml `no_core_nats_bridge`).
+#
+# The parent Application (charts/addons/templates/argo-events.yaml) supplies
+# every value below, so bus sizing stays operator-supplied.
+
+# StatefulSet pods, and the replica count of the streams Argo Events creates on
+# them. Argo Events accepts 1, 3 or 5 only.
+replicas: 1
+
+# Mapped to a concrete image by the controller-config the argo-events chart
+# installs. Pinned rather than "latest", which that mapping also accepts.
+version: "2.10.29"
+
+# Trigger history only. The platform bus holds the durable record.
+maxAge: 72h
+
+# Message bytes the single `default` stream may hold. The chart's own default is
+# `1GB`, which viper's GetInt64 reads as 0 -- unlimited -- so the bus would be
+# bounded only by maxMsgs and maxAge and could fill its PVC first.
+maxBytes: 512Mi
+
+# Messages before the oldest is discarded. Declared rather than inherited so
+# both size bounds on this bus are operator-supplied.
+maxMsgs: 1000000
+
+# maxBytes ceiling as a fraction of the PVC, the rule ADR-042 applies to the
+# platform bus. Enforced at render by templates/_helpers.tpl.
+maxBytesBudgetFraction: 0.75
+
+storage:
+  size: 10Gi
+  className: ""

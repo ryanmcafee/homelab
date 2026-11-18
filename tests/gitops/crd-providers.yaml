@@ -52,12 +52,16 @@ providers:
   nvidia.com: nvidia-gpu-operator
   snapshot.storage.k8s.io: democratic-csi
 
-  # argoproj.io carries the app-of-apps control plane, Argo Workflows and Argo
-  # Rollouts custom resources. Application/AppProject/ApplicationSet CRDs come
-  # from the ArgoCD install that is already running when these manifests are
-  # applied, so they are exempt; Workflow-family resources are provided by the
-  # argo-workflows Application and the progressive-delivery kinds by
-  # argo-rollouts (wave 2), both ordered normally.
+  # argoproj.io carries the app-of-apps control plane, Argo Workflows, Argo
+  # Rollouts and Argo Events custom resources, so it is the group with more than
+  # one provider. Application/AppProject/ApplicationSet CRDs come from the ArgoCD
+  # install that is already running when these manifests are applied, so they are
+  # exempt; Workflow-family resources are provided by the argo-workflows
+  # Application and are ordered normally. The progressive-delivery kinds are named
+  # individually against argo-rollouts (wave 2) and the Argo Events kinds against
+  # argo-events rather than by moving `app`, because the three Applications are
+  # independently enabled: argo-rollouts and argo-events run in Kind and
+  # argo-workflows does not.
   argoproj.io:
     app: argo-workflows
     kinds:
@@ -66,6 +70,9 @@ providers:
       ClusterAnalysisTemplate: argo-rollouts
       AnalysisRun: argo-rollouts
       Experiment: argo-rollouts
+      EventBus: argo-events
+      EventSource: argo-events
+      Sensor: argo-events
     skipKinds:
       - Application
       - AppProject
