@@ -1,0 +1,164 @@
+# promtool unit tests for the homelab-argo-events-trigger-bus rules in
+# charts/addons/templates/kube-prometheus-stack.yaml
+# (docs/runbooks/argo-events-trigger-bus.md).
+#
+# Both renders set maxAge 72h and maxMsgs 1000000, so these fixtures run against
+# both; maxBytes differs and lives in tests/alerts/<env>/. Series use the label
+# set prometheus-nats-exporter 0.14.0 (the EventBus sidecar) emits.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 1. Cold: the PodMonitor never produced a target, so up has never existed.
+  - interval: 1m
+    name: exporter never scraped
+    input_series: []
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ArgoEventsTriggerBusExporterDown
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ArgoEventsTriggerBusExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: 'Nothing is scraping the Argo Events trigger bus exporter'
+              description: 'No EventBus metrics sidecar has answered for 15m. Every trigger-bus alert is blind until it does, so triggers can age out unseen. `kubectl -n argo-events get pods -l eventbus-name=default` and the PodMonitor argo-events-trigger-bus. docs/runbooks/argo-events-trigger-bus.md.'
+
+  # 2. Warm: the target exists and stops answering at t+30m.
+  - interval: 1m
+    name: exporter stops answering
+    input_series:
+      - series: 'up{job="argo-events-trigger-bus",namespace="argo-events",pod="eventbus-default-js-0"}'
+        values: '1x30 0x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: ArgoEventsTriggerBusExporterDown
+        exp_alerts: []
+      - eval_time: 46m
+        alertname: ArgoEventsTriggerBusExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: 'Nothing is scraping the Argo Events trigger bus exporter'
+              description: 'No EventBus metrics sidecar has answered for 15m. Every trigger-bus alert is blind until it does, so triggers can age out unseen. `kubectl -n argo-events get pods -l eventbus-name=default` and the PodMonitor argo-events-trigger-bus. docs/runbooks/argo-events-trigger-bus.md.'
+
+  # 3. Message count crosses 75 % then 90 % of maxMsgs (1000000).
+  - interval: 1m
+    name: approaching maxMsgs
+    input_series:
+      - series: 'nats_stream_total_messages{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",is_stream_leader="true",server_name="eventbus-default-js-0"}'
+        values: '700000x30 800000x30 950000x30'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ArgoEventsTriggerBusApproachingLimit
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: ArgoEventsTriggerBusApproachingLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              limit: maxMsgs
+              stream_name: default
+              namespace: argo-events
+              job: argo-events-trigger-bus
+            exp_annotations:
+              summary: 'The trigger bus is at 80% of its maxMsgs'
+              description: 'At the limit the bus deletes its oldest triggers, consumed or not. Find the Sensor that stopped acking or the EventSource flooding the bus before raising the limit. docs/runbooks/argo-events-trigger-bus.md.'
+      - eval_time: 80m
+        alertname: ArgoEventsTriggerBusApproachingLimit
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              limit: maxMsgs
+              stream_name: default
+              namespace: argo-events
+              job: argo-events-trigger-bus
+            exp_annotations:
+              summary: 'The trigger bus is at 95% of its maxMsgs'
+              description: 'At the limit the bus deletes its oldest triggers, consumed or not. Find the Sensor that stopped acking or the EventSource flooding the bus before raising the limit. docs/runbooks/argo-events-trigger-bus.md.'
+          - exp_labels:
+              severity: critical
+              limit: maxMsgs
+              stream_name: default
+              namespace: argo-events
+              job: argo-events-trigger-bus
+            exp_annotations:
+              summary: 'The trigger bus is at 95% of its maxMsgs'
+              description: 'discard: old is about to delete triggers. A Sensor still behind loses them with no DLQ and no error. docs/runbooks/argo-events-trigger-bus.md.'
+
+  # 4. A Sensor stops acking at t=0 with triggers pending. maxAge 72h puts the
+  #    warning at 48h and the critical at 60h; the coverage guard lets each
+  #    become true one hour early, then for: 15m.
+  - interval: 5m
+    name: sensor stops acking
+    input_series:
+      - series: 'nats_consumer_ack_floor_stream_seq{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",consumer_name="webhook-sensor-dep",is_consumer_leader="true"}'
+        values: '100+0x900'
+      - series: 'nats_consumer_num_pending{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",consumer_name="webhook-sensor-dep",is_consumer_leader="true"}'
+        values: '4+0x900'
+      - series: 'nats_consumer_num_ack_pending{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",consumer_name="webhook-sensor-dep",is_consumer_leader="true"}'
+        values: '1+0x900'
+    alert_rule_test:
+      - eval_time: 46h
+        alertname: ArgoEventsTriggerUnprocessedNearMaxAge
+        exp_alerts: []
+      - eval_time: 49h
+        alertname: ArgoEventsTriggerUnprocessedNearMaxAge
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stream_name: default
+              consumer_name: webhook-sensor-dep
+              namespace: argo-events
+              job: argo-events-trigger-bus
+            exp_annotations:
+              summary: 'Consumer webhook-sensor-dep has left a trigger unprocessed for 48h of the 72h maxAge'
+              description: 'The consumer ack floor has not moved for 48h while triggers were pending. At 72h the bus deletes them unprocessed. Get the Sensor running and acking. docs/runbooks/argo-events-trigger-bus.md.'
+      - eval_time: 61h
+        alertname: ArgoEventsTriggerUnprocessedNearMaxAge
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stream_name: default
+              consumer_name: webhook-sensor-dep
+              namespace: argo-events
+              job: argo-events-trigger-bus
+            exp_annotations:
+              summary: 'Consumer webhook-sensor-dep has left a trigger unprocessed for 48h of the 72h maxAge'
+              description: 'The consumer ack floor has not moved for 48h while triggers were pending. At 72h the bus deletes them unprocessed. Get the Sensor running and acking. docs/runbooks/argo-events-trigger-bus.md.'
+          - exp_labels:
+              severity: critical
+              stream_name: default
+              consumer_name: webhook-sensor-dep
+              namespace: argo-events
+              job: argo-events-trigger-bus
+            exp_annotations:
+              summary: 'Consumer webhook-sensor-dep has left a trigger unprocessed for 60h of the 72h maxAge'
+              description: 'Under 12h before maxAge deletes these triggers with no DLQ. Get the Sensor acking now; if it cannot run in time, record what the pending triggers were. docs/runbooks/argo-events-trigger-bus.md.'
+
+  # 5. Normal limits-stream operation: a Sensor acking steadily, and an idle one
+  #    with nothing pending. Neither is at risk, however old the stream head is.
+  - interval: 5m
+    name: healthy and idle consumers stay quiet
+    input_series:
+      - series: 'nats_consumer_ack_floor_stream_seq{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",consumer_name="busy",is_consumer_leader="true"}'
+        values: '100+1x900'
+      - series: 'nats_consumer_num_pending{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",consumer_name="busy",is_consumer_leader="true"}'
+        values: '2+0x900'
+      - series: 'nats_consumer_num_ack_pending{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",consumer_name="busy",is_consumer_leader="true"}'
+        values: '1+0x900'
+      - series: 'nats_consumer_ack_floor_stream_seq{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",consumer_name="idle",is_consumer_leader="true"}'
+        values: '100+0x900'
+      - series: 'nats_consumer_num_pending{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",consumer_name="idle",is_consumer_leader="true"}'
+        values: '0+0x900'
+      - series: 'nats_consumer_num_ack_pending{job="argo-events-trigger-bus",namespace="argo-events",stream_name="default",consumer_name="idle",is_consumer_leader="true"}'
+        values: '0+0x900'
+    alert_rule_test:
+      - eval_time: 70h
+        alertname: ArgoEventsTriggerUnprocessedNearMaxAge
+        exp_alerts: []
