@@ -251,8 +251,11 @@ repository only, field `GIT_TOKEN`); the init container waits for the Secret.
   ```
 
   Failover is automatic once `instances: 2`. Production has no object store yet, so there is no
-  CNPG `ScheduledBackup`; Paperclip's app-native backups (`spec.backup.appNative`, on by default,
-  PVC-backed) are the interim safety net.
+  CNPG `ScheduledBackup`; Paperclip's app-native backups (`spec.backup.appNative`, PVC-backed)
+  are the interim safety net. `helm-apps.tmpl` sets them to one dump a day (`intervalMinutes: 1440`),
+  kept 3 days in homelab and 1 day on Kind (`retentionDays`). The dumps share `paperclip-data`
+  with workspaces and tool caches, so retention × dump size (several GB each) must stay well under
+  `persistence.size`: with the app defaults they filled the volume (bugs.md 2026-11-21).
 
 ## Verify
 
