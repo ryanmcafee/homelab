@@ -1934,6 +1934,11 @@ spec:
       enabled: true
       size: 1Gi
       storageClass: local-path
+  backup:
+    appNative:
+      enabled: true
+      intervalMinutes: 1440
+      retentionDays: 1
   networking:
     service:
       type: ClusterIP
