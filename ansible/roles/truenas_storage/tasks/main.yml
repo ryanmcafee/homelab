@@ -33,6 +33,19 @@
   ansible.builtin.include_tasks: create_pools.yml
   when: truenas_create_pools | default(false)
 
+- name: Include Auto TRIM configuration for SSD pools
+  ansible.builtin.include_tasks:
+    file: configure_pool_autotrim.yml
+    apply:
+      tags:
+        - autotrim
+  loop: "{{ truenas_autotrim_pools }}"
+  loop_control:
+    loop_var: autotrim_pool
+  when: truenas_api_key | length > 0
+  tags:
+    - autotrim
+
 # Group and User creation (before datasets for proper ownership)
 - name: Include group creation
   ansible.builtin.include_tasks: create_group.yml

@@ -328,6 +328,36 @@ cd ansible && ansible-playbook -i inventory/homelab.yml playbooks/proxmox-zfs-tu
 The playbook does not start a full trim. The first full pass of `vm-storage` adds I/O, so run it
 off-hours or let the cron do it: `zpool trim vm-storage`, then `zpool status -t vm-storage`.
 
+### Benchmarks after the trim (2026-11-21)
+
+`fio` against a throwaway 20G zvol (16K volblocksize, `compression=off`, `primarycache=metadata`):
+
+| Test | `vm-storage` (2x P310 QLC mirror) | `cp-storage` (990 PRO) |
+|---|---|---|
+| Sequential write, 1M, QD32 | 2.28 GB/s | 3.15 GB/s |
+| Random write, 16K, 4x QD32 | 29.9k IOPS | 98.9k IOPS |
+| fsync after each 16K write, QD1 | 305/s, avg 2.9 ms, p99 9.2 ms | 531/s, avg 1.9 ms, p99 7.0 ms |
+| Random read, 16K, 4x QD32 | 55.6k IOPS | 49.5k IOPS |
+| Sequential read, 1M, QD32 | 1.68 GB/s | 2.44 GB/s |
+
+Neither pool has drives with power-loss protection, so every fsync waits for a real flush.
+
+### TrueNAS `ssd` pool
+
+The TrueNAS `ssd` pool holds the iSCSI and NFS-SSD volumes of every CloudNativePG cluster, NATS and
+ClickHouse. It is the same 2x Crucial P310 QLC mirror, behind the second SAS3408, and it had the
+same problem: Auto TRIM off (the TrueNAS default) and never trimmed. `pg_test_fsync` from
+`argo-workflows-postgres-1` measured `fdatasync` at 1.6 ms (626/s) before the trim.
+
+`ansible/roles/truenas_storage` now enables Auto TRIM through the TrueNAS API for every pool in
+`truenas_autotrim_pools` (default: the SSD pool), so a TrueNAS update cannot revert it:
+
+```bash
+cd ansible && op run --env-file=../.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --tags autotrim
+```
+
+The role does not run a full trim. Do that once by hand, off-hours: `zpool trim -r 200M ssd`.
+
 ### Still open
 
 - **`~/.talos/config` lists only two endpoints** (`<CP1_IP>` and `<CP2_IP>`). Add `<CP3_IP>`.

@@ -1,0 +1,32 @@
+---
+# TrueNAS Storage Role - Enable Auto TRIM on SSD pools through the middleware,
+# so a TrueNAS update or pool import does not revert it.
+
+- name: Read pool {{ autotrim_pool }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool?name={{ autotrim_pool }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: autotrim_pool_query
+  check_mode: false
+
+- name: Fail when pool {{ autotrim_pool }} does not exist
+  ansible.builtin.fail:
+    msg: "Pool '{{ autotrim_pool }}' is listed in truenas_autotrim_pools but does not exist on TrueNAS."
+  when: autotrim_pool_query.json | length == 0
+
+- name: Enable Auto TRIM on pool {{ autotrim_pool }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/id/{{ autotrim_pool_query.json[0].id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      autotrim: "ON"
+    status_code: [200]
+  when: (autotrim_pool_query.json[0].autotrim.value | lower) != 'on'
+  changed_when: true
