@@ -10,7 +10,7 @@ both build against, and it is checked in CI rather than agreed in prose.
 | `events/subjects.v1.yaml` | The NATS subject grammar, the stream set, and the delivery guarantee of each path |
 | `events/registry.v1.yaml` | Every registered event type: version, direction, subject, schema, ordering and delivery guarantee |
 | `events/registry.v1.baseline.json` | The frozen compatibility baseline the checker diffs against |
-| `cluster/topology.v1.yaml` | The control-plane member count, the etcd quorum formula, the `whole` and `survivable` health predicates and the gate each one belongs at — shared by the Go CLI and `scripts/cp-storage-migrate.ts` so the rule exists once (ADR-035) |
+| `cluster/topology.v1.yaml` | The control-plane member count, the etcd quorum formula, the `whole` and `survivable` health predicates, the gate each one belongs at and which gate a run enters at — shared by the Go CLI and `scripts/cp-storage-migrate.ts` so the rule exists once (ADR-035) |
 | `status/status-page.v1.yaml` | The status page's back end -> UI HTTP surface: the polled document, the component taxonomy, how state and uptime are derived, and which upstream each derived field depends on — checked by `scripts/status-contract_test.ts` (ADR-051) |
 
 Checked by `bun scripts/contract-check.ts` (`task contracts:check`), which fails on an invalid
@@ -21,10 +21,35 @@ take a new major version. See `docs/contracts/event-contract.md` for the reasoni
 `cluster/topology.v1.yaml` is checked by `scripts/topology-contract_test.ts` (runs in
 `task test:scripts`), which asserts the contract is internally consistent — the worked quorum
 table matches the stated formula, every permitted topology has a row, every condition is reached
-by a predicate, `survivable` relaxes `whole` in exactly one way, and both declared consumers
-exist. Each consumer additionally carries its own conformance test asserting that its
-implementation computes the numbers this file pins; that is what keeps a Go implementation and a
-TypeScript one from drifting into two different safety rules.
+by a predicate, `survivable` relaxes `whole` in exactly one way, every run shape enters at exactly
+one entry point and ends whole, that the two senses of a missing member are defined once and each
+has a condition that sees it, that the ordinary dead-target case refuses and names the procedure
+that applies, and that both declared consumers exist at paths that hold what they claim to.
+`evaluation.points` is a set of gates with exclusive entry, not a pipeline — a consumer that runs
+all four in order refuses every legitimate resume (ADR-035, MCAA-404 ruling).
+
+Those checks read the normative statement of each rule with parenthetical cross-references
+stripped, and no normative statement may use the word "missing". Both are there because a token
+search over whole rule text is satisfied by the explanatory prose after the statement, and a search
+scoped to the statement is satisfied by a cross-reference inside it — a rule can then say the one
+synonym this contract forbids and stay green (MCAA-483).
+
+Conformance beyond that is per consumer, and the two are not at the same level today:
+
+- **`homelab-cli` (Go) is conformant.** `internal/etcd` and `internal/topology` compute the quorum
+  numbers from this file, select the entry point from the observed membership, and carry
+  `TestConformsToExclusiveEntry`, `TestEntryRuleIsReadFromTheContract`, `TestEntryRuleFailsClosed`,
+  `TestResumeRefusesASecondUnrepresentedAddress`, `TestResumeRefusesAStrangerMember` and
+  `TestDeadDeclaredTargetRefusesAtPreflight`. `membership-accounts-for-expected` refuses on two
+  observations and carries a test per observation: the two cancel in the arithmetic, so one case
+  proves only whichever branch fires first. Its loader also refuses any contract naming a
+  `health.conditions` entry it does not implement, so adding a condition here is a coordinated
+  change across both, not an additive edit to this file.
+- **`cp-storage-migrate` (TypeScript) is not.** Its only assertion against this file is that
+  `CP_KEY_PATTERN` is `controlPlane.countKeyPattern`; `etcdHealth` predates the contract and reads
+  neither `health.predicates` nor `evaluation.points`. The entry clause binds consumers that run the
+  destructive removal procedure, which this one does not, but the quorum and predicate clauses bind
+  it and are unenforced. Tracked as a gap, not claimed as coverage.
 
 **`cluster/` and `status/` have no compatibility gate, and the section below does not apply to
 them yet.** `scripts/contract-check.ts` hard-codes `CONTRACTS_DIR = "contracts/events"` (L485), so
