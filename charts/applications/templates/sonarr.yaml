@@ -24,23 +24,17 @@ spec:
       valuesObject:
         iscsi:
           portal: {{ .Values.global.iscsi.portal | quote }}
-        # The import sweep mounts Sonarr's downloads volume and config claim, so entry paths match Sonarr's.
-        {{- $downloads := default (dict) .Values.sonarr.persistence.downloads }}
+        # The import sweep reads the API key from Sonarr's config claim and runs as Sonarr's user.
         {{- $config := default (dict) .Values.sonarr.persistence.config }}
         {{- $container := dig "container" (dict) (default (dict) .Values.sonarr.securityContext) }}
         importSweep:
           enabled: {{ dig "importSweep" "enabled" false .Values.sonarr }}
           configClaim: {{ $config.existingClaim | default "sonarr-config" | quote }}
-          downloads:
-            type: {{ $downloads.type | default "emptyDir" | quote }}
-            server: {{ $downloads.server | default "" | quote }}
-            path: {{ $downloads.path | default "" | quote }}
-            mountPath: {{ $downloads.mountPath | default "/downloads" | quote }}
           securityContext:
             runAsUser: {{ $container.runAsUser | default 568 }}
             runAsGroup: {{ $container.runAsGroup | default 100 }}
           image:
-            tag: {{ .Values.global.images.curl | quote }}
+            tag: {{ .Values.global.images.bun | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.sonarr.namespace }}

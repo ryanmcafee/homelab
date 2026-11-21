@@ -1,6 +1,7 @@
 {{- with .Values.importSweep }}
 {{- if .enabled }}
 {{- $name := printf "%s-import-sweep" .app }}
+{{- $script := $.Files.Get "files/arr-import-sweep.ts" }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -11,10 +12,10 @@ metadata:
     app.kubernetes.io/part-of: {{ .app }}
     app.kubernetes.io/component: import-sweep
 data:
-  import-sweep.sh: |
-    {{- $.Files.Get "files/import-sweep.sh" | nindent 4 }}
+  arr-import-sweep.ts: |-
+    {{- $script | nindent 4 }}
 ---
-# Imports every release left in the completed downloads folder (files/import-sweep.sh).
+# Imports what the app left in the completed downloads folder (files/arr-import-sweep.ts).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -43,9 +44,10 @@ spec:
             app.kubernetes.io/part-of: {{ .app }}
             app.kubernetes.io/component: import-sweep
           annotations:
-            checksum/script: {{ $.Files.Get "files/import-sweep.sh" | sha256sum }}
+            checksum/script: {{ $script | sha256sum }}
         spec:
           restartPolicy: Never
+          automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
             runAsUser: {{ .securityContext.runAsUser }}
@@ -66,20 +68,36 @@ spec:
             - name: sweep
               image: "{{ .image.repository }}:{{ .image.tag }}"
               imagePullPolicy: {{ .image.pullPolicy }}
-              command: ["/bin/sh", "/scripts/import-sweep.sh"]
+              command: ["bun", "/scripts/arr-import-sweep.ts"]
               env:
+                - name: ARR_APP
+                  value: {{ .app | quote }}
                 - name: ARR_URL
                   value: {{ .url | quote }}
-                - name: COMMAND_NAME
-                  value: {{ .command | quote }}
                 - name: IMPORT_PATH
                   value: {{ .path | quote }}
                 - name: CONFIG_XML
                   value: /app-config/config.xml
+                {{- if .tmdbSecret.name }}
+                - name: TMDB_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .tmdbSecret.name | quote }}
+                      key: {{ .tmdbSecret.key | quote }}
+                      optional: true
+                {{- end }}
+                - name: DRY_RUN
+                  value: {{ .dryRun | toString | quote }}
                 - name: TIMEOUT_SECONDS
                   value: {{ .timeoutSeconds | toString | quote }}
                 - name: POLL_SECONDS
                   value: {{ .pollSeconds | toString | quote }}
+                - name: MIN_SCORE
+                  value: {{ .minScore | toString | quote }}
+                - name: MIN_MARGIN
+                  value: {{ .minMargin | toString | quote }}
+                - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+                  value: "0"
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -92,9 +110,8 @@ spec:
                 - name: app-config
                   mountPath: /app-config
                   readOnly: true
-                - name: downloads
-                  mountPath: {{ .downloads.mountPath | default "/downloads" }}
-                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
               resources:
                 {{- toYaml .resources | nindent 16 }}
           volumes:
@@ -105,14 +122,8 @@ spec:
               persistentVolumeClaim:
                 claimName: {{ .configClaim | quote }}
                 readOnly: true
-            - name: downloads
-              {{- if eq (.downloads.type | default "emptyDir") "nfs" }}
-              nfs:
-                server: {{ required "importSweep.downloads.server is required for type nfs" .downloads.server | quote }}
-                path: {{ required "importSweep.downloads.path is required for type nfs" .downloads.path | quote }}
-                readOnly: true
-              {{- else }}
-              emptyDir: {}
-              {{- end }}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 16Mi
 {{- end }}
 {{- end }}

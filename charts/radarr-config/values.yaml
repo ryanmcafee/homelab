@@ -68,18 +68,23 @@ corruptionScan:
       cpu: 2000m
       memory: 1Gi
 
-# Every 30 minutes, import each release left in the completed downloads folder
-# (files/import-sweep.sh, templates/import-sweep-cronjob.yaml). The parent
-# Application enables it where the downloads export exists (MEDIA_PROVIDER nfs)
-# and passes the downloads volume, config claim, UID/GID and curl tag.
+# Every 30 minutes, import what Radarr left in the completed downloads folder
+# (files/arr-import-sweep.ts, docs/runbooks/arr-import-sweep.md): a scan per
+# entry, then a scored library match (TMDb, grab history, episodes) and a
+# ManualImport for what the scan could not identify. The parent Application
+# enables it where the downloads export exists (MEDIA_PROVIDER nfs) and passes
+# the config claim, UID/GID and the bun image tag.
 importSweep:
   enabled: false
   app: radarr
   schedule: "*/30 * * * *"
   timeZone: ""
   url: http://radarr.media.svc.cluster.local:7878
-  command: DownloadedMoviesScan
   path: /downloads/completed/movies
+  # Report every decision and change nothing.
+  dryRun: false
+  minScore: 60
+  minMargin: 20
   timeoutSeconds: 3000
   pollSeconds: 2
   activeDeadlineSeconds: 3300
@@ -91,23 +96,23 @@ importSweep:
   appPodLabels:
     app.kubernetes.io/name: radarr
     app.kubernetes.io/instance: radarr
-  # Radarr's downloads volume, mounted read-only at the same path; type nfs or emptyDir.
-  downloads:
-    type: emptyDir
-    server: ""
-    path: ""
-    mountPath: /downloads
+  # TMDb key Kometa already uses (charts/plex-config, 1Password item plex);
+  # optional: without it, matching runs without the TMDb signal.
+  tmdbSecret:
+    name: plex
+    key: tmdb-api-key
   securityContext:
     runAsUser: 568
     runAsGroup: 100
   image:
-    repository: curlimages/curl
-    tag: "8.22.0"
+    repository: oven/bun
+    # Overridden by the parent Application from configuration/versions.yaml images.bun.
+    tag: "1.4.2-alpine"
     pullPolicy: IfNotPresent
   resources:
     requests:
-      cpu: 10m
-      memory: 16Mi
+      cpu: 20m
+      memory: 96Mi
     limits:
-      cpu: 100m
-      memory: 64Mi
+      cpu: 500m
+      memory: 256Mi

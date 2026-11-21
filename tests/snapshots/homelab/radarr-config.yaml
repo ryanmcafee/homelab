@@ -255,97 +255,1185 @@ metadata:
     app.kubernetes.io/part-of: radarr
     app.kubernetes.io/component: import-sweep
 data:
-  import-sweep.sh: |
-    #!/bin/sh
-    # Import sweep: asks Sonarr/Radarr to import every release left in IMPORT_PATH.
-    #
-    # The app treats a scan path as one release, so each entry of IMPORT_PATH gets its own
-    # POST /api/v3/command {name: COMMAND_NAME, path: <entry>, importMode: Move}
-    # (DownloadedEpisodesScan for Sonarr, DownloadedMoviesScan for Radarr), polled through
-    # GET /api/v3/command/<id> until it ends. Move puts each accepted file into the library
-    # and removes the release from the downloads folder; a rejected release stays and is
-    # logged (the reason is in the app's log and its manual import screen).
-    # Exits 1 when a command fails, the run passes TIMEOUT_SECONDS or the API is unreachable.
-    set -eu
+  arr-import-sweep.ts: |-
+    #!/usr/bin/env bun
+    /**
+     * arr-import-sweep.ts
+     *
+     * Imports the releases Sonarr or Radarr left in a completed downloads folder
+     * (docs/runbooks/arr-import-sweep.md). Runs from a ConfigMap in the stock
+     * oven/bun image (charts/sonarr-config, charts/radarr-config), so it has no
+     * dependencies beyond Bun itself; the two chart copies are identical.
+     *
+     * 1. Automatic pass: one DownloadedEpisodesScan / DownloadedMoviesScan per entry
+     *    (importMode Move). The app treats a scan path as a single release.
+     * 2. Match pass, for every entry still there: parse the release name with the
+     *    app's /api/v3/parse, score each library series/movie on title similarity,
+     *    year, TMDb search results, grab history and episode existence, and accept
+     *    only a single candidate above MIN_SCORE that leads the next by MIN_MARGIN.
+     * 3. ManualImport (move) of each file the app lists for the folder, only into
+     *    monitored episodes/movies that have no file, with a quality the profile
+     *    allows and a custom format score at or above the profile minimum. Upgrades
+     *    and every other rejection stay the app's decision: the folder is left.
+     *
+     * Nothing is deleted by this script. --dry-run sends no POST at all.
+     *
+     * Environment (flags override):
+     *   ARR_APP            sonarr | radarr                      (--app)
+     *   ARR_URL            e.g. http://sonarr.media.svc.cluster.local:8989 (--url)
+     *   IMPORT_PATH        e.g. /downloads/completed/tv          (--path)
+     *   ARR_API_KEY        API key; else read from CONFIG_XML (<ApiKey>)
+     *   CONFIG_XML         default /app-config/config.xml
+     *   TMDB_API_KEY       TMDb v3 key or v4 read token; optional, the TMDb signal is skipped without it
+     *   DRY_RUN            true: report decisions, change nothing (--dry-run)
+     *   TIMEOUT_SECONDS    whole run (default 3000)
+     *   POLL_SECONDS       command polling interval (default 2)
+     *   MIN_SCORE          default 60
+     *   MIN_MARGIN         default 20
+     *   HISTORY_RECORDS    newest grab history records read (default 2000)
+     */
     
-    : "${ARR_URL:?ARR_URL is required}"
-    : "${COMMAND_NAME:?COMMAND_NAME is required}"
-    : "${IMPORT_PATH:?IMPORT_PATH is required}"
-    CONFIG_XML="${CONFIG_XML:-/app-config/config.xml}"
-    TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-3000}"
-    POLL_SECONDS="${POLL_SECONDS:-2}"
+    import { readFileSync } from "node:fs";
     
-    log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
-    fail() {
-      log "ERROR: $*"
-      exit 1
+    export type App = "sonarr" | "radarr";
+    
+    export interface Config {
+      app: App;
+      url: string;
+      importPath: string;
+      apiKey: string;
+      tmdbKey: string;
+      dryRun: boolean;
+      timeoutSeconds: number;
+      pollSeconds: number;
+      minScore: number;
+      minMargin: number;
+      historyRecords: number;
+      only: string;
     }
     
-    if [ -z "${ARR_API_KEY:-}" ]; then
-      [ -r "$CONFIG_XML" ] || fail "no ARR_API_KEY and $CONFIG_XML is not readable"
-      ARR_API_KEY="$(sed -n 's:.*<ApiKey>\([^<]*\)</ApiKey>.*:\1:p' "$CONFIG_XML" | head -n1)"
-      [ -n "$ARR_API_KEY" ] || fail "no <ApiKey> in $CONFIG_XML"
-    fi
-    
-    api() {
-      method="$1" path="$2"
-      shift 2
-      curl -fsS --retry 3 --retry-delay 5 --max-time 60 -X "$method" \
-        -H "X-Api-Key: ${ARR_API_KEY}" -H 'Content-Type: application/json' \
-        "$@" "${ARR_URL%/}/api/v3/${path}"
+    export interface ParsedRelease {
+      title: string;
+      year: number;
+      season: number | null;
+      episodes: number[];
+      fullSeason: boolean;
+      appMatchId: number | null;
     }
     
-    # Top-level scalar of a command resource; the nested body never carries id, status, result or message.
-    field() {
-      printf '%s' "$1" | tr -d '\n' | grep -o "\"$2\": *\(\"[^\"]*\"\|[0-9][0-9]*\)" | tail -n1 |
-        sed 's/^"[^"]*": *//; s/^"//; s/"$//'
+    export interface LibraryItem {
+      id: number;
+      title: string;
+      year: number;
+      titles: string[];
+      tmdbId: number;
+      tvdbId: number;
+      monitored: boolean;
+      hasFile: boolean;
+      qualityProfileId: number;
     }
     
-    json_string() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+    export interface Episode {
+      id: number;
+      seasonNumber: number;
+      episodeNumber: number;
+      hasFile: boolean;
+      monitored: boolean;
+      airYear: number;
+    }
     
-    entries() { find "$IMPORT_PATH" -mindepth 1 -maxdepth 1 ! -name '.*'; }
+    export interface Signals {
+      tmdbIds: number[];
+      tvdbIds: number[];
+      historyIds: Set<number>;
+      episodes?: Map<number, Episode[]>;
+      movies?: boolean;
+    }
     
-    [ -d "$IMPORT_PATH" ] || fail "$IMPORT_PATH is not mounted in this pod"
-    before="$(entries | wc -l | tr -d ' ')"
-    log "$before entries in $IMPORT_PATH; running $COMMAND_NAME (importMode Move) on each"
+    export interface Scored {
+      item: LibraryItem;
+      score: number;
+      reasons: string[];
+    }
     
-    deadline=$(($(date +%s) + TIMEOUT_SECONDS))
-    imported=0
-    rejected=0
-    failed=0
-    listing="$(entries)"
-    while IFS= read -r entry; do
-      [ -n "$entry" ] || continue
-      [ "$(date +%s)" -lt "$deadline" ] || fail "run passed ${TIMEOUT_SECONDS}s; the next run continues"
-      payload="$(printf '{"name":"%s","path":"%s","importMode":"Move"}' "$COMMAND_NAME" "$(json_string "$entry")")"
-      response="$(api POST command --data "$payload")" || fail "POST command $COMMAND_NAME for $entry failed"
-      command_id="$(field "$response" id)"
-      [ -n "$command_id" ] || fail "no command id in the response for $entry: $response"
-      status="queued"
-      while [ "$status" = queued ] || [ "$status" = started ]; do
-        [ "$(date +%s)" -lt "$deadline" ] || fail "command $command_id for $entry still $status after ${TIMEOUT_SECONDS}s"
-        sleep "$POLL_SECONDS"
-        response="$(api GET "command/$command_id")" || fail "GET command/$command_id failed"
-        status="$(field "$response" status)"
-      done
-      result="$(field "$response" result)"
-      if [ "$status" != completed ]; then
-        failed=$((failed + 1))
-        log "FAILED $command_id status=$status: ${entry##*/}: $(field "$response" message)"
-      elif [ -e "$entry" ]; then
-        rejected=$((rejected + 1))
-        log "left   $command_id result=$result: ${entry##*/}: $(field "$response" message)"
-      else
-        imported=$((imported + 1))
-        log "moved  $command_id result=$result: ${entry##*/}"
-      fi
-    done <<EOF
-    $listing
-    EOF
+    export type Decision =
+      | { kind: "match"; best: Scored; candidates: Scored[] }
+      | { kind: "ambiguous"; candidates: Scored[]; why: string };
     
-    after="$(entries | wc -l | tr -d ' ')"
-    log "done: $imported moved, $rejected left (rejected or nothing to import), $failed failed; $after entries left in $IMPORT_PATH (was $before)"
-    [ "$failed" -eq 0 ] || fail "$failed $COMMAND_NAME commands failed"
+    const COLORS = { INFO: "\x1b[36m", OK: "\x1b[32m", ERROR: "\x1b[31m" };
+    const RESET = "\x1b[0m";
+    
+    export function log(level: keyof typeof COLORS, message: string): void {
+      const line = `${new Date().toISOString()} ${COLORS[level]}${level}${RESET} ${message}\n`;
+      (level === "ERROR" ? process.stderr : process.stdout).write(line);
+    }
+    
+    const HELP = `Usage: bun arr-import-sweep.ts [--app sonarr|radarr] [--url URL] [--path DIR] [--only TEXT] [--dry-run]
+    
+    Imports what Sonarr/Radarr left in a completed downloads folder: an automatic
+    scan per entry, then a scored library match and a ManualImport (move) for what
+    the scan rejected as unknown. --dry-run reports every decision and sends no POST.
+    --only limits the run to entries whose name contains TEXT. Environment: see the
+    header of this file.`;
+    
+    export function readConfig(
+      argv: string[],
+      env: Record<string, string | undefined>,
+      readFile: (path: string) => string,
+    ): Config | "help" {
+      const flags = new Map<string, string>();
+      let dryRun = env.DRY_RUN === "true";
+      for (let i = 0; i < argv.length; i++) {
+        const arg = argv[i]!;
+        if (arg === "--help" || arg === "-h") return "help";
+        if (arg === "--dry-run") {
+          dryRun = true;
+          continue;
+        }
+        const name = arg.replace(/^--/, "");
+        if (!["app", "url", "path", "only"].includes(name) || arg === name) {
+          throw new Error(`unknown argument ${arg} (see --help)`);
+        }
+        const value = argv[++i];
+        if (value === undefined) throw new Error(`${arg} needs a value`);
+        flags.set(name, value);
+      }
+      const app = flags.get("app") ?? env.ARR_APP ?? "";
+      if (app !== "sonarr" && app !== "radarr") {
+        throw new Error(`ARR_APP/--app must be sonarr or radarr, got "${app}"`);
+      }
+      const url = flags.get("url") ?? env.ARR_URL ?? "";
+      const importPath = flags.get("path") ?? env.IMPORT_PATH ?? "";
+      if (!url) throw new Error("ARR_URL/--url is required");
+      if (!importPath) throw new Error("IMPORT_PATH/--path is required");
+      let apiKey = env.ARR_API_KEY ?? "";
+      if (!apiKey) {
+        const configXml = env.CONFIG_XML || "/app-config/config.xml";
+        apiKey = /<ApiKey>([^<]+)<\/ApiKey>/.exec(readFile(configXml))?.[1] ?? "";
+        if (!apiKey)
+          throw new Error(`no ARR_API_KEY and no <ApiKey> in ${configXml}`);
+      }
+      const num = (name: string, fallback: number): number => {
+        const raw = env[name];
+        if (raw === undefined || raw === "") return fallback;
+        const value = Number(raw);
+        if (!Number.isFinite(value) || value < 0) {
+          throw new Error(`${name} must be a non-negative number, got "${raw}"`);
+        }
+        return value;
+      };
+      return {
+        app,
+        url: url.replace(/\/+$/, ""),
+        importPath: importPath.replace(/\/+$/, ""),
+        apiKey,
+        tmdbKey: env.TMDB_API_KEY ?? "",
+        dryRun,
+        timeoutSeconds: num("TIMEOUT_SECONDS", 3000),
+        pollSeconds: num("POLL_SECONDS", 2),
+        minScore: num("MIN_SCORE", 60),
+        minMargin: num("MIN_MARGIN", 20),
+        historyRecords: num("HISTORY_RECORDS", 2000),
+        only: flags.get("only") ?? "",
+      };
+    }
+    
+    /** Lowercase, ASCII, words only, without a trailing "(year)" or a leading "the". */
+    export function normalizeTitle(title: string): string {
+      return title
+        .normalize("NFKD")
+        .replace(/[̀-ͯ]/g, "")
+        .toLowerCase()
+        .replace(/\(\d{4}\)\s*$/, "")
+        .replace(/&/g, " and ")
+        .replace(/['’]/g, "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim()
+        .replace(/^the /, "");
+    }
+    
+    function bigrams(text: string): Map<string, number> {
+      const grams = new Map<string, number>();
+      const compact = text.replace(/ /g, "");
+      for (let i = 0; i < compact.length - 1; i++) {
+        const gram = compact.slice(i, i + 2);
+        grams.set(gram, (grams.get(gram) ?? 0) + 1);
+      }
+      return grams;
+    }
+    
+    /** Dice coefficient on character bigrams of the normalized titles, 1 when equal. */
+    export function titleSimilarity(a: string, b: string): number {
+      const left = normalizeTitle(a);
+      const right = normalizeTitle(b);
+      if (!left || !right) return 0;
+      if (left === right) return 1;
+      const leftGrams = bigrams(left);
+      const rightGrams = bigrams(right);
+      let overlap = 0;
+      let total = 0;
+      for (const count of leftGrams.values()) total += count;
+      for (const count of rightGrams.values()) total += count;
+      for (const [gram, count] of leftGrams) {
+        overlap += Math.min(count, rightGrams.get(gram) ?? 0);
+      }
+      return total === 0 ? 0 : (2 * overlap) / total;
+    }
+    
+    /** Scores every candidate; reasons explain each score in the log. */
+    /** The library episodes a release names, or [] when any of them does not exist. */
+    export function targetEpisodes(
+      release: ParsedRelease,
+      episodes: Episode[],
+    ): Episode[] {
+      if (release.season === null) return [];
+      if (release.fullSeason) {
+        return episodes.filter((e) => e.seasonNumber === release.season);
+      }
+      const found = release.episodes.map((n) =>
+        episodes.find(
+          (e) => e.seasonNumber === release.season && e.episodeNumber === n,
+        ),
+      );
+      return found.length > 0 && found.every((e) => e !== undefined)
+        ? found.filter((e): e is Episode => e !== undefined)
+        : [];
+    }
+    
+    /**
+     * A movie year must match within one year. A series release year is either the
+     * series' first year or the year its episodes aired, so it only disqualifies
+     * when it matches neither (targets null: episodes not loaded yet).
+     */
+    export function yearScore(
+      year: number,
+      item: LibraryItem,
+      movie: boolean,
+      targets: Episode[] | null,
+    ): { score: number; reason: string } {
+      const gap = Math.abs(year - item.year);
+      if (gap === 0) return { score: 20, reason: "year" };
+      if (movie) {
+        return gap === 1
+          ? { score: 5, reason: "year+-1" }
+          : { score: -100, reason: `year ${item.year} != ${year}` };
+      }
+      if (targets === null) {
+        return year > item.year
+          ? { score: 0, reason: "year after first air" }
+          : { score: -100, reason: `year ${year} before ${item.year}` };
+      }
+      const aired = targets.some(
+        (e) => e.airYear > 0 && Math.abs(e.airYear - year) <= 1,
+      );
+      return aired
+        ? { score: 10, reason: "year matches airing" }
+        : {
+            score: -100,
+            reason: `year ${year} matches neither ${item.year} nor the airing`,
+          };
+    }
+    
+    export function scoreCandidates(
+      release: ParsedRelease,
+      library: LibraryItem[],
+      signals: Signals,
+    ): Scored[] {
+      const scored: Scored[] = [];
+      for (const item of library) {
+        const similarity = Math.max(
+          ...item.titles.map((title) => titleSimilarity(release.title, title)),
+        );
+        const inTmdb =
+          (item.tmdbId > 0 && signals.tmdbIds.includes(item.tmdbId)) ||
+          (item.tvdbId > 0 && signals.tvdbIds.includes(item.tvdbId));
+        const inHistory = signals.historyIds.has(item.id);
+        const appMatch = release.appMatchId === item.id;
+        if (similarity < 0.5 && !inTmdb && !inHistory && !appMatch) continue;
+    
+        const reasons = [`title ${similarity.toFixed(2)}`];
+        let score = 40 * similarity;
+        const episodes = signals.episodes?.get(item.id);
+        const targets = episodes ? targetEpisodes(release, episodes) : null;
+        if (release.year > 0) {
+          const year = yearScore(
+            release.year,
+            item,
+            signals.movies === true,
+            targets,
+          );
+          score += year.score;
+          reasons.push(year.reason);
+        }
+        if (inTmdb) {
+          const first =
+            signals.tmdbIds[0] === item.tmdbId ||
+            (item.tvdbId > 0 && signals.tvdbIds[0] === item.tvdbId);
+          score += first ? 25 : 15;
+          reasons.push(first ? "tmdb first" : "tmdb");
+        }
+        if (inHistory) {
+          score += 30;
+          reasons.push("grab history");
+        }
+        if (appMatch) {
+          score += 30;
+          reasons.push("app parse");
+        }
+        if (targets !== null) {
+          if (targets.length > 0) {
+            score += 10;
+            reasons.push("episodes exist");
+            if (targets.some((e) => e.monitored && !e.hasFile)) {
+              score += 10;
+              reasons.push("episode wanted");
+            }
+          } else {
+            score -= 100;
+            reasons.push("episodes missing");
+          }
+        } else if (signals.movies && item.monitored && !item.hasFile) {
+          score += 10;
+          reasons.push("movie wanted");
+        }
+        scored.push({ item, score: Math.round(score), reasons });
+      }
+      return scored.sort((a, b) => b.score - a.score);
+    }
+    
+    export function decide(
+      candidates: Scored[],
+      minScore: number,
+      minMargin: number,
+    ): Decision {
+      const [best, second] = candidates;
+      if (!best) return { kind: "ambiguous", candidates, why: "no candidate" };
+      if (best.score < minScore) {
+        return {
+          kind: "ambiguous",
+          candidates,
+          why: `best score ${best.score} < ${minScore}`,
+        };
+      }
+      if (second && best.score - second.score < minMargin) {
+        return {
+          kind: "ambiguous",
+          candidates,
+          why: `best leads the next by ${best.score - second.score} < ${minMargin}`,
+        };
+      }
+      return { kind: "match", best, candidates };
+    }
+    
+    /** Rejections the match pass overrides: the app could not tell which series/movie it was. */
+    export function isIdentityRejection(reason: string): boolean {
+      return /^Unknown (Series|Movie)|matched to (series|movie) by ID|Unable to (identify|parse)/i.test(
+        reason,
+      );
+    }
+    
+    export interface ManualImportItem {
+      path: string;
+      name: string;
+      folderName?: string;
+      quality: unknown;
+      languages: unknown[];
+      releaseGroup?: string;
+      indexerFlags?: number;
+      downloadId?: string | null;
+      size: number;
+      rejections: { reason: string }[];
+    }
+    
+    export interface Profile {
+      id: number;
+      minFormatScore: number;
+      allowedQualities: Set<string>;
+      /** Position in the profile, later is preferred; a group shares one rank. */
+      qualityRank: Map<string, number>;
+    }
+    
+    export interface FileCheck {
+      file: ManualImportItem;
+      episodeIds: number[];
+      qualityName: string;
+      formatScore: number | null;
+      languages: unknown[];
+    }
+    
+    /** Null when the file may be imported, else why it stays. */
+    export function fileBlocker(
+      check: FileCheck,
+      targets: { hasFile: boolean; monitored: boolean }[],
+      profile: Profile | undefined,
+    ): string | null {
+      const other = check.file.rejections.filter(
+        (r) => !isIdentityRejection(r.reason),
+      );
+      if (other.length > 0) return other.map((r) => r.reason).join("; ");
+      if (targets.length === 0) return "no matching episode";
+      if (targets.some((t) => t.hasFile)) {
+        return "already has a file (upgrades are the app's decision)";
+      }
+      if (targets.some((t) => !t.monitored)) return "not monitored";
+      if (!profile) return "unknown quality profile";
+      if (!profile.allowedQualities.has(check.qualityName)) {
+        return `quality ${check.qualityName} not allowed by the profile`;
+      }
+      if (check.formatScore === null) {
+        return "the app cannot score custom formats for this name";
+      }
+      if (check.formatScore < profile.minFormatScore) {
+        return `custom format score ${check.formatScore} < profile minimum ${profile.minFormatScore}`;
+      }
+      return null;
+    }
+    
+    export interface ImportCandidate {
+      entry: string;
+      check: FileCheck;
+      /** Episode ids (Sonarr) or the movie id (Radarr) the file fills. */
+      keys: number[];
+      rank: number;
+      payload: Record<string, unknown>;
+    }
+    
+    /**
+     * Several releases often fill the same episode or movie. Keep the one the
+     * profile prefers (quality rank, then custom format score, then size); the
+     * others are superseded so a later import never replaces an earlier one.
+     */
+    export function pickBest(candidates: ImportCandidate[]): {
+      selected: ImportCandidate[];
+      superseded: { candidate: ImportCandidate; by: ImportCandidate }[];
+    } {
+      const order = [...candidates].sort(
+        (a, b) =>
+          b.rank - a.rank ||
+          (b.check.formatScore ?? 0) - (a.check.formatScore ?? 0) ||
+          b.check.file.size - a.check.file.size ||
+          a.check.file.path.localeCompare(b.check.file.path),
+      );
+      const owner = new Map<number, ImportCandidate>();
+      const selected: ImportCandidate[] = [];
+      const superseded: { candidate: ImportCandidate; by: ImportCandidate }[] = [];
+      for (const candidate of order) {
+        const taken = candidate.keys.map((key) => owner.get(key)).find(Boolean);
+        if (taken) {
+          superseded.push({ candidate, by: taken });
+          continue;
+        }
+        for (const key of candidate.keys) owner.set(key, candidate);
+        selected.push(candidate);
+      }
+      return { selected, superseded };
+    }
+    
+    /**
+     * The release name with its title part replaced by the library title and year,
+     * so the app resolves it to that series/movie and scores custom formats (and an
+     * untagged language) the way its own import would. Null without a season or year token.
+     */
+    export function canonicalName(
+      app: App,
+      name: string,
+      item: Pick<LibraryItem, "title" | "year">,
+    ): string | null {
+      const title = item.title
+        .replace(/\s*\(\d{4}\)\s*$/, "")
+        .replace(/[^A-Za-z0-9]+/g, ".")
+        .replace(/^\.|\.$/g, "");
+      const token =
+        app === "sonarr"
+          ? /[ ._-](S\d{1,3}E\d{1,4}|S\d{1,3}(?=[ ._-]|$)|\d{1,2}x\d{2,3})/i
+          : /[ ._([-]((?:19|20)\d{2})(?=[ ._)\]-]|$)/;
+      const found = token.exec(name);
+      if (!found) return null;
+      const rest = name.slice(found.index + 1);
+      return app === "sonarr"
+        ? `${title}.${item.year}.${rest.replace(/^(?:19|20)\d{2}[ ._-]/, "")}`
+        : `${title}.${rest}`;
+    }
+    
+    export function manualImportFile(
+      app: App,
+      check: FileCheck,
+      itemId: number,
+    ): Record<string, unknown> {
+      const common = {
+        path: check.file.path,
+        folderName: check.file.folderName,
+        quality: check.file.quality,
+        languages: check.languages,
+        releaseGroup: check.file.releaseGroup,
+        indexerFlags: check.file.indexerFlags ?? 0,
+        downloadId: check.file.downloadId ?? undefined,
+      };
+      return app === "sonarr"
+        ? {
+            ...common,
+            seriesId: itemId,
+            episodeIds: check.episodeIds,
+            releaseType:
+              check.episodeIds.length > 1 ? "multiEpisode" : "singleEpisode",
+          }
+        : { ...common, movieId: itemId };
+    }
+    
+    // ---------------------------------------------------------------------------
+    // API side
+    // ---------------------------------------------------------------------------
+    
+    type Json = Record<string, unknown>;
+    const asRecord = (value: unknown): Json =>
+      value !== null && typeof value === "object"
+        ? Object.fromEntries(Object.entries(value))
+        : {};
+    const asArray = (value: unknown): unknown[] =>
+      Array.isArray(value) ? value : [];
+    const str = (value: unknown): string =>
+      typeof value === "string" ? value : "";
+    const int = (value: unknown): number => (typeof value === "number" ? value : 0);
+    
+    export class Client {
+      constructor(
+        private readonly baseUrl: string,
+        private readonly headers: Record<string, string>,
+        private readonly fetcher: typeof fetch = fetch,
+      ) {}
+    
+      async request(
+        method: string,
+        path: string,
+        body?: unknown,
+      ): Promise<unknown> {
+        let lastError = "";
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const response = await this.fetcher(`${this.baseUrl}${path}`, {
+              method,
+              headers: { ...this.headers, "Content-Type": "application/json" },
+              body: body === undefined ? undefined : JSON.stringify(body),
+              signal: AbortSignal.timeout(60_000),
+            });
+            if (response.ok) return await response.json();
+            lastError = `HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`;
+            if (response.status < 500 && response.status !== 429) break;
+          } catch (error) {
+            lastError = String(error);
+          }
+          await Bun.sleep(attempt * 1000);
+        }
+        throw new Error(`${method} ${path} failed: ${lastError}`);
+      }
+    }
+    
+    export function parseRelease(app: App, raw: unknown): ParsedRelease | null {
+      const data = asRecord(raw);
+      if (app === "sonarr") {
+        const info = asRecord(data.parsedEpisodeInfo);
+        const titleInfo = asRecord(info.seriesTitleInfo);
+        const title = str(titleInfo.titleWithoutYear) || str(info.seriesTitle);
+        if (!title) return null;
+        return {
+          title,
+          year: int(titleInfo.year),
+          season: typeof info.seasonNumber === "number" ? info.seasonNumber : null,
+          episodes: asArray(info.episodeNumbers).filter(
+            (n) => typeof n === "number",
+          ),
+          fullSeason: info.fullSeason === true,
+          appMatchId: int(asRecord(data.series).id) || null,
+        };
+      }
+      const info = asRecord(data.parsedMovieInfo);
+      const title =
+        str(info.primaryMovieTitle) || str(asArray(info.movieTitles)[0]);
+      if (!title) return null;
+      return {
+        title,
+        year: int(info.year),
+        season: null,
+        episodes: [],
+        fullSeason: false,
+        appMatchId: int(asRecord(data.movie).id) || null,
+      };
+    }
+    
+    export function parseLibrary(raw: unknown): LibraryItem[] {
+      return asArray(raw).map((entry) => {
+        const item = asRecord(entry);
+        const titles = [
+          str(item.title),
+          str(item.originalTitle),
+          ...asArray(item.alternateTitles).map((alt) => str(asRecord(alt).title)),
+        ].filter(Boolean);
+        return {
+          id: int(item.id),
+          title: str(item.title),
+          year: int(item.year),
+          titles,
+          tmdbId: int(item.tmdbId),
+          tvdbId: int(item.tvdbId),
+          monitored: item.monitored === true,
+          hasFile: item.hasFile === true,
+          qualityProfileId: int(item.qualityProfileId),
+        };
+      });
+    }
+    
+    export function parseProfiles(raw: unknown): Map<number, Profile> {
+      const profiles = new Map<number, Profile>();
+      for (const entry of asArray(raw)) {
+        const profile = asRecord(entry);
+        const allowed = new Set<string>();
+        const qualityRank = new Map<string, number>();
+        const visit = (node: unknown, inherited: boolean, rank: number): void => {
+          const item = asRecord(node);
+          const isAllowed = inherited || item.allowed === true;
+          const quality = str(asRecord(item.quality).name);
+          if (quality && isAllowed) allowed.add(quality);
+          if (quality) qualityRank.set(quality, rank);
+          for (const child of asArray(item.items)) visit(child, isAllowed, rank);
+        };
+        for (const [rank, item] of asArray(profile.items).entries()) {
+          visit(item, false, rank);
+        }
+        profiles.set(int(profile.id), {
+          id: int(profile.id),
+          minFormatScore: int(profile.minFormatScore),
+          allowedQualities: allowed,
+          qualityRank,
+        });
+      }
+      return profiles;
+    }
+    
+    export function parseEpisodes(raw: unknown): Episode[] {
+      return asArray(raw).map((entry) => {
+        const episode = asRecord(entry);
+        return {
+          id: int(episode.id),
+          seasonNumber: int(episode.seasonNumber),
+          episodeNumber: int(episode.episodeNumber),
+          hasFile: episode.hasFile === true,
+          monitored: episode.monitored === true,
+          airYear: Number(str(episode.airDate).slice(0, 4)) || 0,
+        };
+      });
+    }
+    
+    export function parseManualImport(raw: unknown): ManualImportItem[] {
+      return asArray(raw).map((entry) => {
+        const item = asRecord(entry);
+        return {
+          path: str(item.path),
+          name: str(item.name),
+          folderName: str(item.folderName) || undefined,
+          quality: item.quality,
+          languages: asArray(item.languages),
+          releaseGroup: str(item.releaseGroup) || undefined,
+          indexerFlags: int(item.indexerFlags),
+          downloadId: str(item.downloadId) || null,
+          size: int(item.size),
+          rejections: asArray(item.rejections).map((r) => ({
+            reason: str(asRecord(r).reason),
+          })),
+        };
+      });
+    }
+    
+    /** Grab history: normalized release title -> library ids it was grabbed for. */
+    export function parseHistory(app: App, raw: unknown): Map<string, Set<number>> {
+      const byTitle = new Map<string, Set<number>>();
+      const idField = app === "sonarr" ? "seriesId" : "movieId";
+      for (const entry of asArray(asRecord(raw).records)) {
+        const record = asRecord(entry);
+        const key = normalizeTitle(str(record.sourceTitle));
+        const id = int(record[idField]);
+        if (!key || !id) continue;
+        const ids = byTitle.get(key) ?? new Set<number>();
+        ids.add(id);
+        byTitle.set(key, ids);
+      }
+      return byTitle;
+    }
+    
+    const q = encodeURIComponent;
+    const errorText = (error: unknown): string =>
+      error instanceof Error ? error.message : String(error);
+    
+    interface Plan {
+      entry: { name: string; path: string };
+      head: string;
+      targetTitle: string;
+      files: number;
+      importable: ImportCandidate[];
+      blocked: string[];
+    }
+    
+    class Sweep {
+      private readonly arr: Client;
+      private readonly tmdb: Client | null;
+      private readonly deadline: number;
+      private readonly tmdbCache = new Map<
+        string,
+        { tmdbIds: number[]; tvdbIds: number[] }
+      >();
+      private readonly episodeCache = new Map<number, Episode[]>();
+      private library: LibraryItem[] = [];
+      private profiles = new Map<number, Profile>();
+      private history = new Map<string, Set<number>>();
+      readonly tally = {
+        moved: 0,
+        imported: 0,
+        ambiguous: 0,
+        blocked: 0,
+        empty: 0,
+        failed: 0,
+      };
+    
+      constructor(
+        private readonly config: Config,
+        fetcher: typeof fetch = fetch,
+      ) {
+        this.arr = new Client(
+          `${config.url}/api/v3`,
+          { "X-Api-Key": config.apiKey },
+          fetcher,
+        );
+        const bearer = config.tmdbKey.length > 40;
+        this.tmdb = config.tmdbKey
+          ? new Client(
+              "https://api.themoviedb.org/3",
+              bearer ? { Authorization: `Bearer ${config.tmdbKey}` } : {},
+              fetcher,
+            )
+          : null;
+        this.deadline = Date.now() + config.timeoutSeconds * 1000;
+      }
+    
+      private checkDeadline(): void {
+        if (Date.now() > this.deadline) {
+          throw new Error(
+            `run passed ${this.config.timeoutSeconds}s; the next run continues`,
+          );
+        }
+      }
+    
+      private async entries(): Promise<{ name: string; path: string }[]> {
+        const listing = asRecord(
+          await this.arr.request(
+            "GET",
+            `/filesystem?path=${q(this.config.importPath + "/")}&includeFiles=true`,
+          ),
+        );
+        return [...asArray(listing.directories), ...asArray(listing.files)]
+          .map((entry) => asRecord(entry))
+          .map((entry) => ({
+            name: str(entry.name),
+            path: str(entry.path).replace(/\/+$/, ""),
+          }))
+          .filter((entry) => entry.name && !entry.name.startsWith("."))
+          .filter((entry) => entry.name.includes(this.config.only));
+      }
+    
+      private async runCommand(body: Json): Promise<Json> {
+        let command = asRecord(await this.arr.request("POST", "/command", body));
+        const id = int(command.id);
+        if (!id)
+          throw new Error(`no command id in the response to ${str(body.name)}`);
+        while (["queued", "started"].includes(str(command.status))) {
+          this.checkDeadline();
+          await Bun.sleep(this.config.pollSeconds * 1000);
+          command = asRecord(await this.arr.request("GET", `/command/${id}`));
+        }
+        return command;
+      }
+    
+      private async tmdbSignal(
+        release: ParsedRelease,
+      ): Promise<{ tmdbIds: number[]; tvdbIds: number[] }> {
+        const none = { tmdbIds: [], tvdbIds: [] };
+        if (!this.tmdb) return none;
+        const kind = this.config.app === "sonarr" ? "tv" : "movie";
+        const key = `${normalizeTitle(release.title)}|${release.year}`;
+        const cached = this.tmdbCache.get(key);
+        if (cached) return cached;
+        const auth =
+          this.config.tmdbKey.length > 40
+            ? ""
+            : `&api_key=${q(this.config.tmdbKey)}`;
+        // A series release year is often the airing year, so only movie searches filter on it.
+        const yearParam =
+          release.year > 0 && kind === "movie" ? `&year=${release.year}` : "";
+        const search = asRecord(
+          await this.tmdb.request(
+            "GET",
+            `/search/${kind}?query=${q(release.title)}${yearParam}${auth}`,
+          ),
+        );
+        const tmdbIds = asArray(search.results)
+          .slice(0, 5)
+          .map((r) => int(asRecord(r).id))
+          .filter(Boolean);
+        const tvdbIds: number[] = [];
+        if (kind === "tv") {
+          for (const id of tmdbIds) {
+            const ids = asRecord(
+              await this.tmdb.request(
+                "GET",
+                `/tv/${id}/external_ids?${auth.slice(1)}`,
+              ),
+            );
+            tvdbIds.push(int(ids.tvdb_id));
+          }
+        }
+        const signal = { tmdbIds, tvdbIds };
+        this.tmdbCache.set(key, signal);
+        return signal;
+      }
+    
+      private async episodesOf(seriesId: number): Promise<Episode[]> {
+        const cached = this.episodeCache.get(seriesId);
+        if (cached) return cached;
+        const episodes = parseEpisodes(
+          await this.arr.request("GET", `/episode?seriesId=${seriesId}`),
+        );
+        this.episodeCache.set(seriesId, episodes);
+        return episodes;
+      }
+    
+      private async load(): Promise<void> {
+        const sonarr = this.config.app === "sonarr";
+        this.library = parseLibrary(
+          await this.arr.request("GET", sonarr ? "/series" : "/movie"),
+        );
+        this.profiles = parseProfiles(
+          await this.arr.request("GET", "/qualityprofile"),
+        );
+        this.history = parseHistory(
+          this.config.app,
+          await this.arr.request(
+            "GET",
+            `/history?eventType=1&pageSize=${this.config.historyRecords}&sortKey=date&sortDirection=descending`,
+          ),
+        );
+        log(
+          "INFO",
+          `library ${this.library.length}, profiles ${this.profiles.size}, grab history titles ${this.history.size}`,
+        );
+      }
+    
+      private async automaticPass(
+        entries: { name: string; path: string }[],
+      ): Promise<void> {
+        const command =
+          this.config.app === "sonarr"
+            ? "DownloadedEpisodesScan"
+            : "DownloadedMoviesScan";
+        for (const entry of entries) {
+          this.checkDeadline();
+          const result = await this.runCommand({
+            name: command,
+            path: entry.path,
+            importMode: "Move",
+          });
+          if (str(result.status) !== "completed") {
+            this.tally.failed++;
+            log(
+              "ERROR",
+              `${command} ${entry.name}: status ${str(result.status)}: ${str(result.message)}`,
+            );
+          }
+        }
+      }
+    
+      /** Custom format score and languages the app gives the name once resolved to the target. */
+      private async evaluate(
+        fileName: string,
+        target: LibraryItem,
+      ): Promise<{ formatScore: number; languages: unknown[] } | null> {
+        const name = canonicalName(this.config.app, fileName, target);
+        if (!name) return null;
+        const parsed = asRecord(
+          await this.arr.request("GET", `/parse?title=${q(name)}`),
+        );
+        const resolved = asRecord(
+          this.config.app === "sonarr" ? parsed.series : parsed.movie,
+        );
+        if (int(resolved.id) !== target.id) return null;
+        return {
+          formatScore: int(parsed.customFormatScore),
+          languages: asArray(parsed.languages),
+        };
+      }
+    
+      async plan(entry: { name: string; path: string }): Promise<Plan | null> {
+        const app = this.config.app;
+        const files = parseManualImport(
+          await this.arr.request(
+            "GET",
+            `/manualimport?folder=${q(entry.path)}&filterExistingFiles=true`,
+          ),
+        );
+        if (files.length === 0) {
+          this.tally.empty++;
+          log("INFO", `left    ${entry.name}: no video files the app can import`);
+          return null;
+        }
+        const release = parseRelease(
+          app,
+          await this.arr.request("GET", `/parse?title=${q(entry.name)}`),
+        );
+        if (!release) {
+          this.tally.ambiguous++;
+          log(
+            "INFO",
+            `left    ${entry.name}: the app cannot parse the release name`,
+          );
+          return null;
+        }
+        const tmdb = await this.tmdbSignal(release);
+        const historyIds =
+          this.history.get(normalizeTitle(entry.name)) ?? new Set<number>();
+        const firstPass = scoreCandidates(release, this.library, {
+          ...tmdb,
+          historyIds,
+          movies: app === "radarr",
+        });
+        let episodes: Map<number, Episode[]> | undefined;
+        if (app === "sonarr") {
+          episodes = new Map();
+          for (const candidate of firstPass.slice(0, 5)) {
+            episodes.set(
+              candidate.item.id,
+              await this.episodesOf(candidate.item.id),
+            );
+          }
+        }
+        const candidates = scoreCandidates(
+          release,
+          this.library.filter((item) => !episodes || episodes.has(item.id)),
+          { ...tmdb, historyIds, episodes, movies: app === "radarr" },
+        );
+        const decision = decide(
+          candidates,
+          this.config.minScore,
+          this.config.minMargin,
+        );
+        const summary = candidates
+          .slice(0, 3)
+          .map(
+            (c) =>
+              `${c.item.title} (${c.item.year}) ${c.score} [${c.reasons.join(", ")}]`,
+          )
+          .join(" | ");
+        if (decision.kind === "ambiguous") {
+          this.tally.ambiguous++;
+          log(
+            "INFO",
+            `left    ${entry.name}: ${decision.why}; ${summary || "no candidates"}`,
+          );
+          return null;
+        }
+        const target = decision.best.item;
+        const profile = this.profiles.get(target.qualityProfileId);
+        const importable: ImportCandidate[] = [];
+        const blocked: string[] = [];
+        for (const file of files) {
+          const fileName = file.path
+            .split("/")
+            .pop()!
+            .replace(/\.[^.]+$/, "");
+          const parsedFile = asRecord(
+            await this.arr.request("GET", `/parse?title=${q(fileName)}`),
+          );
+          const fileRelease = parseRelease(app, parsedFile) ?? release;
+          const info = asRecord(
+            app === "sonarr"
+              ? parsedFile.parsedEpisodeInfo
+              : parsedFile.parsedMovieInfo,
+          );
+          let targets: { id: number; hasFile: boolean; monitored: boolean }[] = [];
+          if (app === "sonarr") {
+            const all = episodes?.get(target.id) ?? [];
+            targets = targetEpisodes(
+              {
+                ...fileRelease,
+                season: fileRelease.season ?? release.season,
+                fullSeason: false,
+              },
+              all,
+            );
+          } else {
+            targets = [
+              {
+                id: target.id,
+                hasFile: target.hasFile,
+                monitored: target.monitored,
+              },
+            ];
+          }
+          const evaluated = await this.evaluate(fileName, target);
+          const languages = asArray(evaluated?.languages ?? info.languages);
+          const check: FileCheck = {
+            file,
+            episodeIds: app === "sonarr" ? targets.map((t) => t.id) : [],
+            qualityName: str(asRecord(asRecord(file.quality).quality).name),
+            formatScore: evaluated ? evaluated.formatScore : null,
+            languages: languages.length > 0 ? languages : file.languages,
+          };
+          const blocker = fileBlocker(check, targets, profile);
+          if (blocker) blocked.push(`${file.name}: ${blocker}`);
+          else
+            importable.push({
+              entry: entry.name,
+              check,
+              keys: app === "sonarr" ? check.episodeIds : [target.id],
+              rank: profile?.qualityRank.get(check.qualityName) ?? -1,
+              payload: manualImportFile(app, check, target.id),
+            });
+        }
+        return {
+          entry,
+          head: `${target.title} (${target.year}) score ${decision.best.score} [${decision.best.reasons.join(", ")}]`,
+          targetTitle: target.title,
+          files: files.length,
+          importable,
+          blocked,
+        };
+      }
+    
+      private async execute(
+        plan: Plan,
+        selected: Set<ImportCandidate>,
+      ): Promise<void> {
+        const { entry, head } = plan;
+        const chosen = plan.importable.filter((c) => selected.has(c));
+        const left = [...plan.blocked];
+        if (chosen.length === 0) {
+          this.tally.blocked++;
+          log("INFO", `left    ${entry.name} -> ${head}: ${left.join("; ")}`);
+          return;
+        }
+        const leftNote = left.length ? `; left: ${left.join("; ")}` : "";
+        if (this.config.dryRun) {
+          this.tally.imported++;
+          log(
+            "OK",
+            `would import ${chosen.length}/${plan.files} files ${entry.name} -> ${head}${leftNote}`,
+          );
+          return;
+        }
+        this.checkDeadline();
+        const result = await this.runCommand({
+          name: "ManualImport",
+          importMode: "move",
+          files: chosen.map((c) => c.payload),
+        });
+        if (str(result.status) === "completed") {
+          this.tally.imported++;
+          log(
+            "OK",
+            `imported ${chosen.length}/${plan.files} files ${entry.name} -> ${head}${leftNote}`,
+          );
+        } else {
+          this.tally.failed++;
+          log(
+            "ERROR",
+            `ManualImport ${entry.name} -> ${plan.targetTitle}: status ${str(result.status)}: ${str(result.message)}`,
+          );
+        }
+      }
+    
+      async run(): Promise<number> {
+        const mode = this.config.dryRun ? "dry run, no POST" : "importMode Move";
+        let entries = await this.entries();
+        const before = entries.length;
+        log(
+          "INFO",
+          `${before} entries in ${this.config.importPath} (${this.config.app}, ${mode})`,
+        );
+        if (!this.tmdb)
+          log("INFO", "TMDB_API_KEY is not set: matching without the TMDb signal");
+        if (!this.config.dryRun && entries.length > 0) {
+          await this.automaticPass(entries);
+          entries = await this.entries();
+          this.tally.moved = before - entries.length;
+          log(
+            "INFO",
+            `automatic pass moved ${this.tally.moved}; matching the ${entries.length} left`,
+          );
+        }
+        if (entries.length > 0) {
+          await this.load();
+        }
+        const plans: Plan[] = [];
+        for (const entry of entries) {
+          this.checkDeadline();
+          try {
+            const plan = await this.plan(entry);
+            if (plan) plans.push(plan);
+          } catch (error) {
+            this.tally.failed++;
+            log("ERROR", `${entry.name}: ${errorText(error)}`);
+          }
+        }
+        const { selected, superseded } = pickBest(
+          plans.flatMap((p) => p.importable),
+        );
+        for (const { candidate, by } of superseded) {
+          const plan = plans.find((p) => p.entry.name === candidate.entry);
+          plan?.blocked.push(
+            `${candidate.check.file.name}: superseded by ${by.check.file.name}`,
+          );
+        }
+        const chosen = new Set(selected);
+        for (const plan of plans) {
+          try {
+            await this.execute(plan, chosen);
+          } catch (error) {
+            this.tally.failed++;
+            log("ERROR", `${plan.entry.name}: ${errorText(error)}`);
+          }
+        }
+        const t = this.tally;
+        log(
+          t.failed ? "ERROR" : "OK",
+          `done: ${t.moved} moved by the automatic pass, ${t.imported} ${this.config.dryRun ? "would be imported" : "imported"} by match, ${t.blocked} matched but blocked, ${t.ambiguous} unmatched or ambiguous, ${t.empty} without importable files, ${t.failed} failed`,
+        );
+        return t.failed > 0 ? 1 : 0;
+      }
+    }
+    
+    export async function main(
+      argv: string[],
+      env: Record<string, string | undefined>,
+      fetcher: typeof fetch = fetch,
+    ): Promise<number> {
+      let config: Config | "help";
+      try {
+        config = readConfig(argv, env, (path) => readFileSync(path, "utf8"));
+      } catch (error) {
+        log("ERROR", errorText(error));
+        return 1;
+      }
+      if (config === "help") {
+        process.stdout.write(`${HELP}\n`);
+        return 0;
+      }
+      try {
+        return await new Sweep(config, fetcher).run();
+      } catch (error) {
+        log("ERROR", errorText(error));
+        return 1;
+      }
+    }
+    
+    if (import.meta.main) {
+      process.exit(await main(Bun.argv.slice(2), process.env));
+    }
     
 
 ---
@@ -516,7 +1604,7 @@ spec:
 
 ---
 # Source: radarr-config/templates/import-sweep-cronjob.yaml
-# Imports every release left in the completed downloads folder (files/import-sweep.sh).
+# Imports what the app left in the completed downloads folder (files/arr-import-sweep.ts).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -542,9 +1630,10 @@ spec:
             app.kubernetes.io/part-of: radarr
             app.kubernetes.io/component: import-sweep
           annotations:
-            checksum/script: 860fd06d7844a446d716fe276a7b6bf5dc682732bfabedb7ee5c69cf94e5a4d9
+            checksum/script: 1ef72ad3f21f12c60e2501fa3129aa548d0baef5a45e6c677f5d408f307bc1a8
         spec:
           restartPolicy: Never
+          automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
             runAsUser: 568
@@ -564,22 +1653,36 @@ spec:
                       app.kubernetes.io/name: radarr
           containers:
             - name: sweep
-              image: "curlimages/curl:8.22.0"
+              image: "oven/bun:1.4.2-alpine"
               imagePullPolicy: IfNotPresent
-              command: ["/bin/sh", "/scripts/import-sweep.sh"]
+              command: ["bun", "/scripts/arr-import-sweep.ts"]
               env:
+                - name: ARR_APP
+                  value: "radarr"
                 - name: ARR_URL
                   value: "http://radarr.media.svc.cluster.local:7878"
-                - name: COMMAND_NAME
-                  value: "DownloadedMoviesScan"
                 - name: IMPORT_PATH
                   value: "/downloads/completed/movies"
                 - name: CONFIG_XML
                   value: /app-config/config.xml
+                - name: TMDB_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: "plex"
+                      key: "tmdb-api-key"
+                      optional: true
+                - name: DRY_RUN
+                  value: "false"
                 - name: TIMEOUT_SECONDS
                   value: "3000"
                 - name: POLL_SECONDS
                   value: "2"
+                - name: MIN_SCORE
+                  value: "60"
+                - name: MIN_MARGIN
+                  value: "20"
+                - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+                  value: "0"
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -592,16 +1695,15 @@ spec:
                 - name: app-config
                   mountPath: /app-config
                   readOnly: true
-                - name: downloads
-                  mountPath: /downloads
-                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
               resources:
                 limits:
-                  cpu: 100m
-                  memory: 64Mi
+                  cpu: 500m
+                  memory: 256Mi
                 requests:
-                  cpu: 10m
-                  memory: 16Mi
+                  cpu: 20m
+                  memory: 96Mi
           volumes:
             - name: script
               configMap:
@@ -610,8 +1712,6 @@ spec:
               persistentVolumeClaim:
                 claimName: "radarr-config"
                 readOnly: true
-            - name: downloads
-              nfs:
-                server: "truenas.replaceme-domain.com"
-                path: "/mnt/storage/downloads"
-                readOnly: true
+            - name: tmp
+              emptyDir:
+                sizeLimit: 16Mi

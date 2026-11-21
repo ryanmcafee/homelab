@@ -37,6 +37,7 @@ global:
   # Placeholder; configuration/versions.yaml images.curl wins at render time.
   images:
     curl: "8.22.0"
+    bun: "1.4.2-alpine"
 
   # Comma-separated namespaces of this chart enrolled in the ambient mesh, and
   # those of them with a waypoint (templates/_mesh.tpl, templates/waypoints.yaml).
