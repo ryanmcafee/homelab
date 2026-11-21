@@ -19,12 +19,14 @@ import {
   checkEnvelopeCompatibility,
   checkPayloadCompatibility,
   checkTaxonomyCompatibility,
+  collectViolations,
   deadLetterSubjectOf,
   durationSeconds,
   type Envelope,
   filterCovers,
   filtersOverlap,
   loadBaseline,
+  loadContract,
   loadEnvelope,
   loadPayloads,
   loadRegistry,
@@ -1591,28 +1593,11 @@ test("the checked-in payload schemas are compatible with the baseline", () => {
   );
 });
 
-test("the checked-in contract is internally consistent", () => {
+test("`contracts:check` passes against the committed contracts/events/", () => {
+  // The same list `task contracts:check` runs, so a rule added to the CLI is
+  // run here too instead of silently covering nothing (ADR-038, MCAA-385).
   assertEquals(
-    renderViolations([
-      ...validateTaxonomy(loadTaxonomy()),
-      ...validateRegistry(
-        loadRegistry(),
-        loadTaxonomy(),
-        loadEnvelope(),
-        "contracts/events",
-      ),
-    ]),
-    "contract ok",
-  );
-});
-
-test("the checked-in contract is compatible with its baseline", () => {
-  assertEquals(
-    renderViolations([
-      ...checkCompatibility(loadBaseline(), loadRegistry()),
-      ...checkEnvelopeCompatibility(loadBaseline(), loadEnvelope()),
-      ...checkTaxonomyCompatibility(loadBaseline(), loadTaxonomy()),
-    ]),
+    renderViolations(collectViolations(loadContract())),
     "contract ok",
   );
 });
