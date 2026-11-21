@@ -548,6 +548,12 @@ nzbget:
     repo: https://trueforge-org.github.io/truecharts
     version: 28.3.20
 
+  previewResources:
+    requests:
+      cpu: 100m
+    limits:
+      cpu: 1000m
+
   workload:
     main:
       podSpec:

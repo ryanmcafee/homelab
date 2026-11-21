@@ -105,7 +105,7 @@ locals {
     music     = "${local.config.NFS_BASE_PATH}/music"
     pictures  = "${local.config.NFS_BASE_PATH}/pictures"
     documents = "${local.config.NFS_BASE_PATH}/documents"
-    downloads = "${local.config.NFS_BASE_PATH}/downloads"
+    downloads = "${local.config.NFS_SSD_BASE_PATH}/downloads"
   }
 
   # HBA devices for TrueNAS direct disk access

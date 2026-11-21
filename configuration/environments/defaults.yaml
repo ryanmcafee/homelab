@@ -20,6 +20,7 @@ TIMEZONE: "America/New_York"
 
 # Infrastructure
 NFS_BASE_PATH: /mnt/storage
+NFS_SSD_BASE_PATH: /mnt/ssd
 TRUENAS_ZONE_PARENT: storage/k8s
 TRUENAS_ZONE_SSD_PARENT: ssd/k8s
 TRUENAS_ISCSI_PARENT: ssd/iscsi

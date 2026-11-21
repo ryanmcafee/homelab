@@ -1,0 +1,26 @@
+---
+# TrueNAS Storage Role - NFS service tuning
+
+- name: Read NFS service configuration
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/nfs"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: nfs_service_config
+  check_mode: false
+
+- name: Set NFS server thread count
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/nfs"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      servers: "{{ truenas_nfs_servers | int }}"
+    status_code: [200]
+  when: (nfs_service_config.json.servers | int) != (truenas_nfs_servers | int)
+  changed_when: true

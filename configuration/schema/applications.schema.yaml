@@ -31,9 +31,9 @@ keys:
     const: "{{.NFS_BASE_PATH}}/pictures"
 
   MEDIA_DOWNLOADS_PATH:
-    description: NFS path for downloads
+    description: NFS path for downloads (SSD pool)
     required: true
-    const: "{{.NFS_BASE_PATH}}/downloads"
+    const: "{{.NFS_SSD_BASE_PATH}}/downloads"
 
   MEDIA_BOOKS_PATH:
     description: NFS path for books library

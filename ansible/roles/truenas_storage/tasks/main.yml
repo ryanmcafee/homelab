@@ -158,6 +158,16 @@
     dataset_compression: "{{ dataset.compression }}"
     dataset_comments: "{{ dataset.comments | default('') }}"
 
+- name: Include NFS service tuning
+  ansible.builtin.include_tasks:
+    file: configure_nfs_service.yml
+    apply:
+      tags:
+        - nfs-service
+  when: truenas_api_key | length > 0
+  tags:
+    - nfs-service
+
 # NFS share tasks
 - name: Include NFS share creation for Kubernetes
   ansible.builtin.include_tasks: create_nfs_share.yml
@@ -201,7 +211,7 @@
 - name: Include NFS share creation for Downloads
   ansible.builtin.include_tasks: create_nfs_share.yml
   vars:
-    nfs_path: "/mnt/{{ truenas_pool_name }}/downloads"
+    nfs_path: "/mnt/{{ truenas_downloads_dataset }}"
     nfs_comment: "Downloads storage for media automation"
     nfs_networks: "{{ truenas_nfs_allowed_networks }}"
     nfs_mapall_user: "{{ truenas_media_nfs_mapall_user }}"
@@ -228,7 +238,7 @@
 - name: Include SMB share creation for Downloads
   ansible.builtin.include_tasks: create_smb_share.yml
   vars:
-    smb_path: "/mnt/{{ truenas_pool_name }}/downloads"
+    smb_path: "/mnt/{{ truenas_downloads_dataset }}"
     smb_name: "downloads"
     smb_comment: "Downloads storage"
     smb_browsable: "{{ truenas_smb_browsable | default(true) }}"
@@ -326,7 +336,7 @@
       - NFS Share (K8s HDD): {{ truenas_nfs_share_path }}
       - NFS Share (K8s SSD): /mnt/{{ truenas_ssd_k8s_dataset }}
       - NFS Shares (Media): {{ truenas_media_datasets | map(attribute='name') | map('regex_replace', '^', '/mnt/') | list | join(', ') }}
-      - NFS Share (Downloads): /mnt/{{ truenas_pool_name }}/downloads
+      - NFS Share (Downloads): /mnt/{{ truenas_downloads_dataset }}
       {% if truenas_smb_enabled | default(false) %}
       - SMB Shares (Media): {{ truenas_media_datasets | map(attribute='name') | map('basename') | list | join(', ') }}
       - SMB Share (Downloads): downloads

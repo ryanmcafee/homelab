@@ -466,6 +466,7 @@ nzbget:
               # OOMKill. v26's par2 + unpack subsystems hold the entire output
               # buffer in memory while extracting, so peaks track the largest
               # file in the archive set (4K BluRay REMUX easily exceeds 2Gi).
+              # TLS, yEnc decoding, par2 and unrar need about 2 cores at a 1 Gbit/s download rate.
               requests:
                 cpu: 100m
                 memory: 1Gi

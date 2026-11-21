@@ -30,6 +30,8 @@ var consumedOutsideTemplates = map[string]string{
 	"NFS_BASE_PATH": "only used inside other schema keys' const expressions " +
 		`(MEDIA_MOVIES_PATH, MEDIA_TV_PATH, etc. use "{{.NFS_BASE_PATH}}/...") — ` +
 		"never directly referenced by a template",
+	"NFS_SSD_BASE_PATH": "only used inside MEDIA_DOWNLOADS_PATH's const expression and " +
+		"terragrunt/environments/homelab/env.hcl (truenas_media_paths.downloads)",
 	"ARGOCD_HOSTNAME": "read by `homelab bootstrap` (cmd/homelab/commands/bootstrap.go) to print the " +
 		"ArgoCD URL; its last template reference was the removed ingress-verification list",
 

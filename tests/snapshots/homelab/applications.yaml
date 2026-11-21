@@ -966,7 +966,7 @@ spec:
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /mnt/storage/downloads
+            path: /mnt/ssd/downloads
             server: truenas.replaceme-domain.com
             type: nfs
         route:
@@ -1575,10 +1575,10 @@ spec:
                 main:
                   resources:
                     limits:
-                      cpu: 1000m
+                      cpu: 4000m
                       memory: 4Gi
                     requests:
-                      cpu: 100m
+                      cpu: 500m
                       memory: 224Mi
         persistence:
           config:
@@ -1591,7 +1591,7 @@ spec:
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /mnt/storage/downloads
+            path: /mnt/ssd/downloads
             server: truenas.replaceme-domain.com
             type: nfs
         route:
@@ -2318,7 +2318,7 @@ spec:
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /mnt/storage/downloads
+            path: /mnt/ssd/downloads
             server: truenas.replaceme-domain.com
             type: nfs
           movies:
@@ -2567,7 +2567,7 @@ spec:
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /mnt/storage/downloads
+            path: /mnt/ssd/downloads
             server: truenas.replaceme-domain.com
             type: nfs
           tv:

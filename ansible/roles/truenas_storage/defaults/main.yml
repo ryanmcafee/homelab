@@ -60,10 +60,10 @@ truenas_datasets:
     quota: 50T
     compression: lz4
     comments: "Backup storage"
-  - name: "{{ truenas_pool_name }}/downloads"
-    quota: 10T
+  - name: "{{ truenas_downloads_dataset }}"
+    quota: 250G
     compression: lz4
-    comments: "Temporary download storage"
+    comments: "Active Usenet downloads (NZBGet, Sonarr, Radarr)"
 
 # Datasets to delete (legacy cleanup)
 truenas_datasets_to_delete:
@@ -71,6 +71,10 @@ truenas_datasets_to_delete:
 
 # SSD Pool Configuration
 truenas_ssd_pool_name: ssd
+# HDD RAIDZ3 wrote 119 MB/s over NFS, the SSD mirror 938 MB/s: downloads live on SSD.
+truenas_downloads_dataset: "{{ truenas_ssd_pool_name }}/downloads"
+# TrueNAS defaults to one nfsd thread per CPU (4), too few for parallel NFS clients.
+truenas_nfs_servers: 16
 # QLC SSDs lose their SLC cache and write speed when never trimmed; TrueNAS defaults Auto TRIM to off.
 truenas_autotrim_pools:
   - "{{ truenas_ssd_pool_name }}"

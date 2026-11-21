@@ -33,6 +33,7 @@ PROXMOX_NODE: none
 # reaches the templates through the resolver's derived .GitOps field.
 GITOPS_REPO_URL: https://github.com/ryanmcafee/homelab
 NFS_BASE_PATH: /tmp/storage
+NFS_SSD_BASE_PATH: /tmp/ssd
 NFS_MAPALL_USER: localdev
 ACME_EMAIL: test@homelab.local
 DUCKDNS_SUBDOMAIN: homelab-dev
