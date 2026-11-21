@@ -312,6 +312,8 @@ func guardEnvPath() string {
 	return filepath.Join(getConfigRoot(), "environments", configSet+".yaml")
 }
 
+const guardRunbook = "docs/runbooks/verification.md#pii-guard-findings-and-emergency-bypass"
+
 func newConfigGuardCmd() *cobra.Command {
 	var (
 		ciMode bool
@@ -392,6 +394,9 @@ An empty scan scope in CI mode is a failure, never a pass.`,
 			}
 
 			n := report.MatchCount()
+			if n > 0 {
+				logger.Error("Fix by parameterising the value through the ConfigSet; emergency bypass: " + guardRunbook)
+			}
 			switch {
 			case n > 0 && len(report.Unreadable) > 0:
 				return fmt.Errorf("%d PII pattern(s) detected in %d file(s), and %d file(s) unreadable — see errors above",
