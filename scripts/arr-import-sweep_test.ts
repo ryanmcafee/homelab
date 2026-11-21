@@ -6,10 +6,27 @@
  *   bun test scripts/arr-import-sweep_test.ts
  */
 
-import { readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "bun:test";
 import {
+  blocklistTarget,
+  Client,
   canonicalName,
+  findSameCommand,
+  HttpError,
+  languageVerdict,
+  safeRemove,
   decide,
   type Episode,
   type FileCheck,
@@ -437,21 +454,34 @@ function fakeFetch(
     calls.push(`${method} ${url.pathname}${url.search}`);
     const route = routes[`${method} ${url.pathname}`];
     if (!route) return new Response("not found", { status: 404 });
-    return Response.json(route(url, init));
+    const out = route(url, init);
+    return out instanceof Response ? out : Response.json(out);
   };
   return Object.assign(handler, { preconnect: fetch.preconnect });
 }
 
-function sonarrRoutes(posted: unknown[]): Record<string, Route> {
-  const folder = "/downloads/completed/tv/PULSE.S01E02.1080p.WEB-DL-GRP";
+function sonarrRoutes(
+  posted: unknown[],
+  options: { root?: string; languages?: string[]; queue?: unknown[] } = {},
+): Record<string, Route> {
+  const root = options.root ?? "/downloads/completed/tv";
+  const folder = `${root}/PULSE.S01E02.1080p.WEB-DL-GRP`;
   const file = `${folder}/PULSE.S01E02.1080p.WEB-DL-GRP.mkv`;
+  const languages = (options.languages ?? ["English"]).map((name) => ({
+    name,
+  }));
   return {
-    "GET /api/v3/filesystem": () => ({
-      directories: [
-        { name: "PULSE.S01E02.1080p.WEB-DL-GRP", path: `${folder}/` },
-      ],
-      files: [{ name: ".DS_Store", path: "/downloads/completed/tv/.DS_Store" }],
-    }),
+    "GET /api/v3/filesystem": (url) =>
+      url.searchParams.get("path") === `${folder}/`
+        ? { directories: [], files: [{ name: "x.mkv", path: file }] }
+        : {
+            directories: [
+              { name: "PULSE.S01E02.1080p.WEB-DL-GRP", path: `${folder}/` },
+            ],
+            files: [{ name: ".DS_Store", path: `${root}/.DS_Store` }],
+          },
+    "GET /api/v3/queue": () => ({ records: options.queue ?? [] }),
+    "GET /api/v3/command": () => [],
     "GET /api/v3/series": () => [
       {
         id: 69,
@@ -483,6 +513,7 @@ function sonarrRoutes(posted: unknown[]): Record<string, Route> {
     ],
     "GET /api/v3/manualimport": () => [
       {
+        downloadId: "abc123",
         path: file,
         name: "PULSE.S01E02.1080p.WEB-DL-GRP",
         size: 5,
@@ -503,11 +534,14 @@ function sonarrRoutes(posted: unknown[]): Record<string, Route> {
           },
           seasonNumber: 1,
           episodeNumbers: [2],
-          languages: [{ id: 1, name: "English" }],
+          languages: canonical ? languages : [{ name: "Unknown" }],
         },
         series: canonical ? { id: 69 } : null,
         customFormatScore: canonical ? 0 : -10000,
-        languages: [{ id: 1, name: "English" }],
+        customFormats: languages.some((l) => l.name === "English")
+          ? []
+          : [{ name: "Not English" }],
+        languages: canonical ? languages : [{ name: "Unknown" }],
       };
     },
     "POST /api/v3/command": (_url, init) => {
@@ -524,6 +558,7 @@ const sonarrEnv = {
   IMPORT_PATH: "/downloads/completed/tv",
   ARR_API_KEY: "key",
   POLL_SECONDS: "0",
+  RETRY_DELAY_SECONDS: "0",
 };
 
 test("a dry run reports the match and sends no POST", async () => {
@@ -556,8 +591,9 @@ test("a real run scans each entry, then manual-imports the matched file", async 
         {
           path: "/downloads/completed/tv/PULSE.S01E02.1080p.WEB-DL-GRP/PULSE.S01E02.1080p.WEB-DL-GRP.mkv",
           quality: { quality: { name: "WEBDL-1080p" } },
-          languages: [{ id: 1, name: "English" }],
+          languages: [{ name: "English" }],
           indexerFlags: 0,
+          downloadId: "abc123",
           seriesId: 69,
           episodeIds: [609],
           releaseType: "singleEpisode",
@@ -575,4 +611,370 @@ test("a failed command fails the run", async () => {
     message: "boom",
   });
   assertEquals(await main([], sonarrEnv, fakeFetch(routes, [])), 1);
+});
+
+const noSleep = { attempts: 5, delayMs: 100, sleep: async () => {} };
+
+function flaky(
+  failures: number,
+  fail: () => Response | Error,
+): {
+  fetcher: typeof fetch;
+  calls: () => number;
+} {
+  let calls = 0;
+  const handler = async (): Promise<Response> => {
+    calls++;
+    if (calls <= failures) {
+      const outcome = fail();
+      if (outcome instanceof Error) throw outcome;
+      return outcome;
+    }
+    return Response.json({ ok: true });
+  };
+  return {
+    fetcher: Object.assign(handler, { preconnect: fetch.preconnect }),
+    calls: () => calls,
+  };
+}
+
+test("Client retries connection errors with doubling backoff", async () => {
+  const delays: number[] = [];
+  const { fetcher, calls } = flaky(4, () => new TypeError("Unable to connect"));
+  const client = new Client("http://app", {}, fetcher, {
+    ...noSleep,
+    sleep: async (ms) => {
+      delays.push(ms);
+    },
+  });
+  assertEquals(await client.request("GET", "/x"), { ok: true });
+  assertEquals(calls(), 5);
+  assertEquals(delays, [100, 200, 400, 800]);
+});
+
+test("Client retries 5xx and 429 but not other 4xx", async () => {
+  const busy = flaky(2, () => new Response("busy", { status: 503 }));
+  const client = new Client("http://app", {}, busy.fetcher, noSleep);
+  assertEquals(await client.request("GET", "/x"), { ok: true });
+  assertEquals(busy.calls(), 3);
+
+  const missing = flaky(9, () => new Response("gone", { status: 404 }));
+  let thrown: unknown;
+  try {
+    await new Client("http://app", {}, missing.fetcher, noSleep).request(
+      "GET",
+      "/x",
+    );
+  } catch (error) {
+    thrown = error;
+  }
+  assert(thrown instanceof HttpError && thrown.status === 404);
+  assertEquals(missing.calls(), 1);
+});
+
+test("Client gives up after the last attempt and once means one attempt", async () => {
+  const down = flaky(99, () => new TypeError("Unable to connect"));
+  let message = "";
+  try {
+    await new Client("http://app", {}, down.fetcher, noSleep).request(
+      "GET",
+      "/x",
+    );
+  } catch (error) {
+    message = String(error);
+  }
+  assertStringIncludes(message, "after 5 attempt(s)");
+  assertEquals(down.calls(), 5);
+
+  const once = flaky(99, () => new TypeError("Unable to connect"));
+  try {
+    await new Client("http://app", {}, once.fetcher, noSleep).request(
+      "POST",
+      "/command",
+      {},
+      { once: true },
+    );
+  } catch {}
+  assertEquals(once.calls(), 1);
+});
+
+test("findSameCommand finds the command already acting on the same files", () => {
+  const body = {
+    name: "ManualImport",
+    files: [{ path: "/d/a/a.mkv" }],
+  };
+  const commands = [
+    { id: 1, name: "ManualImport", body: { files: [{ path: "/d/b/b.mkv" }] } },
+    { id: 2, name: "ManualImport", body: { files: [{ path: "/d/a/a.mkv" }] } },
+    { id: 3, name: "DownloadedEpisodesScan", body: { path: "/d/a/a.mkv" } },
+  ];
+  assertEquals(findSameCommand(commands, body)?.id, 2);
+  assertEquals(
+    findSameCommand(commands, { name: "DownloadedEpisodesScan", path: "/d/z" }),
+    undefined,
+  );
+});
+
+test("a lost ManualImport POST is found in the app's commands, never sent twice", async () => {
+  const posted: unknown[] = [];
+  const routes = sonarrRoutes(posted);
+  const accept = routes["POST /api/v3/command"]!;
+  routes["POST /api/v3/command"] = (url, init) => {
+    const result = accept(url, init);
+    if (JSON.parse(String(init?.body)).name === "ManualImport") {
+      throw new TypeError("Unable to connect");
+    }
+    return result;
+  };
+  routes["GET /api/v3/command"] = () =>
+    posted
+      .filter((body) => (body as { name: string }).name === "ManualImport")
+      .map((body, i) => ({ id: 50 + i, name: "ManualImport", body }));
+  routes["GET /api/v3/command/50"] = () => ({ id: 50, status: "completed" });
+  const fetcher = fakeFetch(routes, []);
+  const handler: typeof fetch = Object.assign(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (/^\/api\/v3\/command\/\d+$/.test(url.pathname)) {
+        return Response.json({ id: 50, status: "completed" });
+      }
+      return fetcher(input, init);
+    },
+    { preconnect: fetch.preconnect },
+  );
+  assertEquals(await main([], sonarrEnv, handler), 0);
+  assertEquals(
+    posted.filter((body) => (body as { name: string }).name === "ManualImport")
+      .length,
+    1,
+  );
+});
+
+test("a lost poll counts as done when the files left the downloads folder", async () => {
+  const posted: unknown[] = [];
+  const routes = sonarrRoutes(posted);
+  routes["POST /api/v3/command"] = (_url, init) => {
+    const body = JSON.parse(String(init?.body));
+    posted.push(body);
+    return { id: posted.length, name: body.name, status: "started" };
+  };
+  let imported = false;
+  const fetcher = fakeFetch(routes, []);
+  const handler: typeof fetch = Object.assign(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v3/command/1") {
+        return Response.json({ id: 1, status: "completed" });
+      }
+      if (url.pathname === "/api/v3/command/2") {
+        imported = true;
+        throw new TypeError("Unable to connect");
+      }
+      if (imported && url.pathname === "/api/v3/filesystem") {
+        return Response.json({ directories: [], files: [] });
+      }
+      return fetcher(input, init);
+    },
+    { preconnect: fetch.preconnect },
+  );
+  assertEquals(await main([], sonarrEnv, handler), 0);
+  assertEquals(posted.length, 2);
+});
+
+test("languageVerdict keeps anything with English and never judges Unknown", () => {
+  assertEquals(languageVerdict(["German", "English"]), "english");
+  assertEquals(languageVerdict(["english"]), "english");
+  assertEquals(languageVerdict(["German"]), "non-english");
+  assertEquals(languageVerdict(["Spanish", "Original"]), "non-english");
+  assertEquals(languageVerdict(["Unknown"]), "unknown");
+  assertEquals(languageVerdict(["Original"]), "unknown");
+  assertEquals(languageVerdict([]), "unknown");
+});
+
+test("blocklistTarget prefers the queue item, then the grab in history", () => {
+  const entry = {
+    name: "Show.S01E01.GERMAN-GRP",
+    path: "/d/tv/Show.S01E01.GERMAN-GRP",
+  };
+  const queue = [
+    { id: 7, title: "Other", downloadId: "q1", outputPath: "/d/tv/Other" },
+    {
+      id: 8,
+      title: "x",
+      downloadId: "",
+      outputPath: "/d/tv/Show.S01E01.GERMAN-GRP/",
+    },
+  ];
+  const history = [
+    {
+      id: 90,
+      itemId: 1,
+      sourceTitle: "Show.S01E01.GERMAN-GRP",
+      downloadId: "h1",
+    },
+    { id: 91, itemId: 1, sourceTitle: "Unrelated", downloadId: "ABC" },
+  ];
+  assertEquals(blocklistTarget(entry, ["q1"], queue, history), {
+    kind: "queue",
+    item: queue[0]!,
+  });
+  assertEquals(blocklistTarget(entry, [], queue, history), {
+    kind: "queue",
+    item: queue[1]!,
+  });
+  assertEquals(blocklistTarget(entry, ["abc"], [], history), {
+    kind: "history",
+    record: history[1]!,
+  });
+  assertEquals(blocklistTarget(entry, [], [], history), {
+    kind: "history",
+    record: history[0]!,
+  });
+  assertEquals(blocklistTarget(entry, [], [], []), null);
+});
+
+function scratch(): { root: string; category: string } {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "arr-sweep-")));
+  const category = join(root, "completed", "tv");
+  mkdirSync(category, { recursive: true });
+  return { root, category };
+}
+
+test("safeRemove deletes only a real direct child of the category folder", () => {
+  const { root, category } = scratch();
+  try {
+    const release = join(category, "Show.S01E01");
+    mkdirSync(release);
+    writeFileSync(join(release, "a.mkv"), "x");
+    safeRemove(category, release);
+    assert(!existsSync(release));
+
+    const outside = join(root, "keep");
+    mkdirSync(outside);
+    const link = join(category, "link");
+    symlinkSync(outside, link);
+    assertThrows(() => safeRemove(category, link));
+    assert(existsSync(outside));
+
+    const nested = join(category, "a", "b");
+    mkdirSync(nested, { recursive: true });
+    assertThrows(() => safeRemove(category, nested));
+    assert(existsSync(nested));
+
+    assertThrows(() => safeRemove(category, join(category, "..", "keep")));
+    assertThrows(() => safeRemove(category, category));
+    assertThrows(() => safeRemove("/", join("/", "tmp")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a non-English release is reported, not touched, on a dry run", async () => {
+  const { root, category } = scratch();
+  try {
+    mkdirSync(join(category, "PULSE.S01E02.1080p.WEB-DL-GRP"));
+    const calls: string[] = [];
+    const posted: unknown[] = [];
+    const code = await main(
+      ["--dry-run", "--remove-non-english"],
+      { ...sonarrEnv, IMPORT_PATH: category },
+      fakeFetch(
+        sonarrRoutes(posted, { root: category, languages: ["German"] }),
+        calls,
+      ),
+    );
+    assertEquals(code, 0);
+    assert(calls.every((call) => call.startsWith("GET ")));
+    assert(existsSync(join(category, "PULSE.S01E02.1080p.WEB-DL-GRP")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a non-English release is blocklisted through the queue and deleted", async () => {
+  const { root, category } = scratch();
+  try {
+    const release = join(category, "PULSE.S01E02.1080p.WEB-DL-GRP");
+    mkdirSync(release);
+    writeFileSync(join(release, "x.mkv"), "x");
+    const calls: string[] = [];
+    const posted: unknown[] = [];
+    const routes = sonarrRoutes(posted, {
+      root: category,
+      languages: ["German"],
+      queue: [{ id: 42, title: "other", downloadId: "abc123", outputPath: "" }],
+    });
+    routes["DELETE /api/v3/queue/42"] = () => ({});
+    const code = await main(
+      ["--remove-non-english"],
+      { ...sonarrEnv, IMPORT_PATH: category },
+      fakeFetch(routes, calls),
+    );
+    assertEquals(code, 0);
+    assert(
+      calls.includes(
+        "DELETE /api/v3/queue/42?removeFromClient=true&blocklist=true",
+      ),
+    );
+    assertEquals(
+      posted.map((body) => (body as { name: string }).name),
+      ["DownloadedEpisodesScan"],
+    );
+    assert(!existsSync(release));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("without a queue item the grab is marked failed; without either it still deletes", async () => {
+  for (const history of [
+    [{ id: 77, seriesId: 69, sourceTitle: "PULSE.S01E02.1080p.WEB-DL-GRP" }],
+    [],
+  ]) {
+    const { root, category } = scratch();
+    try {
+      const release = join(category, "PULSE.S01E02.1080p.WEB-DL-GRP");
+      mkdirSync(release);
+      const calls: string[] = [];
+      const routes = sonarrRoutes([], {
+        root: category,
+        languages: ["French"],
+      });
+      routes["GET /api/v3/history"] = () => ({ records: history });
+      routes["POST /api/v3/history/failed/77"] = () => ({});
+      const code = await main(
+        ["--remove-non-english"],
+        { ...sonarrEnv, IMPORT_PATH: category },
+        fakeFetch(routes, calls),
+      );
+      assertEquals(code, 0);
+      assertEquals(
+        calls.includes("POST /api/v3/history/failed/77"),
+        history.length > 0,
+      );
+      assert(!existsSync(release));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test("an English or Unknown release is never removed", async () => {
+  for (const languages of [["German", "English"], ["Unknown"]]) {
+    const { root, category } = scratch();
+    try {
+      const release = join(category, "PULSE.S01E02.1080p.WEB-DL-GRP");
+      mkdirSync(release);
+      const calls: string[] = [];
+      await main(
+        ["--remove-non-english"],
+        { ...sonarrEnv, IMPORT_PATH: category },
+        fakeFetch(sonarrRoutes([], { root: category, languages }), calls),
+      );
+      assert(!calls.some((call) => call.startsWith("DELETE ")));
+      assert(existsSync(release));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
 });

@@ -35,10 +35,18 @@ spec:
             server: {{ $movies.server | default "" | quote }}
             path: {{ $movies.path | default "" | quote }}
             mountPath: {{ $movies.mountPath | default "/movies" | quote }}
-        # The import sweep reads the API key from Radarr's config claim and runs as Radarr's user.
+        # The import sweep reads the API key from Radarr's config claim, runs as Radarr's user and
+        # mounts Radarr's downloads volume to delete non-English releases.
+        {{- $downloads := default (dict) .Values.radarr.persistence.downloads }}
         {{- $container := dig "container" (dict) (default (dict) .Values.radarr.securityContext) }}
         importSweep:
           enabled: {{ dig "importSweep" "enabled" false .Values.radarr }}
+          removeNonEnglish: {{ dig "importSweep" "removeNonEnglish" false .Values.radarr }}
+          downloads:
+            type: {{ $downloads.type | default "emptyDir" | quote }}
+            server: {{ $downloads.server | default "" | quote }}
+            path: {{ $downloads.path | default "" | quote }}
+            mountPath: {{ $downloads.mountPath | default "/downloads" | quote }}
           configClaim: {{ $config.existingClaim | default "radarr-config" | quote }}
           securityContext:
             runAsUser: {{ $container.runAsUser | default 568 }}

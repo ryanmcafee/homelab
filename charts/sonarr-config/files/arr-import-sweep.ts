@@ -17,8 +17,14 @@
  *    monitored episodes/movies that have no file, with a quality the profile
  *    allows and a custom format score at or above the profile minimum. Upgrades
  *    and every other rejection stay the app's decision: the folder is left.
+ * 4. REMOVE_NON_ENGLISH: a matched release whose languages (the app's parse of
+ *    the name rewritten to the matched title) are known and exclude English is
+ *    blocklisted (queue removal, else its grab marked failed) and its folder
+ *    deleted from IMPORT_PATH. Unknown languages are never removed.
  *
- * Nothing is deleted by this script. --dry-run sends no POST at all.
+ * API calls retry connection errors, 429 and 5xx with backoff; a command whose
+ * POST or poll was lost is looked up (or its effect checked) before resending.
+ * --dry-run sends no POST and deletes nothing.
  *
  * Environment (flags override):
  *   ARR_APP            sonarr | radarr                      (--app)
@@ -33,9 +39,13 @@
  *   MIN_SCORE          default 60
  *   MIN_MARGIN         default 20
  *   HISTORY_RECORDS    newest grab history records read (default 2000)
+ *   REMOVE_NON_ENGLISH true: blocklist and delete non-English releases (--remove-non-english)
+ *   RETRY_ATTEMPTS     attempts per API call (default 5)
+ *   RETRY_DELAY_SECONDS first backoff, doubled per attempt (default 8: 8+16+32+64 s)
  */
 
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { basename, dirname } from "node:path";
 
 export type App = "sonarr" | "radarr";
 
@@ -52,6 +62,9 @@ export interface Config {
   minMargin: number;
   historyRecords: number;
   only: string;
+  removeNonEnglish: boolean;
+  retryAttempts: number;
+  retryDelaySeconds: number;
 }
 
 export interface ParsedRelease {
@@ -102,7 +115,12 @@ export type Decision =
   | { kind: "match"; best: Scored; candidates: Scored[] }
   | { kind: "ambiguous"; candidates: Scored[]; why: string };
 
-const COLORS = { INFO: "\x1b[36m", OK: "\x1b[32m", ERROR: "\x1b[31m" };
+const COLORS = {
+  INFO: "\x1b[36m",
+  OK: "\x1b[32m",
+  WARN: "\x1b[33m",
+  ERROR: "\x1b[31m",
+};
 const RESET = "\x1b[0m";
 
 export function log(level: keyof typeof COLORS, message: string): void {
@@ -110,13 +128,14 @@ export function log(level: keyof typeof COLORS, message: string): void {
   (level === "ERROR" ? process.stderr : process.stdout).write(line);
 }
 
-const HELP = `Usage: bun arr-import-sweep.ts [--app sonarr|radarr] [--url URL] [--path DIR] [--only TEXT] [--dry-run]
+const HELP = `Usage: bun arr-import-sweep.ts [--app sonarr|radarr] [--url URL] [--path DIR] [--only TEXT] [--remove-non-english] [--dry-run]
 
 Imports what Sonarr/Radarr left in a completed downloads folder: an automatic
 scan per entry, then a scored library match and a ManualImport (move) for what
-the scan rejected as unknown. --dry-run reports every decision and sends no POST.
---only limits the run to entries whose name contains TEXT. Environment: see the
-header of this file.`;
+the scan rejected as unknown. --remove-non-english blocklists and deletes
+matched releases whose known languages exclude English. --dry-run reports every
+decision, sends no POST and deletes nothing. --only limits the run to entries
+whose name contains TEXT. Environment: see the header of this file.`;
 
 export function readConfig(
   argv: string[],
@@ -125,11 +144,16 @@ export function readConfig(
 ): Config | "help" {
   const flags = new Map<string, string>();
   let dryRun = env.DRY_RUN === "true";
+  let removeNonEnglish = env.REMOVE_NON_ENGLISH === "true";
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === "--help" || arg === "-h") return "help";
     if (arg === "--dry-run") {
       dryRun = true;
+      continue;
+    }
+    if (arg === "--remove-non-english") {
+      removeNonEnglish = true;
       continue;
     }
     const name = arg.replace(/^--/, "");
@@ -177,6 +201,9 @@ export function readConfig(
     minMargin: num("MIN_MARGIN", 20),
     historyRecords: num("HISTORY_RECORDS", 2000),
     only: flags.get("only") ?? "",
+    removeNonEnglish,
+    retryAttempts: Math.max(1, num("RETRY_ATTEMPTS", 5)),
+    retryDelaySeconds: num("RETRY_DELAY_SECONDS", 8),
   };
 }
 
@@ -184,11 +211,11 @@ export function readConfig(
 export function normalizeTitle(title: string): string {
   return title
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/\(\d{4}\)\s*$/, "")
     .replace(/&/g, " and ")
-    .replace(/['’]/g, "")
+    .replace(/['\u2019]/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .replace(/^the /, "");
@@ -537,20 +564,49 @@ const str = (value: unknown): string =>
   typeof value === "string" ? value : "";
 const int = (value: unknown): number => (typeof value === "number" ? value : 0);
 
+export interface RetryPolicy {
+  attempts: number;
+  delayMs: number;
+  sleep: (ms: number) => Promise<void>;
+}
+
+export const DEFAULT_RETRY: RetryPolicy = {
+  attempts: 5,
+  delayMs: 8000,
+  sleep: (ms) => Bun.sleep(ms),
+};
+
+/** An HTTP answer that retrying cannot change (4xx other than 429). */
+export class HttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 export class Client {
   constructor(
     private readonly baseUrl: string,
     private readonly headers: Record<string, string>,
     private readonly fetcher: typeof fetch = fetch,
+    private readonly retry: RetryPolicy = DEFAULT_RETRY,
   ) {}
 
+  /**
+   * Retries connection errors, 429 and 5xx with doubling backoff. once: a
+   * single attempt, for requests that must not be repeated blindly.
+   */
   async request(
     method: string,
     path: string,
     body?: unknown,
+    options: { once?: boolean } = {},
   ): Promise<unknown> {
+    const attempts = options.once ? 1 : this.retry.attempts;
     let lastError = "";
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         const response = await this.fetcher(`${this.baseUrl}${path}`, {
           method,
@@ -558,16 +614,109 @@ export class Client {
           body: body === undefined ? undefined : JSON.stringify(body),
           signal: AbortSignal.timeout(60_000),
         });
-        if (response.ok) return await response.json();
+        if (response.ok) {
+          const text = await response.text();
+          return text ? JSON.parse(text) : {};
+        }
         lastError = `HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`;
-        if (response.status < 500 && response.status !== 429) break;
+        if (response.status < 500 && response.status !== 429) {
+          throw new HttpError(
+            `${method} ${path} failed: ${lastError}`,
+            response.status,
+          );
+        }
       } catch (error) {
+        if (error instanceof HttpError) throw error;
         lastError = String(error);
       }
-      await Bun.sleep(attempt * 1000);
+      if (attempt < attempts) {
+        await this.retry.sleep(this.retry.delayMs * 2 ** (attempt - 1));
+      }
     }
-    throw new Error(`${method} ${path} failed: ${lastError}`);
+    throw new Error(
+      `${method} ${path} failed after ${attempts} attempt(s): ${lastError}`,
+    );
   }
+}
+
+export type LanguageVerdict = "english" | "non-english" | "unknown";
+
+/** English when any language is English; unknown when none is known. */
+export function languageVerdict(languages: string[]): LanguageVerdict {
+  if (languages.some((name) => /^english$/i.test(name))) return "english";
+  const known = languages.filter(
+    (name) => name && !/^(unknown|original)$/i.test(name),
+  );
+  return known.length > 0 ? "non-english" : "unknown";
+}
+
+export interface HistoryRecord {
+  id: number;
+  itemId: number;
+  sourceTitle: string;
+  downloadId: string;
+}
+
+export interface QueueItem {
+  id: number;
+  title: string;
+  downloadId: string;
+  outputPath: string;
+}
+
+/** The queue item, else the newest grab, that a downloads folder came from. */
+export function blocklistTarget(
+  entry: { name: string; path: string },
+  downloadIds: string[],
+  queue: QueueItem[],
+  history: HistoryRecord[],
+):
+  | { kind: "queue"; item: QueueItem }
+  | { kind: "history"; record: HistoryRecord }
+  | null {
+  const name = normalizeTitle(entry.name);
+  const ids = new Set(
+    downloadIds.filter(Boolean).map((id) => id.toLowerCase()),
+  );
+  const byId = (downloadId: string) =>
+    downloadId !== "" && ids.has(downloadId.toLowerCase());
+  const queued =
+    queue.find((item) => byId(item.downloadId)) ??
+    queue.find(
+      (item) =>
+        item.outputPath.replace(/\/+$/, "") === entry.path ||
+        normalizeTitle(item.title) === name,
+    );
+  if (queued) return { kind: "queue", item: queued };
+  const grabbed =
+    history.find((record) => byId(record.downloadId)) ??
+    history.find((record) => normalizeTitle(record.sourceTitle) === name);
+  return grabbed ? { kind: "history", record: grabbed } : null;
+}
+
+/**
+ * Deletes entryPath only when it is a real (not symlinked) direct child of
+ * categoryDir, which itself must be at least two levels below the root.
+ */
+export function safeRemove(categoryDir: string, entryPath: string): void {
+  const category = realpathSync(categoryDir);
+  if (category.split("/").filter(Boolean).length < 2) {
+    throw new Error(`refusing to delete under ${category}: too close to /`);
+  }
+  const name = basename(entryPath);
+  if (!name || name === "." || name === "..") {
+    throw new Error(`refusing to delete ${entryPath}: not a named entry`);
+  }
+  if (lstatSync(entryPath).isSymbolicLink()) {
+    throw new Error(`refusing to delete ${entryPath}: it is a symlink`);
+  }
+  const resolved = realpathSync(entryPath);
+  if (dirname(resolved) !== category) {
+    throw new Error(
+      `refusing to delete ${resolved}: not a direct child of ${category}`,
+    );
+  }
+  rmSync(resolved, { recursive: true });
 }
 
 export function parseRelease(app: App, raw: unknown): ParsedRelease | null {
@@ -688,17 +837,60 @@ export function parseManualImport(raw: unknown): ManualImportItem[] {
 /** Grab history: normalized release title -> library ids it was grabbed for. */
 export function parseHistory(app: App, raw: unknown): Map<string, Set<number>> {
   const byTitle = new Map<string, Set<number>>();
-  const idField = app === "sonarr" ? "seriesId" : "movieId";
-  for (const entry of asArray(asRecord(raw).records)) {
-    const record = asRecord(entry);
-    const key = normalizeTitle(str(record.sourceTitle));
-    const id = int(record[idField]);
-    if (!key || !id) continue;
+  for (const record of parseHistoryRecords(app, raw)) {
+    const key = normalizeTitle(record.sourceTitle);
+    if (!key || !record.itemId) continue;
     const ids = byTitle.get(key) ?? new Set<number>();
-    ids.add(id);
+    ids.add(record.itemId);
     byTitle.set(key, ids);
   }
   return byTitle;
+}
+
+export function parseHistoryRecords(app: App, raw: unknown): HistoryRecord[] {
+  const idField = app === "sonarr" ? "seriesId" : "movieId";
+  return asArray(asRecord(raw).records).map((entry) => {
+    const record = asRecord(entry);
+    return {
+      id: int(record.id),
+      itemId: int(record[idField]),
+      sourceTitle: str(record.sourceTitle),
+      downloadId: str(record.downloadId),
+    };
+  });
+}
+
+export function parseQueue(raw: unknown): QueueItem[] {
+  return asArray(asRecord(raw).records).map((entry) => {
+    const item = asRecord(entry);
+    return {
+      id: int(item.id),
+      title: str(item.title),
+      downloadId: str(item.downloadId),
+      outputPath: str(item.outputPath),
+    };
+  });
+}
+
+/** A recent command with the same name acting on the same path or files. */
+export function findSameCommand(
+  commands: unknown,
+  body: Json,
+): Json | undefined {
+  const paths = (value: Json): string[] =>
+    [
+      str(value.path),
+      ...asArray(value.files).map((file) => str(asRecord(file).path)),
+    ].filter(Boolean);
+  const wanted = paths(body);
+  return asArray(commands)
+    .map((command) => asRecord(command))
+    .filter((command) => str(command.name) === str(body.name))
+    .filter((command) => {
+      const have = paths(asRecord(command.body));
+      return wanted.length > 0 && wanted.every((path) => have.includes(path));
+    })
+    .sort((a, b) => int(b.id) - int(a.id))[0];
 }
 
 const q = encodeURIComponent;
@@ -712,6 +904,8 @@ interface Plan {
   files: number;
   importable: ImportCandidate[];
   blocked: string[];
+  /** Set when the release is non-English and REMOVE_NON_ENGLISH is on. */
+  removal?: { evidence: string; downloadIds: string[] };
 }
 
 class Sweep {
@@ -726,9 +920,12 @@ class Sweep {
   private library: LibraryItem[] = [];
   private profiles = new Map<number, Profile>();
   private history = new Map<string, Set<number>>();
+  private historyRecords: HistoryRecord[] = [];
+  private queue: QueueItem[] = [];
   readonly tally = {
     moved: 0,
     imported: 0,
+    removed: 0,
     ambiguous: 0,
     blocked: 0,
     empty: 0,
@@ -738,11 +935,18 @@ class Sweep {
   constructor(
     private readonly config: Config,
     fetcher: typeof fetch = fetch,
+    sleep: (ms: number) => Promise<void> = (ms) => Bun.sleep(ms),
   ) {
+    const retry: RetryPolicy = {
+      attempts: config.retryAttempts,
+      delayMs: config.retryDelaySeconds * 1000,
+      sleep,
+    };
     this.arr = new Client(
       `${config.url}/api/v3`,
       { "X-Api-Key": config.apiKey },
       fetcher,
+      retry,
     );
     const bearer = config.tmdbKey.length > 40;
     this.tmdb = config.tmdbKey
@@ -750,6 +954,7 @@ class Sweep {
           "https://api.themoviedb.org/3",
           bearer ? { Authorization: `Bearer ${config.tmdbKey}` } : {},
           fetcher,
+          retry,
         )
       : null;
     this.deadline = Date.now() + config.timeoutSeconds * 1000;
@@ -780,17 +985,83 @@ class Sweep {
       .filter((entry) => entry.name.includes(this.config.only));
   }
 
-  private async runCommand(body: Json): Promise<Json> {
-    let command = asRecord(await this.arr.request("POST", "/command", body));
+  /**
+   * POSTs a command once and polls it. When the POST or the poll is lost, the
+   * app's recent commands are searched for it, and done() says whether its
+   * effect already happened, before the command is ever sent again.
+   */
+  private async runCommand(
+    body: Json,
+    done: () => Promise<boolean>,
+  ): Promise<Json> {
+    let command: Json;
+    try {
+      command = asRecord(
+        await this.arr.request("POST", "/command", body, { once: true }),
+      );
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      log(
+        "WARN",
+        `POST ${str(body.name)} lost (${errorText(error)}); checking before resending`,
+      );
+      const existing = findSameCommand(
+        await this.arr.request("GET", "/command"),
+        body,
+      );
+      if (existing) {
+        command = existing;
+      } else if (await done()) {
+        return { status: "completed", message: "already done" };
+      } else {
+        command = asRecord(
+          await this.arr.request("POST", "/command", body, { once: true }),
+        );
+      }
+    }
     const id = int(command.id);
     if (!id)
       throw new Error(`no command id in the response to ${str(body.name)}`);
-    while (["queued", "started"].includes(str(command.status))) {
+    while (["queued", "started", ""].includes(str(command.status))) {
       this.checkDeadline();
       await Bun.sleep(this.config.pollSeconds * 1000);
-      command = asRecord(await this.arr.request("GET", `/command/${id}`));
+      try {
+        command = asRecord(await this.arr.request("GET", `/command/${id}`));
+      } catch (error) {
+        if (await done()) {
+          return { status: "completed", message: "done; its poll was lost" };
+        }
+        throw error;
+      }
+    }
+    if (str(command.status) !== "completed" && (await done())) {
+      return {
+        status: "completed",
+        message: `done; command ended ${str(command.status)}`,
+      };
     }
     return command;
+  }
+
+  /** True when none of the paths exists in the app's view of the downloads share. */
+  private async gone(paths: string[]): Promise<boolean> {
+    for (const path of paths) {
+      const parent = path.replace(/\/[^/]+\/?$/, "");
+      const listing = asRecord(
+        await this.arr.request(
+          "GET",
+          `/filesystem?path=${q(parent + "/")}&includeFiles=true`,
+        ),
+      );
+      const present = [
+        ...asArray(listing.directories),
+        ...asArray(listing.files),
+      ]
+        .map((entry) => str(asRecord(entry).path).replace(/\/+$/, ""))
+        .includes(path.replace(/\/+$/, ""));
+      if (present) return false;
+    }
+    return true;
   }
 
   private async tmdbSignal(
@@ -854,16 +1125,23 @@ class Sweep {
     this.profiles = parseProfiles(
       await this.arr.request("GET", "/qualityprofile"),
     );
-    this.history = parseHistory(
-      this.config.app,
-      await this.arr.request(
-        "GET",
-        `/history?eventType=1&pageSize=${this.config.historyRecords}&sortKey=date&sortDirection=descending`,
-      ),
+    const history = await this.arr.request(
+      "GET",
+      `/history?eventType=1&pageSize=${this.config.historyRecords}&sortKey=date&sortDirection=descending`,
     );
+    this.history = parseHistory(this.config.app, history);
+    this.historyRecords = parseHistoryRecords(this.config.app, history);
+    if (this.config.removeNonEnglish) {
+      const unknownItems = sonarr
+        ? "includeUnknownSeriesItems=true"
+        : "includeUnknownMovieItems=true";
+      this.queue = parseQueue(
+        await this.arr.request("GET", `/queue?pageSize=1000&${unknownItems}`),
+      );
+    }
     log(
       "INFO",
-      `library ${this.library.length}, profiles ${this.profiles.size}, grab history titles ${this.history.size}`,
+      `library ${this.library.length}, profiles ${this.profiles.size}, grab history titles ${this.history.size}, queue ${this.queue.length}`,
     );
   }
 
@@ -876,11 +1154,10 @@ class Sweep {
         : "DownloadedMoviesScan";
     for (const entry of entries) {
       this.checkDeadline();
-      const result = await this.runCommand({
-        name: command,
-        path: entry.path,
-        importMode: "Move",
-      });
+      const result = await this.runCommand(
+        { name: command, path: entry.path, importMode: "Move" },
+        () => this.gone([entry.path]),
+      );
       if (str(result.status) !== "completed") {
         this.tally.failed++;
         log(
@@ -895,7 +1172,12 @@ class Sweep {
   private async evaluate(
     fileName: string,
     target: LibraryItem,
-  ): Promise<{ formatScore: number; languages: unknown[] } | null> {
+  ): Promise<{
+    formatScore: number;
+    languages: unknown[];
+    languageNames: string[];
+    formats: string[];
+  } | null> {
     const name = canonicalName(this.config.app, fileName, target);
     if (!name) return null;
     const parsed = asRecord(
@@ -905,9 +1187,12 @@ class Sweep {
       this.config.app === "sonarr" ? parsed.series : parsed.movie,
     );
     if (int(resolved.id) !== target.id) return null;
+    const languages = asArray(parsed.languages);
     return {
       formatScore: int(parsed.customFormatScore),
-      languages: asArray(parsed.languages),
+      languages,
+      languageNames: languages.map((l) => str(asRecord(l).name)),
+      formats: asArray(parsed.customFormats).map((f) => str(asRecord(f).name)),
     };
   }
 
@@ -924,10 +1209,10 @@ class Sweep {
       log("INFO", `left    ${entry.name}: no video files the app can import`);
       return null;
     }
-    const release = parseRelease(
-      app,
+    const parsedEntry = asRecord(
       await this.arr.request("GET", `/parse?title=${q(entry.name)}`),
     );
+    const release = parseRelease(app, parsedEntry);
     if (!release) {
       this.tally.ambiguous++;
       log(
@@ -980,6 +1265,46 @@ class Sweep {
       return null;
     }
     const target = decision.best.item;
+    const head = `${target.title} (${target.year}) score ${decision.best.score} [${decision.best.reasons.join(", ")}]`;
+    if (this.config.removeNonEnglish) {
+      const nameInfo = asRecord(
+        app === "sonarr"
+          ? parsedEntry.parsedEpisodeInfo
+          : parsedEntry.parsedMovieInfo,
+      );
+      const named = asArray(nameInfo.languages).map((l) =>
+        str(asRecord(l).name),
+      );
+      const judged = await this.evaluate(entry.name, target);
+      const verdict = judged
+        ? languageVerdict(judged.languageNames)
+        : "unknown";
+      const inferred =
+        languageVerdict(named) === "unknown"
+          ? " (inferred from the series' original language)"
+          : "";
+      const evidence = `name languages [${named.join(", ")}], app languages [${judged?.languageNames.join(", ") ?? "not resolved"}]${inferred}, formats [${judged?.formats.join(", ") ?? ""}]`;
+      if (verdict === "non-english") {
+        return {
+          entry,
+          head,
+          targetTitle: target.title,
+          files: files.length,
+          importable: [],
+          blocked: [],
+          removal: {
+            evidence,
+            downloadIds: files.map((f) => f.downloadId ?? "").filter(Boolean),
+          },
+        };
+      }
+      if (verdict === "unknown" && judged?.formats.includes("Not English")) {
+        log(
+          "INFO",
+          `keep    ${entry.name}: language unknown, never removed; ${evidence}`,
+        );
+      }
+    }
     const profile = this.profiles.get(target.qualityProfileId);
     const importable: ImportCandidate[] = [];
     const blocked: string[] = [];
@@ -1039,7 +1364,7 @@ class Sweep {
     }
     return {
       entry,
-      head: `${target.title} (${target.year}) score ${decision.best.score} [${decision.best.reasons.join(", ")}]`,
+      head,
       targetTitle: target.title,
       files: files.length,
       importable,
@@ -1052,6 +1377,10 @@ class Sweep {
     selected: Set<ImportCandidate>,
   ): Promise<void> {
     const { entry, head } = plan;
+    if (plan.removal) {
+      await this.remove(plan, plan.removal);
+      return;
+    }
     const chosen = plan.importable.filter((c) => selected.has(c));
     const left = [...plan.blocked];
     if (chosen.length === 0) {
@@ -1069,11 +1398,14 @@ class Sweep {
       return;
     }
     this.checkDeadline();
-    const result = await this.runCommand({
-      name: "ManualImport",
-      importMode: "move",
-      files: chosen.map((c) => c.payload),
-    });
+    const result = await this.runCommand(
+      {
+        name: "ManualImport",
+        importMode: "move",
+        files: chosen.map((c) => c.payload),
+      },
+      () => this.gone(chosen.map((c) => c.check.file.path)),
+    );
     if (str(result.status) === "completed") {
       this.tally.imported++;
       log(
@@ -1087,6 +1419,60 @@ class Sweep {
         `ManualImport ${entry.name} -> ${plan.targetTitle}: status ${str(result.status)}: ${str(result.message)}`,
       );
     }
+  }
+
+  /** Blocklists the release in the app, then deletes its folder from the downloads share. */
+  private async remove(
+    plan: Plan,
+    removal: { evidence: string; downloadIds: string[] },
+  ): Promise<void> {
+    const { entry } = plan;
+    const target = blocklistTarget(
+      entry,
+      removal.downloadIds,
+      this.queue,
+      this.historyRecords,
+    );
+    const how =
+      target?.kind === "queue"
+        ? `remove queue item ${target.item.id} with blocklist`
+        : target?.kind === "history"
+          ? `mark grab ${target.record.id} failed (blocklist)`
+          : "NOT blocklisted: no queue item or grab history found";
+    const verb = this.config.dryRun ? "would remove" : "remove";
+    log(
+      target ? "INFO" : "WARN",
+      `${verb} ${entry.name} -> ${plan.head}: non-English, ${removal.evidence}; ${how}; delete ${entry.path}`,
+    );
+    if (this.config.dryRun) {
+      this.tally.removed++;
+      return;
+    }
+    this.checkDeadline();
+    if (target?.kind === "queue") {
+      try {
+        await this.arr.request(
+          "DELETE",
+          `/queue/${target.item.id}?removeFromClient=true&blocklist=true`,
+        );
+      } catch (error) {
+        // A retried DELETE whose first attempt succeeded finds nothing left.
+        if (!(error instanceof HttpError && error.status === 404)) throw error;
+      }
+    } else if (target?.kind === "history") {
+      await this.arr.request("POST", `/history/failed/${target.record.id}`);
+    }
+    try {
+      safeRemove(this.config.importPath, entry.path);
+    } catch (error) {
+      if (
+        !(error instanceof Error && "code" in error && error.code === "ENOENT")
+      ) {
+        throw error;
+      }
+    }
+    this.tally.removed++;
+    log("OK", `removed ${entry.name}`);
   }
 
   async run(): Promise<number> {
@@ -1143,7 +1529,7 @@ class Sweep {
     const t = this.tally;
     log(
       t.failed ? "ERROR" : "OK",
-      `done: ${t.moved} moved by the automatic pass, ${t.imported} ${this.config.dryRun ? "would be imported" : "imported"} by match, ${t.blocked} matched but blocked, ${t.ambiguous} unmatched or ambiguous, ${t.empty} without importable files, ${t.failed} failed`,
+      `done: ${t.moved} moved by the automatic pass, ${t.imported} ${this.config.dryRun ? "would be imported" : "imported"} by match, ${t.removed} ${this.config.dryRun ? "would be removed" : "removed"} as non-English, ${t.blocked} matched but blocked, ${t.ambiguous} unmatched or ambiguous, ${t.empty} without importable files, ${t.failed} failed`,
     );
     return t.failed > 0 ? 1 : 0;
   }

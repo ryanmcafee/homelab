@@ -20,10 +20,22 @@ the app left in `/downloads/completed/tv` or `/downloads/completed/movies`. Scri
    episodes/movies **without a file**, with a quality the profile allows and a custom format score
    at or above the profile minimum (scored by the app on the name rewritten to the matched title).
    When several releases fill the same episode, the one the profile prefers is imported.
+4. **Non-English removal** (`importSweep.removeNonEnglish`, on in homelab): a matched release whose
+   languages, as the app parses the name rewritten to the matched title, are known and exclude
+   English is blocklisted and its folder deleted. A release with English among its languages
+   (`DUAL`, `MULTi`, `GERMAN.DUBBED.DL`) is kept; `Unknown` is never removed. Blocklisting removes
+   the queue item (`DELETE /api/v3/queue/{id}?removeFromClient=true&blocklist=true`), else marks
+   the grab failed (`POST /api/v3/history/failed/{id}`, matched by download id, then title); both
+   start a replacement search. Without either, the folder is still deleted and the log line is
+   `WARN ... NOT blocklisted`. Deletion only removes a real (not symlinked) direct child of the
+   category folder, through a read-write mount of the app's downloads volume. The log notes when
+   the language was inferred from the series' original language rather than tagged in the name.
 
-Nothing is deleted by the Job; upgrades and every other app rejection stay the app's decision.
-The API key comes from `config.xml` on the app's ReadWriteOnce config claim (podAffinity to the
-app's node); the TMDb key is `tmdb-api-key` of Secret `plex` (optional).
+Upgrades and every other app rejection stay the app's decision. API calls retry connection errors,
+429 and 5xx five times over about two minutes; a command whose POST or poll was lost is looked up
+in the app's commands (or its files are checked) before it is ever sent again. The API key comes
+from `config.xml` on the app's ReadWriteOnce config claim (podAffinity to the app's node); the
+TMDb key is `tmdb-api-key` of Secret `plex` (optional).
 
 ## Reading a run
 
@@ -40,11 +52,12 @@ when a command fails, the API is unreachable or the run passes 50 minutes.
 ```bash
 kubectl -n media port-forward svc/sonarr 18989:8989
 ARR_API_KEY=... TMDB_API_KEY=... bun charts/sonarr-config/files/arr-import-sweep.ts \
-  --app sonarr --url http://localhost:18989 --path /downloads/completed/tv --dry-run
+  --app sonarr --url http://localhost:18989 --path /downloads/completed/tv --remove-non-english --dry-run
 ```
 
-`--dry-run` sends no POST; `--only <text>` limits it to matching entries. `importSweep.dryRun: true`
-does the same in the CronJob.
+`--dry-run` sends no POST and deletes nothing, and prints `would remove` with the language evidence
+and the blocklist action for each non-English release; `--only <text>` limits it to matching
+entries. `importSweep.dryRun: true` does the same in the CronJob.
 
 ## Entries that stay
 
