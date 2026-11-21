@@ -290,11 +290,12 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) (*UpgradeOutput, *Result)
 		baseSrc, baseErr := sourcesFromFiles(baseFiles)
 		headSrc, headErr := sourcesFromFiles(headFiles)
 		if headErr != nil {
-			res.Add(FailCheck(fmt.Sprintf("upgrade/%s/_render", env.Name), start, "parsing the working-tree render: "+headErr.Error()))
+			res.Add(FailCheck(fmt.Sprintf("upgrade/%s/_render", env.Name), start, "parsing the working-tree render: "+upgradeContentOmitted))
 			continue
 		}
 		if baseErr != nil {
-			res.Add(SkipCheck(fmt.Sprintf("upgrade/%s/_base-render", env.Name), "parsing the base render: "+baseErr.Error()))
+			res.Add(FailCheck(fmt.Sprintf("upgrade/%s/_base-render", env.Name), start, "parsing the base render: "+upgradeContentOmitted))
+			continue
 		}
 
 		for _, key := range unionKeys(baseSrc, headSrc) {
@@ -384,11 +385,10 @@ func finishJob(j *upgradeJob, item *UpgradeItem, maxLines int) Check {
 	name := item.Check
 	switch {
 	case j.headErr != nil:
-		return FailCheck(name, start, fmt.Sprintf("helm template failed at head: %s (%s)", j.headErr.detail, item.Change), capLines(j.headErr.lines)...)
+		return FailCheck(name, start, "helm template failed at head: "+upgradeContentOmitted)
 	case j.baseErr != nil:
 		return Check{Name: name, Status: StatusSkip,
-			Detail:   fmt.Sprintf("helm template failed at base, head renders: %s (%s)", j.baseErr.detail, item.Change),
-			Findings: capLines(j.baseErr.lines)}
+			Detail: "helm template failed at base, head renders: " + upgradeContentOmitted}
 	}
 
 	baseObjs, berr := normaliseManifest(j.baseOut)
@@ -397,7 +397,7 @@ func finishJob(j *upgradeJob, item *UpgradeItem, maxLines int) Check {
 		return FailCheck(name, start, "parsing the head render: "+herr.Error())
 	}
 	if berr != nil {
-		return Check{Name: name, Status: StatusSkip, Detail: "parsing the base render: " + berr.Error()}
+		return FailCheck(name, start, "parsing the base render: "+berr.Error())
 	}
 
 	item.Rendered = true
@@ -407,6 +407,9 @@ func finishJob(j *upgradeJob, item *UpgradeItem, maxLines int) Check {
 	item.Diff, item.Truncated = capDiff(lines, maxLines)
 
 	if len(lines) == 0 {
+		if upgradeHasSecrets(baseObjs, headObjs) {
+			return PassCheck(name, start, "Secret payloads redacted; equality requires human review")
+		}
 		return PassCheck(name, start, fmt.Sprintf("%s: %s; rendered manifests identical after dropping %s labels",
 			UpgradeUnchanged, item.Change, strings.Join(upgradeDroppedLabels, ", ")))
 	}
@@ -594,11 +597,7 @@ func failedRenders(res *Result, env string) (map[string]bool, []string) {
 		default:
 			continue
 		}
-		f := c.Name + ": " + c.Detail
-		if len(c.Findings) > 0 {
-			f += " — " + c.Findings[0]
-		}
-		findings = append(findings, f)
+		findings = append(findings, c.Name+": "+upgradeContentOmitted)
 	}
 	return failed, findings
 }
@@ -842,6 +841,9 @@ func repoDiff(env string, baseFiles, headFiles map[string]string, baseFailed, he
 		suffix = "; not compared (render failed): " + strings.Join(skipped, ", ")
 	}
 	if len(lines) == 0 {
+		if upgradeHasSecrets(baseObjs, headObjs) {
+			return item, PassCheck(item.Check, start, "Secret payloads redacted; equality requires human review"+suffix)
+		}
 		return item, PassCheck(item.Check, start, UpgradeUnchanged+": level-0 render of this repository's charts is identical apart from upstream chart sources"+suffix)
 	}
 	c := PassCheck(item.Check, start, fmt.Sprintf("manifest diff: +%d -%d lines in this repository's charts (Application chart sources masked; see upgrade/%s/<app>)%s", added, deleted, env, suffix))
@@ -865,17 +867,20 @@ func normaliseRepoManifest(data []byte) (map[string]string, error) {
 func normaliseDocs(data []byte, mutate func(map[string]any)) (map[string]string, error) {
 	docs, err := ParseMultiDoc("", "", data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid manifest YAML; %s", upgradeContentOmitted)
 	}
 	out := map[string]string{}
 	for _, d := range docs {
+		if err := redactUpgradeSecrets(d.Object, false); err != nil {
+			return nil, err
+		}
 		dropVersionLabels(d.Object)
 		if mutate != nil {
 			mutate(d.Object)
 		}
 		text, err := marshalYAML(d.Object)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("cannot encode sanitized manifest; %s", upgradeContentOmitted)
 		}
 		id := d.ID()
 		for n := 2; ; n++ {
