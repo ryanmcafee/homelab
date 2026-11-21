@@ -263,6 +263,10 @@ sonarr:
     url: http://sonarr.media.svc.cluster.local:8989/ping
     expect: ["200"]
 
+  # Imports what is left in the completed downloads folder (charts/sonarr-config); needs the NFS downloads export.
+  importSweep:
+    enabled: false
+
 # ============================================================================
 # Radarr - Movie Management
 # Sync Wave: 2
@@ -351,6 +355,10 @@ radarr:
     enabled: true
     url: http://radarr.media.svc.cluster.local:7878/ping
     expect: ["200"]
+
+  # Imports what is left in the completed downloads folder (charts/radarr-config); needs the NFS downloads export.
+  importSweep:
+    enabled: false
 
 # ============================================================================
 # Prowlarr - Indexer Manager

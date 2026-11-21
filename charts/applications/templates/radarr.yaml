@@ -35,6 +35,22 @@ spec:
             server: {{ $movies.server | default "" | quote }}
             path: {{ $movies.path | default "" | quote }}
             mountPath: {{ $movies.mountPath | default "/movies" | quote }}
+        # The import sweep mounts Radarr's downloads volume and config claim, so entry paths match Radarr's.
+        {{- $downloads := default (dict) .Values.radarr.persistence.downloads }}
+        {{- $container := dig "container" (dict) (default (dict) .Values.radarr.securityContext) }}
+        importSweep:
+          enabled: {{ dig "importSweep" "enabled" false .Values.radarr }}
+          configClaim: {{ $config.existingClaim | default "radarr-config" | quote }}
+          downloads:
+            type: {{ $downloads.type | default "emptyDir" | quote }}
+            server: {{ $downloads.server | default "" | quote }}
+            path: {{ $downloads.path | default "" | quote }}
+            mountPath: {{ $downloads.mountPath | default "/downloads" | quote }}
+          securityContext:
+            runAsUser: {{ $container.runAsUser | default 568 }}
+            runAsGroup: {{ $container.runAsGroup | default 100 }}
+          image:
+            tag: {{ .Values.global.images.curl | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.radarr.namespace }}

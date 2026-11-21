@@ -2255,6 +2255,20 @@ spec:
             server: "truenas.replaceme-domain.com"
             path: "/mnt/storage/movies"
             mountPath: "/movies"
+        # The import sweep mounts Radarr's downloads volume and config claim, so entry paths match Radarr's.
+        importSweep:
+          enabled: true
+          configClaim: "radarr-config"
+          downloads:
+            type: "nfs"
+            server: "truenas.replaceme-domain.com"
+            path: "/mnt/storage/downloads"
+            mountPath: "/downloads"
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 100
+          image:
+            tag: "8.22.0"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2504,6 +2518,20 @@ spec:
       valuesObject:
         iscsi:
           portal: "198.51.100.50:3260"
+        # The import sweep mounts Sonarr's downloads volume and config claim, so entry paths match Sonarr's.
+        importSweep:
+          enabled: true
+          configClaim: "sonarr-config"
+          downloads:
+            type: "nfs"
+            server: "truenas.replaceme-domain.com"
+            path: "/mnt/storage/downloads"
+            mountPath: "/downloads"
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 100
+          image:
+            tag: "8.22.0"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
