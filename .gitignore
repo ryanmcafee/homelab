@@ -73,12 +73,6 @@ talosconfig
 # 1Password
 .op/
 
-# Beads/bd
-.beads/db/
-.beads/*.db
-.beads/*.db-shm
-.beads/*.db-wal
-
 # Claude (ignore local settings, allow shared commands, skills and the shared
 # settings.json that registers the level-0 PostToolUse hook; settings.local.json stays ignored)
 .claude/*
@@ -146,7 +140,6 @@ charts/*-config/values-homelab.generated.yaml
 
 # PII audit (replaced by living schema docs)
 PII.md
-.superpowers/
 .cache/
 
 # etcd snapshots (scripts/cp-storage-migrate.ts --snapshot-dir). An etcd

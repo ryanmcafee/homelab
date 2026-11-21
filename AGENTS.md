@@ -1,7 +1,5 @@
 # AGENTS.md - Sub-Agent Coordination Rules
 
-Use 'bd' for task tracking on long-running tasks.
-
 ## Before you decide a tool is missing
 
 If `bun`, `go`, `task`, `helm` or `mise` itself is "not found", **everything `mise.toml` pins is
