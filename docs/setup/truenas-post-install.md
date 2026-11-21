@@ -76,17 +76,21 @@ The Ansible playbook configures:
 | `storage/k8s` | Kubernetes persistent volumes | 500GB |
 | `storage/media` | Media storage (Plex, etc.) | 100TB |
 | `storage/backups` | Backup storage | 50TB |
-| `storage/downloads` | Temporary downloads | 10TB |
+| `ssd/downloads` | Active Usenet downloads (NZBGet, Sonarr, Radarr) | 250GB |
+
+Downloads sit on the SSD mirror because the HDD RAIDZ3 pool wrote only 119 MB/s over NFS,
+which a 1 Gbit/s download plus a concurrent unpack saturates. The SSD export wrote 938 MB/s.
 
 ### NFS Shares
 
 | Share | Path | Access |
 |-------|------|--------|
 | Kubernetes | `/mnt/storage/k8s` | <NFS_SHARE_ALLOW> |
+| Downloads | `/mnt/ssd/downloads` | <NFS_SHARE_ALLOW> |
 
 ### Services
 
-- NFS server enabled and started
+- NFS server enabled and started, with 16 server threads (`truenas_nfs_servers`)
 - iSCSI (optional, disabled by default)
 
 ### API Keys

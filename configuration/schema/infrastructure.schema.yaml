@@ -20,6 +20,11 @@ keys:
     required: true
     default: "/mnt/storage"
 
+  NFS_SSD_BASE_PATH:
+    description: Base NFS path of the TrueNAS SSD pool
+    required: true
+    default: "/mnt/ssd"
+
   NFS_MAPALL_USER:
     description: NFS mapall user for permission mapping
     required: true
