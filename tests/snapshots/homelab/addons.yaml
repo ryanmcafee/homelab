@@ -6361,7 +6361,7 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "7"
-    addons.homelab.local/config-hash: "bb39867b"
+    addons.homelab.local/config-hash: "99272fc3"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -6369,7 +6369,7 @@ spec:
   source:
     repoURL: https://ryanmcafee.github.io/port-forwarding-controller
     chart: port-forwarding
-    targetRevision: 1.1.1
+    targetRevision: 1.1.2
     helm:
       releaseName: port-forwarding-controller
       values: |

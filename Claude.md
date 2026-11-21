@@ -256,7 +256,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
   external-dns-webhook-unifi: "v0.8.2"
   # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller
-  unifi-port-forward: "1.1.1"
+  unifi-port-forward: "1.1.2"
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
   # One key for base, istiod, cni and ztunnel: the four Istio charts must run the same release.
