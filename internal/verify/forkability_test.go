@@ -257,7 +257,7 @@ func TestCheck2FailsOnARealLookingRequiredValue(t *testing.T) {
 		"github.com",
 		"192.168.1.10",
 		"https://github.com/someone/homelab",
-		"homelab-dev",
+		"example-dev",
 		"admin@gmail.com",
 		"REPLACEMEevil.com",
 		"https://github.com/replacemeuser/homelab",
@@ -309,7 +309,7 @@ func TestCheck2HoldsARunnableConfigSetToPresenceNotPlaceholders(t *testing.T) {
 		key("DUCKDNS_SUBDOMAIN", KeySourceSchema, ExampleRequired) + `]}]}`
 
 	for body, want := range map[string]Status{
-		"DUCKDNS_SUBDOMAIN: homelab-dev\nDOMAIN: homelab.local\n": StatusPass,
+		"DUCKDNS_SUBDOMAIN: example-dev\nDOMAIN: homelab.local\n": StatusPass,
 		"DUCKDNS_SUBDOMAIN:\nDOMAIN: homelab.local\n":             StatusFail,
 		"DOMAIN: homelab.local\n":                                 StatusFail,
 	} {
