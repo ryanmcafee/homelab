@@ -277,6 +277,10 @@ cilium:
     bandwidthManager:
       enabled: true
       bbr: true
+    # All nodes share one L2 segment, so pod traffic skips VXLAN (pod-to-pod measured 3-4 Gbit/s tunnelled).
+    routingMode: native
+    ipv4NativeRoutingCIDR: {{ .Values.K8S_POD_CIDR.Value }}
+    autoDirectNodeRoutes: true
 {{- end }}
 
   # charts/cilium-config: ServiceMonitors for the agent, operator and Hubble

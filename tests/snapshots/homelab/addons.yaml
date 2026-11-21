@@ -1394,6 +1394,7 @@ spec:
       # Values must match what installed the release for an accurate diff
       # (cilium.values in the environment values file).
       values: |
+        autoDirectNodeRoutes: true
         bandwidthManager:
           bbr: true
           enabled: true
@@ -1431,6 +1432,7 @@ spec:
             enabled: true
         ipam:
           mode: kubernetes
+        ipv4NativeRoutingCIDR: 10.244.0.0/16
         k8sServiceHost: localhost
         k8sServicePort: 7445
         kubeProxyReplacement: true
@@ -1443,6 +1445,7 @@ spec:
         prometheus:
           enabled: true
           metricsService: true
+        routingMode: native
         securityContext:
           capabilities:
             ciliumAgent:

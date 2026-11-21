@@ -1,7 +1,12 @@
 # Kubernetes cluster settings — storage classes, ingress, timezone.
-# The pod and service CIDRs are not keys here: Talos sets them in the machine
-# config (terragrunt talos-cluster) and Kind in localdev/kind-config.yaml.
+# Talos sets the pod and service CIDRs in its machine config (talos/machine-config) and
+# Kind in localdev/kind-config.yaml; K8S_POD_CIDR must match the Talos podSubnets.
 keys:
+  K8S_POD_CIDR:
+    description: Pod CIDR (Talos cluster.network.podSubnets), routed natively by Cilium
+    required: true
+    default: "10.244.0.0/16"
+
   CLUSTER_NAME:
     description: Kubernetes/Talos cluster name. A default is safe here - "homelab"
       is the project's own name, not an operator's - but it is still a key so a
