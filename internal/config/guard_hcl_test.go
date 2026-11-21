@@ -166,7 +166,7 @@ func TestGuardHCLJudgesFlowListPerElement(t *testing.T) {
 // ConfigSet value. Shape cannot tell an operator's LAN CIDR from that one, so
 // a network address is the value rule's business and must not red the gate.
 // A host address carrying a netmask is a different literal and still reports.
-func TestGuardHCLLeavesNetworkCIDRsToTheValueRule(t *testing.T) {
+func TestGuardHCLLeavesPrivateNetworkCIDRsToTheValueRule(t *testing.T) {
 	cases := []struct {
 		literal string
 		want    int
@@ -174,12 +174,43 @@ func TestGuardHCLLeavesNetworkCIDRsToTheValueRule(t *testing.T) {
 		{`"10.244.0.0/16"`, 0},
 		{`"10.23.1.0/24"`, 0},
 		{`"10.23.1.4/24"`, 1},
+		{`"81.2.69.0/24"`, 1},
+		{`"2a00:1450:4001::/48"`, 1},
+		{`"fd7a:115c:a1e0::/48"`, 0},
+		{`"0.0.0.0/0"`, 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.literal, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "env.hcl")
 			source := "locals {\n  subnet = " + tc.literal + "\n}\n"
 			if err := os.WriteFile(path, []byte(source), 0644); err != nil {
+				t.Fatal(err)
+			}
+			got, err := ScanFileForPIIShape(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got.Matches) != tc.want {
+				t.Fatalf("findings = %#v; want %d", got.Matches, tc.want)
+			}
+		})
+	}
+}
+
+func TestGuardHCLJudgesDomainKeys(t *testing.T) {
+	cases := []struct {
+		name, source string
+		want         int
+	}{
+		{"literal", `locals { local_dns_domain = "lan.acme.org" }`, 1},
+		{"reference", `locals { local_dns_domain = try(local.config.LOCAL_DNS_DOMAIN, "") }`, 0},
+		{"variable default", "variable \"cloud_init_dns_domain\" {\n  default = \"lan.acme.org\"\n}", 1},
+		{"null default", "variable \"cloud_init_dns_domain\" {\n  default = null\n}", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "env.hcl")
+			if err := os.WriteFile(path, []byte(tc.source), 0644); err != nil {
 				t.Fatal(err)
 			}
 			got, err := ScanFileForPIIShape(path)

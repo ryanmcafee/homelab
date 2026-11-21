@@ -40,9 +40,9 @@ var hclIdentityNames = map[string]bool{
 }
 
 // hclIdentitySuffixes mirror how HCL prefixes an identity by subsystem rather
-// than suffixing it: proxmox_host, cluster_endpoint, host_node. An explicit
+// than suffixing it: proxmox_host, cluster_endpoint, host_node, local_dns_domain. An explicit
 // name list would go stale the first time a unit adds another subsystem.
-var hclIdentitySuffixes = []string{"_FQDN", "_GATEWAY", "_IP_ADDRESS", "_HOST", "_ENDPOINT", "_NODE"}
+var hclIdentitySuffixes = []string{"_FQDN", "_GATEWAY", "_IP_ADDRESS", "_HOST", "_ENDPOINT", "_NODE", "_DOMAIN"}
 
 func hclIdentityKey(key string) bool {
 	upper := strings.ToUpper(key)
@@ -96,11 +96,16 @@ func scanHCLShape(path string) (GuardResult, error) {
 		text := value.AsString()
 		kind := classifyHostValue(text)
 		// A host address carrying a netmask (10.23.1.4/24) is still a host
-		// address. A network address (10.244.0.0/16) is not: shape cannot tell
-		// the operator's LAN from Kind's fork-invariant pod network, which is
-		// why classifyHostValue leaves every CIDR to the value rule.
-		if ip, network, err := net.ParseCIDR(text); err == nil && !ip.Equal(network.IP) && IsRoutableHostIP(ip.String()) {
-			kind = "routable host IP with prefix"
+		// address. A private network (10.244.0.0/16) is left to the value rule:
+		// shape cannot tell the operator's LAN from Kind's fork-invariant pod
+		// network. A public network names someone's allocation, so shape owns it.
+		if ip, network, err := net.ParseCIDR(text); err == nil && IsRoutableHostIP(ip.String()) {
+			switch {
+			case !ip.Equal(network.IP):
+				kind = "routable host IP with prefix"
+			case !ip.IsPrivate():
+				kind = "public network CIDR"
+			}
 		}
 		if IsTemplateFile(path) {
 			if isExamplePlaceholder(text) {
