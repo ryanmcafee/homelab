@@ -1101,8 +1101,12 @@ spec:
                     expr: 'max by (account, stream_name, namespace, job) (nats_stream_first_seq{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_first_seq)'
                   - record: homelab:nats_stream_total_messages:authoritative
                     expr: 'max by (account, stream_name, namespace, job) (nats_stream_total_messages{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_total_messages)'
+                  - record: homelab:nats_stream_removed_messages:authoritative
+                    expr: 'max by (account, stream_name, namespace, job) (nats_stream_last_seq{is_stream_leader="true"} - nats_stream_total_messages{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_last_seq - nats_stream_total_messages)'
                   - record: homelab:nats_consumer_ack_floor_stream_seq:authoritative
                     expr: 'max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq{is_consumer_leader="true"}) or max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq)'
+                  - record: homelab:nats_consumer_settled_messages:authoritative
+                    expr: 'max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_delivered_consumer_seq{is_consumer_leader="true"} - nats_consumer_num_ack_pending{is_consumer_leader="true"}) or max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_delivered_consumer_seq - nats_consumer_num_ack_pending)'
                   - alert: PFWorkOldestUnackedAging
                     expr: 'changes(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) == 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[5m]) > 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[12h]) > 0 and count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) >= 11 * count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[1h])'
                     for: 15m
@@ -1119,16 +1123,20 @@ spec:
                     annotations:
                       summary: 'PF_WORK work is 18h old and max_age deletes it silently in under 6h'
                       description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Restart the existing consumer, or back the stream up now with nats stream backup. Do not create a wildcard work-queue consumer to drain it: that permanently forecloses every other component in the domain. docs/runbooks/pf-work-age-expiry.md.'
+                  # Each consumer is credited the smaller of two upper bounds on
+                  # its acks: its ack-floor advance, which crosses other
+                  # consumers' sequences, and settled (delivered - ack pending),
+                  # which redeliveries inflate (MCAA-457).
                   # Grouped by (account, stream_name, namespace, job): PF_WORK
                   # exists once per NATS account (ADR-043) and per install, and
-                  # dropping either label nets one stream's head against another's.
+                  # dropping either label nets one stream's removals against another's.
                   - alert: PFWorkMessagesExpiredUnacked
-                    expr: '(max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) - max by (account, stream_name, namespace, job) (min_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (account, stream_name, namespace, job) (max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m])) or (max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
+                    expr: '(max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_removed_messages:authoritative{stream_name="PF_WORK"}[15m])) - max by (account, stream_name, namespace, job) (min_over_time(homelab:nats_stream_removed_messages:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (account, stream_name, namespace, job) (min without (bound) (label_replace(max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]), "bound", "ack_floor", "", "") or label_replace(max_over_time(homelab:nats_consumer_settled_messages:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_settled_messages:authoritative{stream_name="PF_WORK"}[15m]), "bound", "settled", "", ""))) or (max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_removed_messages:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
                     labels:
                       severity: critical
                     annotations:
                       summary: '{{`{{ $value }}`}} PF_WORK messages left the stream without being acked'
-                      description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+                      description: 'More messages left the stream than its consumers settled, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
                   # `unless`, not absent(): absent() emits no namespace or job,
                   # so it cannot be joined on them and it reads the whole
                   # selector - one install still reporting hid a blind one.

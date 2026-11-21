@@ -22,21 +22,29 @@ evaluation_interval: 1m
 
 tests:
   # 1. TENANT_ACME loses three messages with no consumer bound; TENANT_GLOBEX
-  #    drains two and acks both. Collapsed, GLOBEX's head (10 -> 12) won the max
-  #    and its two acks cancelled the advance, so ACME's loss read as zero.
+  #    drains two and acks both. Collapsed, GLOBEX's removed count (9 -> 11) won
+  #    the max and its two acks cancelled it, so ACME's loss read as zero.
   - interval: 30s
     name: one account's loss is not netted against another account's acks
     input_series:
       - series: 'nats_stream_first_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_ACME",account_name="TENANT_ACME",account_id="TENANT_ACME",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '1+0x10 4+0x20'
+      - series: 'nats_stream_last_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_ACME",account_name="TENANT_ACME",account_id="TENANT_ACME",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '3+0x30'
       - series: 'nats_stream_total_messages{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_ACME",account_name="TENANT_ACME",account_id="TENANT_ACME",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '3+0x10 0+0x20'
       - series: 'nats_stream_first_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '10+0x10 12+0x20'
+      - series: 'nats_stream_last_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '11+0x30'
       - series: 'nats_stream_total_messages{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '2+0x10 0+0x20'
       - series: 'nats_consumer_ack_floor_stream_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",consumer_name="worker-workload-v1",is_consumer_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
         values: '9+0x10 11+0x20'
+      - series: 'nats_consumer_delivered_consumer_seq{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",consumer_name="worker-workload-v1",is_consumer_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '2+0x30'
+      - series: 'nats_consumer_num_ack_pending{server_id="NSRV0",server_name="nats-0",is_meta_leader="true",account="TENANT_GLOBEX",account_name="TENANT_GLOBEX",account_id="TENANT_GLOBEX",stream_name="PF_WORK",stream_leader="nats-0",is_stream_leader="true",consumer_name="worker-workload-v1",is_consumer_leader="true",namespace="nats",job="nats",pod="nats-0",instance="10.0.0.10:7777"}'
+        values: '2+0x10 0+0x20'
     alert_rule_test:
       - eval_time: 8m
         alertname: PFWorkMessagesExpiredUnacked
@@ -49,7 +57,7 @@ tests:
               job: nats
             exp_annotations:
               summary: '3 PF_WORK messages left the stream without being acked'
-              description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+              description: 'More messages left the stream than its consumers settled, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
 
   # 2. TENANT_ACME's PF_WORK stops reporting at 1h while its account and
   #    TENANT_GLOBEX keep reporting from the same exporter. Collapsed, GLOBEX
