@@ -29,8 +29,9 @@ two names for one credential.
 
 The `OpenClawInstance`: image `ghcr.io/openclaw/openclaw` at `images.openclaw` (the CRD rejects an
 Instance whose tag and digest are both empty, and the registry publishes release tags without the
-leading `v`); no `spec.networking.httpRoute` (see [Exposure](#exposure) -- the Control UI is
-reachable in-cluster only); Service `openclaw` with
+leading `v`); no `spec.networking.httpRoute`, and a `spec.networking.ingress` only where
+`OPENCLAW_TAILNET_EXPOSURE` asks for one (see [Exposure](#exposure) -- otherwise the Control UI is
+reachable in-cluster only); Service `openclaw`, always `ClusterIP`, with
 the operator's default gateway port 18789 and canvas port 18793; persistence on
 `STORAGE_CLASS_ISCSI_SSD` at `OPENCLAW_STORAGE_SIZE` (1Gi in Kind); `spec.gateway.existingSecret`
 pointing at `openclaw-gateway`; metrics and a ServiceMonitor on. The smoke Job curls
@@ -72,7 +73,10 @@ cosign verify \
 
 | Key | Meaning |
 |---|---|
-| `OPENCLAW_HOSTNAME` | `openclaw.<domain>`; recorded for the future tailnet endpoint, no route is rendered today (see [Exposure](#exposure)) |
+| `OPENCLAW_HOSTNAME` | `openclaw.<domain>`; recorded, but no route is attached to the internal Gateway, so nothing serves this name (see [Exposure](#exposure)). Not the tailnet name |
+| `OPENCLAW_TAILNET_EXPOSURE` | `true` puts the Control UI on a tailnet-only Ingress; off by default |
+| `OPENCLAW_TAILNET_HOSTNAME` | the MagicDNS name, `openclaw.<tailnet>.ts.net`; per-environment, the tailnet name is PII |
+| `OPENCLAW_TAILNET_TAG` | the tailnet ACL tag the proxy device carries, e.g. `tag:k8s-openclaw`; what the grant names |
 | `OPENCLAW_STORAGE_SIZE` | data volume size (agent workspace, `openclaw.json`, browser profiles); Kind always uses 1Gi |
 | `OPENCLAW_API_KEYS_1P_PATH` | 1Password item for the provider credentials |
 | `OPENCLAW_GATEWAY_1P_PATH` | 1Password item for the Control UI bearer token |
@@ -211,8 +215,9 @@ One further default recorded here rather than decided:
 
 ## Exposure
 
-**No route is rendered.** The Control UI is reachable only from inside the cluster, via Service
-`openclaw.openclaw.svc.cluster.local:18789`; use `kubectl port-forward` to reach it.
+**No Gateway route is rendered, in any environment.** With `OPENCLAW_TAILNET_EXPOSURE` off — the
+default, and the only setting a fresh fork has — the Control UI is reachable only from inside the
+cluster, via Service `openclaw.openclaw.svc.cluster.local:18789`; use `kubectl port-forward`.
 
 An earlier revision of this document called `envoy-internal` "Tailscale-only". It is not.
 `configuration/templates/helm-addons.tmpl` provisions that Gateway for the LAN *and* the tailnet, so
@@ -222,16 +227,50 @@ front of an agent holding a Claude subscription token and provider API keys.
 
 There is also deliberately no route on the external Gateway, which would need oauth2-proxy in front.
 
-Two rules hold this shut, both at level 0 (`task test:policy`):
+### The tailnet endpoint
+
+Remote access is a tailnet-only Ingress, not a second Envoy Gateway. The distinction is what the
+boundary is made of: a Gateway gets a LAN address from the load-balancer pool and would answer any
+LAN client that dials it, leaving "tailnet-only" as a naming convention. The Tailscale operator
+(`charts/addons/templates/tailscale-operator.yaml`) reconciles the `tailscale` IngressClass into a
+proxy that *is* a tailnet device and has no LAN listener at all, so there is no LAN path to close.
+
+Set three keys to turn it on:
+
+| Key | Value |
+|---|---|
+| `OPENCLAW_TAILNET_EXPOSURE` | `true` |
+| `OPENCLAW_TAILNET_HOSTNAME` | the MagicDNS name, `openclaw.<tailnet>.ts.net` |
+| `OPENCLAW_TAILNET_TAG` | openclaw's own ACL tag, e.g. `tag:k8s-openclaw` |
+
+The tailnet is a perimeter, not an authorization decision: every device on a tailnet reaches every
+other unless a grant says otherwise. `OPENCLAW_TAILNET_TAG` is what a grant can name, so the
+endpoint answers nothing until the tailnet policy grants that tag — the enable steps, the grant
+itself and the rollback are in [runbooks/openclaw-tailnet-access.md](../runbooks/openclaw-tailnet-access.md).
+The gateway bearer token still applies on top; the tailnet replaces the LAN exposure, not the
+authentication.
+
+`OPENCLAW_TAILNET_HOSTNAME` and `OPENCLAW_TAILNET_TAG` are per-environment and unset by default,
+which is why a fork gets a healthy cluster with the endpoint left off.
+
+### What holds it shut
+
+Four rules, all at level 0 (`task test:policy`):
 
 | Rule | Forbids |
 |---|---|
-| `openclaw-shared-route` | an `OpenClawInstance` httpRoute, or the instance Application's inline values, naming `envoy-internal` |
+| `openclaw-shared-route` | an `OpenClawInstance` httpRoute, or the instance Application's inline values, naming `envoy-internal`; and an `ingress` on any class but `tailscale` |
+| `openclaw-lan-reachable` | a Service type other than `ClusterIP`, which would publish port 18789 on a LAN address whatever the Ingress says |
+| `openclaw-untagged-tailnet` | a tailnet ingress with no tag of its own, or the subnet router's shared `tag:k8s`, which no grant can separate from the subnet router |
 | `openclaw-operator-scope` | the operator Application rendering without `watchNamespaces` |
 
-Remote access needs a dedicated tailnet endpoint with tag-scoped authorization, which is tracked
-separately; re-enabling the shared internal route instead is a board decision, not a default, and
-would need this section and both rules changed with it.
+`openclaw-lan-reachable` is the negative assertion: it is the one that still holds when the Ingress
+is correct, because the Service is the exposure a route does not control. The chart also refuses to
+render — `helm template` fails — when `tailnet.enabled` is set without a hostname or a tag, so a
+half-configured tailnet endpoint never reaches a cluster.
+
+Re-enabling the shared internal route instead is a board decision, not a default, and would need
+this section and `openclaw-shared-route` changed with it.
 
 ## Controller RBAC scope
 
@@ -301,8 +340,8 @@ task verify:prod
 
 ## Follow-ups
 
-- A tailnet-only endpoint with tag-scoped authorization, which is what "remote access" needs now
-  that no route is rendered. Requires a Tailscale ACL change, so it is tracked on its own issue.
+- Applying the tailnet ACL grant. The endpoint itself ships here, off by default; the grant needs the
+  ACL age key, which agents do not hold ([runbooks/openclaw-tailnet-access.md](../runbooks/openclaw-tailnet-access.md)).
 - Backups via the operator's CronJob, with an object-store target and a restore drill (decision
   above).
 - LiteLLM as an OpenAI-compatible `models.providers` entry once #424 is deployed.

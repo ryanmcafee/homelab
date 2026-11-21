@@ -103,7 +103,7 @@ service:
 # tailnet (configuration/templates/helm-addons.tmpl gateways.internal), and an
 # OpenClaw gateway holding a Claude subscription token is not something to put
 # on the LAN behind a bearer token alone. Enabling it is a deliberate choice;
-# a tailnet-only endpoint is tracked separately. There is no route on the
+# the tailnet block below is the supported remote path. There is no route on the
 # external Gateway either, which would need oauth2-proxy in front.
 route:
   enabled: false
@@ -111,10 +111,33 @@ route:
     name: envoy-internal
     namespace: envoy-gateway-system
 
+# Tailnet-only endpoint (spec.networking.ingress), the supported remote path.
+# The Tailscale operator (charts/addons/templates/tailscale-operator.yaml) serves
+# the `tailscale` IngressClass by creating a proxy that is a tailnet device and
+# has no LAN listener at all, so the boundary is the tailnet rather than a
+# hostname convention. Off by default: it needs a tailnet, a MagicDNS hostname
+# and an ACL grant for `tag`, none of which a fork has by default.
+#
+# `tag` is the ACL tag the proxy device carries. Without it the device inherits
+# the operator's proxyConfig.defaultTags (tag:k8s, the subnet router's tag), and
+# every grant written for the subnet router would reach the Control UI too, so
+# the tag must be openclaw's own and the tailnet policy must grant only it.
+# The gateway bearer token still applies; the tailnet does not replace it.
+tailnet:
+  enabled: false
+  ingressClassName: tailscale
+  # Full MagicDNS name, e.g. openclaw.<tailnet>.ts.net; the first label is the
+  # device hostname the operator registers.
+  hostname: ""
+  tag: ""
+  # Namespace the operator runs the proxy in, which NetworkPolicy must admit.
+  proxyNamespace: tailscale
+
 # The operator's NetworkPolicy denies by default and allows DNS plus HTTPS
 # egress (the LLM APIs) and same-namespace ingress (which covers the PostSync
-# smoke Job). The Gateway's namespace has to be named explicitly or the
-# HTTPRoute resolves to a backend nothing may reach.
+# smoke Job). The namespace fronting the instance -- the Gateway's for an
+# HTTPRoute, the Tailscale proxy's for a tailnet Ingress -- has to be named
+# explicitly or the backend is unreachable.
 security:
   networkPolicy:
     enabled: true

@@ -147,6 +147,49 @@ test_ingress_is_denied if {
 	startswith(m, "[no-ingress]")
 }
 
+# The Tailscale operator does serve its own class, so no-ingress must not forbid
+# the one ingress path this repo has that is tailnet-only.
+test_tailnet_ingress_is_allowed if {
+	obj := {
+		"apiVersion": "networking.k8s.io/v1",
+		"kind": "Ingress",
+		"metadata": {"name": "x", "namespace": "ns"},
+		"spec": {"ingressClassName": "tailscale"},
+	}
+	count(deny) == 0 with input as obj
+}
+
+test_inline_ingress_enabled_is_denied if {
+	obj := {
+		"apiVersion": "argoproj.io/v1alpha1",
+		"kind": "Application",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"valuesObject": {"ingress": {"enabled": true, "className": "envoy"}}}}},
+	}
+	some m in deny with input as obj
+	startswith(m, "[no-ingress]")
+}
+
+test_inline_tailnet_ingress_enabled_is_allowed if {
+	obj := {
+		"apiVersion": "argoproj.io/v1alpha1",
+		"kind": "Application",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"valuesObject": {"ingress": {"enabled": true, "className": "tailscale"}}}}},
+	}
+	count(deny) == 0 with input as obj
+}
+
+test_inline_tailnet_ingress_class_name_spelling_is_allowed if {
+	obj := {
+		"apiVersion": "argoproj.io/v1alpha1",
+		"kind": "Application",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"valuesObject": {"ingress": {"enabled": true, "ingressClassName": "tailscale"}}}}},
+	}
+	count(deny) == 0 with input as obj
+}
+
 test_inline_ingress_enabled_is_denied if {
 	some m in deny with input as application("server:\n  ingress:\n    enabled: true\n")
 	contains(m, "server.ingress.enabled")
