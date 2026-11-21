@@ -996,6 +996,14 @@ paperclip:
       # directory (/paperclip/instances/default/secrets) is owned by uid 1000,
       # which no file on the NFS classes is (mapall). bugs.md 2026-09-15.
       storageClass: local-path
+    # App-native database dumps land on the data volume above; with the app
+    # defaults they filled paperclip-data on 2026-11-21 (bugs.md). One dump a
+    # day, kept for retentionDays, keeps them to a few multi-GB files.
+    backup:
+      appNative:
+        enabled: true
+        intervalMinutes: 1440
+        retentionDays: 1
     resources:
       requests:
         cpu: 250m

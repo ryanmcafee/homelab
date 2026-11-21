@@ -100,6 +100,13 @@ spec:
       {{- with .Values.persistence.storageClass }}
       storageClass: {{ . }}
       {{- end }}
+  {{- with (.Values.backup).appNative }}
+  backup:
+    appNative:
+      enabled: {{ .enabled }}
+      intervalMinutes: {{ int .intervalMinutes }}
+      retentionDays: {{ int .retentionDays }}
+  {{- end }}
   networking:
     service:
       type: {{ .Values.service.type }}

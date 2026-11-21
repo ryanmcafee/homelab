@@ -95,6 +95,17 @@ persistence:
   size: 10Gi
   storageClass: ""
 
+# Paperclip's built-in database dumps (spec.backup.appNative, passed to the
+# server as PAPERCLIP_DB_BACKUP_*). They are written to a directory on the data
+# volume above, so retentionDays x (1440 / intervalMinutes) x dump size must
+# stay well under persistence.size. Unset, the app defaults apply, which filled
+# paperclip-data on 2026-11-21 (bugs.md). Remove the block to fall back to them.
+backup:
+  appNative:
+    enabled: true
+    intervalMinutes: 1440
+    retentionDays: 3
+
 # Pod scheduling for the server StatefulSet AND the operator's one-shot admin
 # bootstrap Job (operator 0.19.1 copies availability.nodeSelector and
 # tolerations to that Job, but not affinity). The Job mounts the same

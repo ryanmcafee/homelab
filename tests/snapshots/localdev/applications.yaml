@@ -1632,6 +1632,11 @@ spec:
         agentPolicy:
           enabled: false
           image: ""
+        backup:
+          appNative:
+            enabled: true
+            intervalMinutes: 1440
+            retentionDays: 1
         dbIndexes:
           image: ghcr.io/cloudnative-pg/postgresql:17.11
         exporter:
