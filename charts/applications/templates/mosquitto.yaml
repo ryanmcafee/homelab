@@ -56,6 +56,9 @@ spec:
     helm:
       releaseName: mosquitto
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         {{- if .Values.mosquitto.workload }}
         workload:
           {{- toYaml .Values.mosquitto.workload | nindent 10 }}

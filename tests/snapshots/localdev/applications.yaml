@@ -716,6 +716,9 @@ spec:
     helm:
       releaseName: flaresolverr
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         workload:
           main:
             podSpec:
@@ -831,6 +834,9 @@ spec:
     helm:
       releaseName: lazylibrarian
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         workload:
           main:
             podSpec:
@@ -1264,6 +1270,9 @@ spec:
     helm:
       releaseName: mosquitto
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         workload:
           main:
             podSpec:
@@ -1399,6 +1408,9 @@ spec:
     helm:
       releaseName: nzbget
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         workload:
           main:
             podSpec:
@@ -1890,6 +1902,9 @@ spec:
     helm:
       releaseName: prowlarr
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         workload:
           main:
             podSpec:
@@ -2038,6 +2053,9 @@ spec:
     helm:
       releaseName: radarr
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         workload:
           main:
             podSpec:
@@ -2189,6 +2207,9 @@ spec:
     helm:
       releaseName: sonarr
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         workload:
           main:
             podSpec:
@@ -2331,6 +2352,9 @@ spec:
     helm:
       releaseName: tautulli
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         workload:
           main:
             podSpec:
