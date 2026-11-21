@@ -1986,6 +1986,15 @@ spec:
       valuesObject:
         iscsi:
           portal: "127.0.0.1:3260"
+        # The corrupted-movie scan mounts the same library and config claim as
+        # Radarr, so the paths the Radarr API reports resolve inside the Job.
+        corruptionScan:
+          configClaim: "radarr-config"
+          movies:
+            type: "emptyDir"
+            server: "truenas.example.com"
+            path: "/mnt/storage/movies"
+            mountPath: "/movies"
   destination:
     server: https://kubernetes.default.svc
     namespace: media

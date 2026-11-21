@@ -6,3 +6,64 @@ volumes: []
 # never commit a real portal here.
 iscsi:
   portal: ""
+
+# Daily scan for movie files that cannot play (files/corruption-scan.sh,
+# templates/corruption-scan-cronjob.yaml). A corrupt file is blocklisted,
+# deleted through the Radarr API and replaced by Radarr's automatic search.
+corruptionScan:
+  enabled: true
+  # 04:17 every day, in the cluster's time zone (UTC unless timeZone is set).
+  schedule: "17 4 * * *"
+  timeZone: ""
+  # Report only: log the corrupt files and what would be done, change nothing.
+  dryRun: false
+  # Decode keyframes at sample points as well as the ffprobe header check.
+  deepCheck: true
+  # Percent of the duration to sample, and seconds decoded at each point.
+  samplePoints: "5 50 95"
+  sampleSeconds: 10
+  # Per-file ffprobe/ffmpeg timeout; a timeout is inconclusive, never a deletion.
+  probeTimeoutSeconds: 120
+  # Skip files modified within this many minutes (still importing or upgrading).
+  minAgeMinutes: 360
+  # More corrupt files than this in one run aborts the run without deleting
+  # anything: that many at once points at the NAS or the mount, not the files.
+  maxDeletions: 5
+  # Mark the grabbed release failed so the search does not grab it again.
+  blocklistRelease: true
+  # Seconds a finished Job is kept (cronjob-ttl policy, tests/policy/workload.rego).
+  ttlSecondsAfterFinished: 86400
+  activeDeadlineSeconds: 21600
+  radarrUrl: http://radarr.media.svc.cluster.local:7878
+  # API key source. With apiKeySecret.name empty the Job mounts Radarr's config
+  # PVC read-only and reads <ApiKey> from config.xml; the claim is ReadWriteOnce,
+  # so the pod is scheduled onto the node running Radarr (podAffinity on radarrPodLabels).
+  apiKeySecret:
+    name: ""
+    key: api-key
+  configClaim: radarr-config
+  radarrPodLabels:
+    app.kubernetes.io/name: radarr
+    app.kubernetes.io/instance: radarr
+  # The movies library, mounted read-only at the path Radarr reports
+  # (mountPath must match the Radarr container's). The parent Application
+  # passes Radarr's own movies persistence; type nfs or emptyDir.
+  movies:
+    type: emptyDir
+    server: ""
+    path: ""
+    mountPath: /movies
+  securityContext:
+    runAsUser: 568
+    runAsGroup: 100
+  image:
+    repository: ghcr.io/linuxserver/ffmpeg
+    tag: "9.0-cli-ls84"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 2000m
+      memory: 1Gi
