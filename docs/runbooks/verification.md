@@ -668,3 +668,43 @@ fix a previously copied NAS or control-plane collision.
 `task config:guard` remains the full tracked-file entrypoint. Neither check needs
 cluster credentials. CI and the `config-regressions` pre-commit hook execute the
 same secret-free guard and pool regression tests.
+
+### PII guard findings and emergency bypass
+
+Every `homelab config guard` run with at least one finding ends with an `[ERROR]` line that
+links here. Other failures (an unreadable file, an empty CI scope, a scan error) print no link:
+fix the path or scope the error names.
+
+**What a finding means.** `<file>:<line> PII detected (<pattern>): <content>` means a committed
+file holds a value that identifies one operator's infrastructure: a literal from
+`environments/homelab.yaml`, or a routable address, real hostname or mailbox on a PII-shaped key.
+A template-file finding (`<file>:<line> <note>`) means the value is not one of the documented
+placeholders above. Either way the file breaks the
+[fork-ability contract](../contracts/fork-ability.md): a forker would inherit your value.
+
+**Fix it by parameterising the value through the ConfigSet.**
+
+1. Find or add the key in `configuration/schema/` (for example `TRUENAS_IP`, `DOMAIN`).
+2. Put the real value in the gitignored `configuration/environments/homelab.yaml`, and a
+   documented placeholder in the committed `.example` file.
+3. Replace the literal with the key's reference: the export the chart or template already reads,
+   a Terragrunt input, or `<TRUENAS_IP>`-style prose in documentation.
+4. Re-run `task config:guard` and commit once it passes.
+
+If the value is genuinely public (an upstream registry host, a vendor endpoint) and the rule is
+wrong, fix the rule instead: change the allowlist in `internal/config/guard.go` with a test in
+`guard_test.go`, in its own PR.
+
+**Emergency bypass.** Use it only when a finding blocks an incident fix and the value cannot be
+parameterised in time. The only bypass is a path exclusion; it stops the guard scanning that
+file entirely, so keep it to the single file.
+
+1. Open a tracked issue to revert the exclusion, with a deadline of at most seven days.
+2. In one commit, add the exact path to `IsGuardExcluded` in `internal/config/guard.go` and to the
+   `config-guard` hook's `exclude:` block in `.pre-commit-config.yaml`. The two lists are one
+   scope, so `task config:guard` in CI and the pre-commit hook agree.
+3. Put the reason, the file, and the revert issue link in the PR description.
+4. Before the deadline, parameterise the value as above and remove both exclusion entries.
+
+Do not commit with `--no-verify` or narrow the CI `--paths` instead: neither leaves a tracked
+revert, and a `--no-verify` commit still fails the CI guard.

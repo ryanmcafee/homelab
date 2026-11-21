@@ -66,12 +66,34 @@ func TestConfigGuardCLI(t *testing.T) {
 				if tc.bad && (!strings.Contains(text, name+":1") || strings.Contains(text, "[OK]")) {
 					t.Fatalf("unactionable failure or false success:\n%s", text)
 				}
+				if strings.Contains(text, guardRunbook) != tc.bad {
+					t.Fatalf("runbook link must appear exactly when the guard fails:\n%s", text)
+				}
 				if !strings.Contains(text, "Scanning 1 ") {
 					t.Fatalf("scope was not one tracked/explicit file:\n%s", text)
 				}
 			}
 		})
 	}
+}
+
+func TestGuardRunbookAnchorExists(t *testing.T) {
+	root, err := findProjectRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, anchor, _ := strings.Cut(guardRunbook, "#")
+	body, err := os.ReadFile(filepath.Join(root, file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	heading := "### " + strings.ReplaceAll(anchor, "-", " ")
+	for _, line := range strings.Split(string(body), "\n") {
+		if strings.EqualFold(line, heading) {
+			return
+		}
+	}
+	t.Fatalf("%s has no heading %q, so the guard's runbook link is dead", file, heading)
 }
 
 func TestConfigValidatePoolCLI(t *testing.T) {

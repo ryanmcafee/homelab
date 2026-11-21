@@ -60,11 +60,11 @@ func hclIdentityKey(key string) bool {
 	return false
 }
 
+var _, sharedAddressSpace, _ = net.ParseCIDR("100.64.0.0/10")
+
 // HCL is parsed without an evaluation context: variable traversals and function
 // calls remain unresolved, while literal assignments and variable defaults can
 // be checked without Terraform, providers, credentials, or a cluster.
-var _, sharedAddressSpace, _ = net.ParseCIDR("100.64.0.0/10")
-
 func scanHCLShape(path string) (GuardResult, error) {
 	result := GuardResult{File: path}
 	source, err := os.ReadFile(path)
