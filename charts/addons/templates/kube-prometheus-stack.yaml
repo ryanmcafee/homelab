@@ -1490,6 +1490,77 @@ spec:
                       summary: 'Soil probe {{`{{ $labels.sensor }}`}} reads {{`{{ $value }}`}}% moisture'
                       description: 'Below {{ $eco.thresholds.soilMoistureMinPercent }}% for an hour. This is the one rule in the group that reports a real reading rather than a device fault, so the threshold is a gardening choice: tune ECOWITT_SOIL_MOISTURE_MIN_PERCENT to the planting rather than silencing the alert. docs/runbooks/iot-sensors.md.'
           {{- end }}
+          {{- $rollouts := index .Values "argo-rollouts" }}
+          {{- if and $rollouts.enabled $rollouts.metrics.enabled }}
+          # Progressive delivery (docs/progressive-delivery.md,
+          # docs/runbooks/rollouts.md). Scraped through the ServiceMonitor in
+          # charts/prometheus-config. The phase label of rollout_info is the
+          # controller's own enum - Completed, Progressing, Paused, Timeout,
+          # Error, InvalidSpec, Abort - and not the Rollout's status.phase, so
+          # an abort is a label value rather than something to derive from
+          # Degraded. Exactly one phase series exists per Rollout at a time.
+          # Nothing per-Rollout here pages: an abort means the stable
+          # ReplicaSet kept serving, which is the canary contract working.
+          homelab-progressive-delivery:
+            groups:
+              - name: homelab-progressive-delivery
+                rules:
+                  - alert: HomelabRolloutAborted
+                    expr: 'max by (namespace, name) (rollout_info{phase="Abort"}) == 1'
+                    for: 5m
+                    labels:
+                      severity: info
+                    annotations:
+                      summary: 'Rollout {{`{{ $labels.namespace }}`}}/{{`{{ $labels.name }}`}} aborted; the previous revision is still serving'
+                      description: 'The canary analysis failed, so the controller scaled the canary to zero and the stable ReplicaSet kept serving. The deploy did not land and the same image is never retried. `kubectl describe rollout` names the failed metric; docs/runbooks/rollouts.md.'
+                  - alert: HomelabRolloutProgressDeadlineExceeded
+                    expr: 'max by (namespace, name) (rollout_info{phase="Timeout"}) == 1'
+                    for: 15m
+                    labels:
+                      severity: info
+                    annotations:
+                      summary: 'Rollout {{`{{ $labels.namespace }}`}}/{{`{{ $labels.name }}`}} passed its progress deadline with nothing finished'
+                      description: 'progressDeadlineSeconds elapsed before the new ReplicaSet became available: nothing failed the analysis, nothing promoted. Usually the canary pods never reach Ready. docs/runbooks/rollouts.md.'
+                  - alert: HomelabRolloutStuckPaused
+                    expr: 'max by (namespace, name) (rollout_info{phase="Paused"}) == 1'
+                    for: 1h
+                    labels:
+                      severity: info
+                    annotations:
+                      summary: 'Rollout {{`{{ $labels.namespace }}`}}/{{`{{ $labels.name }}`}} has been paused for an hour'
+                      description: 'A paused Rollout is exempt from progressDeadlineSeconds, so it never reaches the Timeout phase: this is the only signal that a promotion is waiting on a person. `kubectl argo rollouts promote`; docs/runbooks/rollouts.md.'
+                  # Error, not Failed: a Failed run is the gate working and
+                  # already surfaces as HomelabRolloutAborted. Finished runs
+                  # are kept as history, so only a newly errored one fires.
+                  - alert: HomelabAnalysisRunErrored
+                    expr: 'max by (namespace, name) (analysis_run_info{phase="Error"}) unless max by (namespace, name) (analysis_run_info{phase="Error"} offset 1h)'
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'AnalysisRun {{`{{ $labels.namespace }}`}}/{{`{{ $labels.name }}`}} could not take its measurements'
+                      description: 'The analysis errored rather than failed: the canary was rolled back because the gate could not measure, not because the revision was bad. Fix the template or its probe Job before retrying the image. `kubectl describe analysisrun`; docs/runbooks/rollouts.md.'
+                  # One series whatever the fleet size, and a share rather than a
+                  # count: one Rollout aborting is the gate working, but most of
+                  # them at once is a platform fault (a bad base image, a broken
+                  # analysis template, a sick controller) with a different fix.
+                  - alert: HomelabRolloutsNotProgressing
+                    expr: 'count(rollout_info{phase=~"Abort|Error|InvalidSpec|Timeout"}) / count(rollout_info) > 0.5 and count(rollout_info) >= 2'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $value | humanizePercentage }}`}} of the Rollouts in the cluster are aborted, timed out or invalid'
+                      description: 'More than half the fleet at once is not N independent bad revisions. Check the controller and the shared canary-http-health template before any single Rollout; docs/runbooks/rollouts.md.'
+                  - alert: HomelabRolloutMetricsUnavailable
+                    expr: 'absent(up{job="argo-rollouts", namespace="{{ $rollouts.namespace }}"} == 1)'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The argo-rollouts controller is not scraped'
+                      description: 'Every alert of this group is blind, so an aborted deploy is silent again. The ServiceMonitor is argo-rollouts in the monitoring namespace (charts/prometheus-config); docs/runbooks/rollouts.md.'
+          {{- end }}
 
   destination:
     server: https://kubernetes.default.svc
