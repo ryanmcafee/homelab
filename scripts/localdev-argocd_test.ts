@@ -52,6 +52,7 @@ import {
   findFreePort,
   formatResource,
   formatResourceStatus,
+  resourceDiagnoseLines,
   formatSyncTask,
   gitRefForRevision,
   hasComparisonError,
@@ -2486,6 +2487,61 @@ test("headTail: output that fits is returned whole, with no marker", () => {
     headTail("a\nb\nc\nd", 2, 1),
     "a\nb\n... (1 line omitted) ...\nd",
   );
+});
+
+test("resourceDiagnoseLines: the describe block is elided head+tail, not tail alone", () => {
+  // The MCAA-151 Gateway: conditions at the top, listeners filling the tail.
+  // tail() alone drops Accepted/Programmed, which is the whole defect.
+  const describe = [
+    "Name:         eg",
+    "Status:",
+    "  Conditions:",
+    "    Type:     Accepted",
+    "    Type:     Programmed",
+    ...Array.from({ length: 120 }, (_, i) => `  Listener ${i}:`),
+  ].join("\n");
+  const out = resourceDiagnoseLines(
+    {
+      group: "gateway.networking.k8s.io",
+      kind: "Gateway",
+      ns: "egs",
+      name: "eg",
+    },
+    {
+      stdout: '{"status":{"conditions":[{"type":"Accepted"}]}}',
+      stderr: "",
+      code: 0,
+    },
+    { stdout: describe, stderr: "", code: 0 },
+  );
+  assertEquals(
+    out[0],
+    "\n--- gateway.networking.k8s.io/Gateway egs/eg: .status ---",
+  );
+  assertStringIncludes(out[1], '"type": "Accepted"');
+  assertEquals(
+    out[2],
+    "\n--- gateway.networking.k8s.io/Gateway egs/eg: describe head+tail ---",
+  );
+  assertStringIncludes(out[3], "Type:     Accepted");
+  assertStringIncludes(out[3], "Type:     Programmed");
+  assertStringIncludes(out[3], "lines omitted");
+  assertStringIncludes(out[3], "  Listener 119:");
+});
+
+test("resourceDiagnoseLines: a failed kubectl reports stderr, never a silent blank", () => {
+  const out = resourceDiagnoseLines(
+    {
+      group: "gateway.networking.k8s.io",
+      kind: "Gateway",
+      ns: "egs",
+      name: "eg",
+    },
+    { stdout: "", stderr: "Error from server (NotFound)", code: 1 },
+    { stdout: "", stderr: "", code: 1 },
+  );
+  assertEquals(out[1], "Error from server (NotFound)");
+  assertEquals(out[3], "(no output)");
 });
 
 test("statusArgs: kubectl get -o json, namespaced or not", () => {
