@@ -1,0 +1,15 @@
+---
+# ZFS write tuning on the Proxmox host: TRIM for the VM disk pools and a smaller dirty data limit.
+#
+#   ansible-playbook -i inventory/homelab.yml playbooks/proxmox-zfs-tuning.yml --check --diff
+#   ansible-playbook -i inventory/homelab.yml playbooks/proxmox-zfs-tuning.yml
+#
+# See docs/runbooks/control-plane-storage.md ("ZFS write tuning").
+
+- name: Proxmox ZFS write tuning
+  hosts: proxmox
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: proxmox_zfs_tuning
