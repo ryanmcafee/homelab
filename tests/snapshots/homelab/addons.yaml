@@ -2470,6 +2470,9 @@ spec:
                 port-forwarding.replaceme-domain.com/enable: "true"
               staticIP: 198.51.100.200
               type: LoadBalancer
+            tlsPassthrough:
+            - hostname: '*.plex.direct'
+              name: plex-direct
             tracing:
               enabled: true
               samplingRate: 10

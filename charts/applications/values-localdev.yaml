@@ -87,6 +87,13 @@ plex:
         cpu: 1000m
         memory: 1Gi
 
+  # Plex Remote Access on public 443 only: a TLSRoute behind the external Gateway's plex-direct listener.
+  remoteAccess:
+    enabled: false
+    gatewayName: envoy-external
+    gatewayNamespace: envoy-gateway-system
+    sectionName: plex-direct
+
   # Kometa needs a Plex token and a TMDb API key from the plex 1Password item.
   kometa:
     enabled: false

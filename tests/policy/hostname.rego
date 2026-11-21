@@ -39,6 +39,14 @@ in_domain(host) if endswith(host, domain_suffix)
 
 in_domain(host) if host == lib.domain
 
+# third_party_sni are names a TLS Passthrough listener forwards untouched; they never carry our certificate or DNS.
+third_party_sni := {"*.plex.direct"}
+
+passthrough_third_party(listener) if {
+	object.get(object.get(listener, "tls", {}), "mode", "") == "Passthrough"
+	listener.hostname in third_party_sni
+}
+
 # --- Direct object checks --------------------------------------------------
 
 # hostname-domain: every HTTPRoute hostname must live under the environment
@@ -61,6 +69,7 @@ deny contains msg if {
 	some listener in object.get(object.get(input, "spec", {}), "listeners", [])
 	host := listener.hostname
 	not in_domain(host)
+	not passthrough_third_party(listener)
 	msg := sprintf("[hostname-domain] %s: Gateway listener %q hostname %q does not end with %q", [lib.id(input), object.get(listener, "name", ""), host, domain_suffix])
 }
 
@@ -193,5 +202,6 @@ deny contains msg if {
 	not lib.is_exempt(input, "hostname-domain")
 	some host in walk_hosts(lib.inline_values(input))
 	not in_domain(host)
+	not host in third_party_sni
 	msg := sprintf("[hostname-domain] %s: spec.source.helm inline values host %q does not end with %q", [lib.id(input), host, domain_suffix])
 }

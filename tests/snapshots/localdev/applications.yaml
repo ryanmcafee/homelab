@@ -1717,6 +1717,11 @@ spec:
           enabled: false
           image:
             tag: v2.5.5
+        remoteAccess:
+          enabled: false
+          gatewayName: envoy-external
+          gatewayNamespace: envoy-gateway-system
+          sectionName: plex-direct
   destination:
     server: https://kubernetes.default.svc
     namespace: media

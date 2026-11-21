@@ -1,0 +1,20 @@
+{{- if .Values.remoteAccess.enabled }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: TLSRoute
+metadata:
+  name: plex-direct
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: plex
+spec:
+  parentRefs:
+    - name: {{ .Values.remoteAccess.gatewayName }}
+      namespace: {{ .Values.remoteAccess.gatewayNamespace }}
+      sectionName: {{ .Values.remoteAccess.sectionName }}
+  hostnames:
+    - {{ .Values.remoteAccess.hostname | quote }}
+  rules:
+    - backendRefs:
+        - name: {{ .Values.remoteAccess.service }}
+          port: {{ .Values.remoteAccess.port }}
+{{- end }}

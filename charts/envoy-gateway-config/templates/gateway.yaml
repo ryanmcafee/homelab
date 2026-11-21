@@ -45,6 +45,19 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+    {{- range $v.tlsPassthrough }}
+    - name: {{ .name }}
+      protocol: TLS
+      port: 443
+      hostname: {{ .hostname | quote }}
+      tls:
+        mode: Passthrough
+      allowedRoutes:
+        namespaces:
+          from: All
+        kinds:
+          - kind: TLSRoute
+    {{- end }}
 ---
 # Plain HTTP only redirects; routes attach to the https listener (sectionName: https).
 apiVersion: gateway.networking.k8s.io/v1
