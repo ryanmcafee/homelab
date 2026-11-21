@@ -548,7 +548,6 @@ nzbget:
     repo: https://trueforge-org.github.io/truecharts
     version: 28.3.20
 
-  # A preview runs no real downloads, so it keeps the pre-SSD CPU budget.
   previewResources:
     requests:
       cpu: 100m
