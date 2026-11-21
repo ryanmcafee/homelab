@@ -24,14 +24,19 @@ spec:
       valuesObject:
         iscsi:
           portal: {{ .Values.global.iscsi.portal | quote }}
-        # The import sweep reads the API key from Sonarr's config claim, runs as Sonarr's user and
-        # mounts Sonarr's downloads volume to delete non-English releases.
+        # The import sweep reads the API key from the sonarr-api-key Secret (1Password) and then
+        # runs on any node; without an item path it falls back to Sonarr's config claim and node.
+        # It runs as Sonarr's user and mounts Sonarr's downloads volume to delete non-English releases.
         {{- $downloads := default (dict) .Values.sonarr.persistence.downloads }}
         {{- $config := default (dict) .Values.sonarr.persistence.config }}
         {{- $container := dig "container" (dict) (default (dict) .Values.sonarr.securityContext) }}
+        {{- $apiKeyItemPath := dig "importSweep" "apiKeyItemPath" "" .Values.sonarr }}
         importSweep:
           enabled: {{ dig "importSweep" "enabled" false .Values.sonarr }}
           removeNonEnglish: {{ dig "importSweep" "removeNonEnglish" false .Values.sonarr }}
+          apiKeySecret:
+            name: {{ ternary "sonarr-api-key" "" (ne $apiKeyItemPath "") | quote }}
+            onePasswordItemPath: {{ $apiKeyItemPath | quote }}
           downloads:
             type: {{ $downloads.type | default "emptyDir" | quote }}
             server: {{ $downloads.server | default "" | quote }}

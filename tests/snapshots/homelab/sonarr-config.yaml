@@ -1662,15 +1662,6 @@ spec:
             fsGroupChangePolicy: OnRootMismatch
             seccompProfile:
               type: RuntimeDefault
-          # The app's config claim is ReadWriteOnce: share the node the app runs on.
-          affinity:
-            podAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                - topologyKey: kubernetes.io/hostname
-                  labelSelector:
-                    matchLabels:
-                      app.kubernetes.io/instance: sonarr
-                      app.kubernetes.io/name: sonarr
           containers:
             - name: sweep
               image: "oven/bun:1.4.2-alpine"
@@ -1683,8 +1674,11 @@ spec:
                   value: "http://sonarr.media.svc.cluster.local:8989"
                 - name: IMPORT_PATH
                   value: "/downloads/completed/tv"
-                - name: CONFIG_XML
-                  value: /app-config/config.xml
+                - name: ARR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: "sonarr-api-key"
+                      key: "api-key"
                 - name: TMDB_API_KEY
                   valueFrom:
                     secretKeyRef:
@@ -1714,9 +1708,6 @@ spec:
                 - name: script
                   mountPath: /scripts
                   readOnly: true
-                - name: app-config
-                  mountPath: /app-config
-                  readOnly: true
                 - name: tmp
                   mountPath: /tmp
                 # The app's downloads volume, at the app's path, so non-English releases can be deleted.
@@ -1733,10 +1724,6 @@ spec:
             - name: script
               configMap:
                 name: sonarr-import-sweep
-            - name: app-config
-              persistentVolumeClaim:
-                claimName: "sonarr-config"
-                readOnly: true
             - name: tmp
               emptyDir:
                 sizeLimit: 16Mi
@@ -1744,3 +1731,17 @@ spec:
               nfs:
                 server: "truenas.replaceme-domain.com"
                 path: "/mnt/ssd/downloads"
+
+---
+# Source: sonarr-config/templates/api-key-secret.yaml
+# The import sweep's API key (field api-key, equal to <ApiKey> in the app's config.xml).
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: sonarr-api-key
+  namespace: media
+  labels:
+    app.kubernetes.io/part-of: sonarr
+    app.kubernetes.io/component: import-sweep
+spec:
+  itemPath: "vaults/homelab/items/sonarr"

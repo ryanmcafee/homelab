@@ -33,9 +33,15 @@ the app left in `/downloads/completed/tv` or `/downloads/completed/movies`. Scri
 
 Upgrades and every other app rejection stay the app's decision. API calls retry connection errors,
 429 and 5xx five times over about two minutes; a command whose POST or poll was lost is looked up
-in the app's commands (or its files are checked) before it is ever sent again. The API key comes
-from `config.xml` on the app's ReadWriteOnce config claim (podAffinity to the app's node); the
-TMDb key is `tmdb-api-key` of Secret `plex` (optional).
+in the app's commands (or its files are checked) before it is ever sent again. The API key is
+field `api-key` of Secret `sonarr-api-key` / `radarr-api-key`, a OnePasswordItem from
+`SONARR_1P_PATH` / `RADARR_1P_PATH` (default `vaults/homelab/items/sonarr` and `.../radarr`), so
+the pod has no node affinity and runs on any worker. The field must equal `<ApiKey>` in the app's
+`config.xml`: create the items before the sweep is enabled, and update the item whenever the key is
+regenerated in the app's UI (a stale key fails the run with 401; a missing item leaves the pod in
+`CreateContainerConfigError`). Without 1Password (`SECRETS_PROVIDER` other than `onepassword`, as
+on Kind) the key is read from `config.xml` on the app's ReadWriteOnce config claim instead, with a
+podAffinity to the app's node. The TMDb key is `tmdb-api-key` of Secret `plex` (optional).
 
 ## Reading a run
 

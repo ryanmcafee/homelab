@@ -2,6 +2,7 @@
 {{- if .enabled }}
 {{- $name := printf "%s-import-sweep" .app }}
 {{- $script := $.Files.Get "files/arr-import-sweep.ts" }}
+{{- $useConfig := not .apiKeySecret.name }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -56,6 +57,7 @@ spec:
             fsGroupChangePolicy: OnRootMismatch
             seccompProfile:
               type: RuntimeDefault
+          {{- if $useConfig }}
           # The app's config claim is ReadWriteOnce: share the node the app runs on.
           affinity:
             podAffinity:
@@ -64,6 +66,7 @@ spec:
                   labelSelector:
                     matchLabels:
                       {{- toYaml .appPodLabels | nindent 22 }}
+          {{- end }}
           containers:
             - name: sweep
               image: "{{ .image.repository }}:{{ .image.tag }}"
@@ -76,8 +79,16 @@ spec:
                   value: {{ .url | quote }}
                 - name: IMPORT_PATH
                   value: {{ .path | quote }}
+                {{- if $useConfig }}
                 - name: CONFIG_XML
                   value: /app-config/config.xml
+                {{- else }}
+                - name: ARR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .apiKeySecret.name | quote }}
+                      key: {{ .apiKeySecret.key | quote }}
+                {{- end }}
                 {{- if .tmdbSecret.name }}
                 - name: TMDB_API_KEY
                   valueFrom:
@@ -109,9 +120,11 @@ spec:
                 - name: script
                   mountPath: /scripts
                   readOnly: true
+                {{- if $useConfig }}
                 - name: app-config
                   mountPath: /app-config
                   readOnly: true
+                {{- end }}
                 - name: tmp
                   mountPath: /tmp
                 {{- if .removeNonEnglish }}
@@ -125,10 +138,12 @@ spec:
             - name: script
               configMap:
                 name: {{ $name }}
+            {{- if $useConfig }}
             - name: app-config
               persistentVolumeClaim:
                 claimName: {{ .configClaim | quote }}
                 readOnly: true
+            {{- end }}
             - name: tmp
               emptyDir:
                 sizeLimit: 16Mi

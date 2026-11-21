@@ -35,13 +35,18 @@ spec:
             server: {{ $movies.server | default "" | quote }}
             path: {{ $movies.path | default "" | quote }}
             mountPath: {{ $movies.mountPath | default "/movies" | quote }}
-        # The import sweep reads the API key from Radarr's config claim, runs as Radarr's user and
-        # mounts Radarr's downloads volume to delete non-English releases.
+        # The import sweep reads the API key from the radarr-api-key Secret (1Password) and then
+        # runs on any node; without an item path it falls back to Radarr's config claim and node.
+        # It runs as Radarr's user and mounts Radarr's downloads volume to delete non-English releases.
         {{- $downloads := default (dict) .Values.radarr.persistence.downloads }}
         {{- $container := dig "container" (dict) (default (dict) .Values.radarr.securityContext) }}
+        {{- $apiKeyItemPath := dig "importSweep" "apiKeyItemPath" "" .Values.radarr }}
         importSweep:
           enabled: {{ dig "importSweep" "enabled" false .Values.radarr }}
           removeNonEnglish: {{ dig "importSweep" "removeNonEnglish" false .Values.radarr }}
+          apiKeySecret:
+            name: {{ ternary "radarr-api-key" "" (ne $apiKeyItemPath "") | quote }}
+            onePasswordItemPath: {{ $apiKeyItemPath | quote }}
           downloads:
             type: {{ $downloads.type | default "emptyDir" | quote }}
             server: {{ $downloads.server | default "" | quote }}

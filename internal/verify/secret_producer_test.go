@@ -48,6 +48,10 @@ var onePasswordPathKeys = []onePasswordPathKey{
 		values: []string{"unifi", "onePasswordItemPath"}},
 	{key: "DUCKDNS_1P_PATH", parent: "applications", chart: "duckdns-dependencies", item: "duckdns-token",
 		values: []string{"onePasswordItemPath"}},
+	{key: "SONARR_1P_PATH", parent: "applications", chart: "sonarr-config", item: "sonarr-api-key",
+		values: []string{"importSweep", "apiKeySecret", "onePasswordItemPath"}},
+	{key: "RADARR_1P_PATH", parent: "applications", chart: "radarr-config", item: "radarr-api-key",
+		values: []string{"importSweep", "apiKeySecret", "onePasswordItemPath"}},
 }
 
 // TestOnePasswordItemPathsAreNotCommittedInChildOverlays keeps the duplication

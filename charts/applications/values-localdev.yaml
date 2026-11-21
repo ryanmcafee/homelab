@@ -277,6 +277,9 @@ sonarr:
     enabled: false
     # Media must be English: blocklist and delete non-English releases.
     removeNonEnglish: true
+    # 1Password item with the API key (field api-key), so the sweep runs on any node. Empty
+    # falls back to Sonarr's ReadWriteOnce config claim and the node Sonarr runs on.
+    apiKeyItemPath: ""
 
 # ============================================================================
 # Radarr - Movie Management
@@ -372,6 +375,9 @@ radarr:
     enabled: false
     # Media must be English: blocklist and delete non-English releases.
     removeNonEnglish: true
+    # 1Password item with the API key (field api-key), so the sweep runs on any node. Empty
+    # falls back to Radarr's ReadWriteOnce config claim and the node Radarr runs on.
+    apiKeyItemPath: ""
 
 # ============================================================================
 # Prowlarr - Indexer Manager
