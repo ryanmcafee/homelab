@@ -1,0 +1,129 @@
+{{- with .Values.importSweep }}
+{{- if .enabled }}
+{{- $name := printf "%s-import-sweep" .app }}
+{{- $script := $.Files.Get "files/arr-import-sweep.ts" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: {{ .app }}
+    app.kubernetes.io/component: import-sweep
+data:
+  arr-import-sweep.ts: |-
+    {{- $script | nindent 4 }}
+---
+# Imports what the app left in the completed downloads folder (files/arr-import-sweep.ts).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: {{ .app }}
+    app.kubernetes.io/component: import-sweep
+spec:
+  schedule: {{ .schedule | quote }}
+  {{- with .timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ .ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: {{ .app }}
+            app.kubernetes.io/component: import-sweep
+          annotations:
+            checksum/script: {{ $script | sha256sum }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: {{ .securityContext.runAsUser }}
+            runAsGroup: {{ .securityContext.runAsGroup }}
+            fsGroup: {{ .securityContext.runAsGroup }}
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          # The app's config claim is ReadWriteOnce: share the node the app runs on.
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      {{- toYaml .appPodLabels | nindent 22 }}
+          containers:
+            - name: sweep
+              image: "{{ .image.repository }}:{{ .image.tag }}"
+              imagePullPolicy: {{ .image.pullPolicy }}
+              command: ["bun", "/scripts/arr-import-sweep.ts"]
+              env:
+                - name: ARR_APP
+                  value: {{ .app | quote }}
+                - name: ARR_URL
+                  value: {{ .url | quote }}
+                - name: IMPORT_PATH
+                  value: {{ .path | quote }}
+                - name: CONFIG_XML
+                  value: /app-config/config.xml
+                {{- if .tmdbSecret.name }}
+                - name: TMDB_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .tmdbSecret.name | quote }}
+                      key: {{ .tmdbSecret.key | quote }}
+                      optional: true
+                {{- end }}
+                - name: DRY_RUN
+                  value: {{ .dryRun | toString | quote }}
+                - name: TIMEOUT_SECONDS
+                  value: {{ .timeoutSeconds | toString | quote }}
+                - name: POLL_SECONDS
+                  value: {{ .pollSeconds | toString | quote }}
+                - name: MIN_SCORE
+                  value: {{ .minScore | toString | quote }}
+                - name: MIN_MARGIN
+                  value: {{ .minMargin | toString | quote }}
+                - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+                  value: "0"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+                - name: app-config
+                  mountPath: /app-config
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .resources | nindent 16 }}
+          volumes:
+            - name: script
+              configMap:
+                name: {{ $name }}
+            - name: app-config
+              persistentVolumeClaim:
+                claimName: {{ .configClaim | quote }}
+                readOnly: true
+            - name: tmp
+              emptyDir:
+                sizeLimit: 16Mi
+{{- end }}
+{{- end }}

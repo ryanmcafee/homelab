@@ -2255,6 +2255,15 @@ spec:
             server: "truenas.replaceme-domain.com"
             path: "/mnt/storage/movies"
             mountPath: "/movies"
+        # The import sweep reads the API key from Radarr's config claim and runs as Radarr's user.
+        importSweep:
+          enabled: true
+          configClaim: "radarr-config"
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 100
+          image:
+            tag: "1.4.2-alpine"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2504,6 +2513,15 @@ spec:
       valuesObject:
         iscsi:
           portal: "198.51.100.50:3260"
+        # The import sweep reads the API key from Sonarr's config claim and runs as Sonarr's user.
+        importSweep:
+          enabled: true
+          configClaim: "sonarr-config"
+          securityContext:
+            runAsUser: 568
+            runAsGroup: 100
+          image:
+            tag: "1.4.2-alpine"
   destination:
     server: https://kubernetes.default.svc
     namespace: media

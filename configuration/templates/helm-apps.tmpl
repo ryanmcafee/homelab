@@ -40,9 +40,11 @@ global:
   # the working tree is pushed with `argocd app sync --local` (ARGOCD_AUTOMATED_SYNC).
   automatedSync: {{ $automated }}
 
-  # Images shared by the chart's own templates (PostSync smoke Jobs).
+  # Images shared by the chart's own templates (PostSync smoke Jobs) and the
+  # import sweeps it hands to the sonarr-config/radarr-config charts.
   images:
     curl: "{{ index .Versions.Images "curl" }}"
+    bun: "{{ index .Versions.Images "bun" }}"
 
   # iSCSI target portal (IP:port) handed to the *-config child charts via
   # helm.valuesObject
@@ -367,6 +369,10 @@ sonarr:
     url: http://sonarr.media.svc.cluster.local:8989/ping
     expect: ["200"]
 
+  # Imports what is left in the completed downloads folder (charts/sonarr-config); needs the NFS downloads export.
+  importSweep:
+    enabled: {{ $nfsMedia }}
+
 # ============================================================================
 # Radarr - Movie Management
 # Sync Wave: 2
@@ -473,6 +479,10 @@ radarr:
     enabled: true
     url: http://radarr.media.svc.cluster.local:7878/ping
     expect: ["200"]
+
+  # Imports what is left in the completed downloads folder (charts/radarr-config); needs the NFS downloads export.
+  importSweep:
+    enabled: {{ $nfsMedia }}
 
 # ============================================================================
 # Prowlarr - Indexer Manager
