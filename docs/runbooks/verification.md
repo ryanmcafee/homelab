@@ -671,7 +671,9 @@ same secret-free guard and pool regression tests.
 
 ### PII guard findings and emergency bypass
 
-Every failing `homelab config guard` run ends with an `[ERROR]` line that links here.
+Every `homelab config guard` run with at least one finding ends with an `[ERROR]` line that
+links here. Other failures (an unreadable file, an empty CI scope, a scan error) print no link:
+fix the path or scope the error names.
 
 **What a finding means.** `<file>:<line> PII detected (<pattern>): <content>` means a committed
 file holds a value that identifies one operator's infrastructure: a literal from
