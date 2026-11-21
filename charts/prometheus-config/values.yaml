@@ -22,3 +22,11 @@ alertmanager:
 githubPrAlerts:
   secretName: github-pr-alerts
   onePasswordItemPath: ""
+
+# The argo-rollouts controller scrape (templates/argo-rollouts-monitor.yaml,
+# docs/runbooks/rollouts.md). enabled and namespace come from the parent's
+# helm.valuesObject (argo-rollouts.enabled and .metrics.enabled).
+argoRollouts:
+  enabled: false
+  namespace: argo-rollouts
+  scrapeInterval: 30s

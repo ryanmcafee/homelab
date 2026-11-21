@@ -115,3 +115,35 @@ metadata:
     app.kubernetes.io/component: github-pr-alerts
 spec:
   itemPath: "vaults/homelab/items/github-pr-alerts"
+
+---
+# Source: prometheus-config/templates/argo-rollouts-monitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: argo-rollouts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: prometheus
+    app.kubernetes.io/component: argo-rollouts
+spec:
+  # Both labels and one namespace, so the selector cannot reach a canary Service
+  # that happens to carry app.kubernetes.io/name.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argo-rollouts
+      app.kubernetes.io/component: rollouts-controller
+  namespaceSelector:
+    matchNames:
+      - argo-rollouts
+  # job=argo-rollouts, independent of the Service name a chart bump may change.
+  jobLabel: app.kubernetes.io/name
+  endpoints:
+    # By name: controller.metrics.service.port sets the number, never the name.
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      # rollout_info carries the watched Rollout's own namespace. Without this
+      # the operator overwrites it with argo-rollouts and every series collapses
+      # onto the controller's namespace.
+      honorLabels: true

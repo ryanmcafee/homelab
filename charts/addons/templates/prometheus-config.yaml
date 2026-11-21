@@ -36,6 +36,11 @@ spec:
         githubPrAlerts:
           secretName: {{ (index .Values "github-pr-exporter" "secretName") | quote }}
           onePasswordItemPath: {{ ternary (index .Values "github-pr-exporter" "onePasswordItemPath") "" (index .Values "github-pr-exporter" "enabled") | quote }}
+        # The argo-rollouts controller scrape. Its ServiceMonitor is rendered by
+        # this child, at wave 8, because argo-rollouts itself syncs at wave 2.
+        argoRollouts:
+          enabled: {{ and (index .Values "argo-rollouts" "enabled") (index .Values "argo-rollouts" "metrics" "enabled") }}
+          namespace: {{ (index .Values "argo-rollouts" "namespace") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ (index .Values "kube-prometheus-stack").namespace }}
