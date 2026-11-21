@@ -587,3 +587,9 @@ These are documented errors with known solutions:
 - **Root Cause**: Ingest is higher than the 35-55 GB for 90 days that `docs/logging.md` estimated (~86 GB used). Nothing bounds it besides the exporter's 90-day TTL: the collectors have no filter or sampling processor, and ClickHouse's own `system.*` log tables have no TTL. Which table grows was not measured during triage
 - **Solution**: Homelab `logging.clickhouse.server.storageSize` 100Gi -> 200Gi (`configuration/templates/helm-addons.tmpl`); the operator carries the `data` volumeClaimTemplate request to the PVC and `democratic-csi-iscsi` expands it online. After merge, confirm the PVC's request and `status.capacity` both read 200Gi (the paperclip-data entry of 2026-09-25 is an operator that did not propagate a size)
 - **Prevention**: Run the `otel` and `system` per-table size queries in `docs/logging.md`; a follow-up decides between system log table TTLs, collector filtering and a shorter `logging.retention` from that measurement
+
+### 2026-09-28 - Diagnose omitted healthy Applications with sync drift
+- **Issue**: `localdev:diagnose` printed all-clear after level 2 rejected Healthy/Succeeded/OutOfSync.
+- **Cause**: `cmdDiagnose` called `isReady(app, false)` and returned before namespace collection.
+- **Fix**: Require sync readiness in diagnosis; print `status.sync.status` and full sync detail, then collect destination namespace evidence. Preserve the existing new-empty-chart exception.
+- **Verification**: Command regression fails for OutOfSync before the fix and passes after; Synced control stays quiet. QA verified the real CI Diagnostics entrypoint names drift and collects namespace evidence while Kind level 2 permits sync-only drift (ADR-012; MCAA-470).
