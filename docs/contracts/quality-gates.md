@@ -52,6 +52,12 @@ The required names, workflow files and job IDs are listed in
 each required job exists and that its workflow runs on every PR. The author-claim
 job retains exactly the draft and Renovate exemption recorded in ADR-032.
 
+The required head check skips `renovate/*` pull requests, and GitHub considers that
+skipped context satisfied. The merge-result `Level 0` check is not currently required.
+Requiring it would make failures block merges, but its result can become stale when
+`main` advances without a new pull request run. See MCAA-164 for the required-context
+change and the separate freshness decision.
+
 Consumer-side: each consumer of an event type keeps a fixture of the event it expects and
 asserts it validates against the published schema. That is what catches "the producer's
 additive change was additive for the schema but not for my parser".

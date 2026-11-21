@@ -47,6 +47,20 @@ Keep the documented list in `docs/contracts/required-status-checks.yaml` in sync
 with live branch protection; `verify/required-contexts` fails level 0 if a
 required workflow is path-filtered or its required job gains a skip condition.
 
+The required `claim` job is skipped on `renovate/*` heads. GitHub treats a skipped job as
+satisfying its required context, so those pull requests have no blocking level-0 check
+while `Level 0 (render, schema, gitops, snapshot, policy)` remains optional. Review the
+`verify.yml` result before merging one. A workflow excluded by a `paths:` filter is
+different: it publishes no check run, leaving a required context pending.
+
+Even when `Level 0` becomes required, its green result covers the merge result at the
+time the workflow ran. Moving `main` does not rerun a pull request workflow. Before
+trusting a green result on a branch behind `main`, update the branch and rerun CI, or
+use a merge queue that runs required checks on its `merge_group` candidate. The
+workflows now have `merge_group` triggers; enabling a queue still needs validation on
+an actual queued merge. MCAA-164 tracks the repository admin change to require
+`Level 0` and the remaining freshness decision.
+
 ## What level 0 checks
 
 | Check name | What it proves | Fix when it fails |
