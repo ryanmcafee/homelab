@@ -24,6 +24,17 @@ spec:
       valuesObject:
         iscsi:
           portal: {{ .Values.global.iscsi.portal | quote }}
+        # The corrupted-movie scan mounts the same library and config claim as
+        # Radarr, so the paths the Radarr API reports resolve inside the Job.
+        {{- $movies := default (dict) .Values.radarr.persistence.movies }}
+        {{- $config := default (dict) .Values.radarr.persistence.config }}
+        corruptionScan:
+          configClaim: {{ $config.existingClaim | default "radarr-config" | quote }}
+          movies:
+            type: {{ $movies.type | default "emptyDir" | quote }}
+            server: {{ $movies.server | default "" | quote }}
+            path: {{ $movies.path | default "" | quote }}
+            mountPath: {{ $movies.mountPath | default "/movies" | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.radarr.namespace }}

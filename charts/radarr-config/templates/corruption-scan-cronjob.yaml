@@ -1,0 +1,152 @@
+{{- with .Values.corruptionScan }}
+{{- if .enabled }}
+{{- $useConfig := not .apiKeySecret.name }}
+---
+# Script for the corrupted-movie scan; the checksum annotation on the CronJob
+# below rolls the Job template when it changes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: radarr-corruption-scan
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: radarr
+    app.kubernetes.io/component: corruption-scan
+data:
+  corruption-scan.sh: |
+    {{- $.Files.Get "files/corruption-scan.sh" | nindent 4 }}
+---
+# Daily scan for movie files that cannot play. Each corrupt file's release is
+# blocklisted, the file is deleted through the Radarr API and Radarr's
+# automatic search (MoviesSearch) grabs a new release. See files/corruption-scan.sh.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: radarr-corruption-scan
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: radarr
+    app.kubernetes.io/component: corruption-scan
+spec:
+  schedule: {{ .schedule | quote }}
+  {{- with .timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # Never retry: a rerun of a run that failed mid-way could act on a
+      # half-applied state, and the next daily run picks up anything left.
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .activeDeadlineSeconds }}
+      # KubeJobFailed fires for as long as a failed Job exists; the TTL lets a
+      # transient failure clear while a lasting one keeps failing daily.
+      ttlSecondsAfterFinished: {{ .ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: radarr
+            app.kubernetes.io/component: corruption-scan
+          annotations:
+            checksum/script: {{ $.Files.Get "files/corruption-scan.sh" | sha256sum }}
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: {{ .securityContext.runAsUser }}
+            runAsGroup: {{ .securityContext.runAsGroup }}
+            fsGroup: {{ .securityContext.runAsGroup }}
+            fsGroupChangePolicy: OnRootMismatch
+          {{- if $useConfig }}
+          # Radarr's config claim is ReadWriteOnce: share the node Radarr runs on.
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      {{- toYaml .radarrPodLabels | nindent 22 }}
+          {{- end }}
+          containers:
+            - name: scan
+              image: "{{ .image.repository }}:{{ .image.tag }}"
+              imagePullPolicy: {{ .image.pullPolicy }}
+              command: ["/bin/bash", "/scripts/corruption-scan.sh"]
+              env:
+                - name: RADARR_URL
+                  value: {{ .radarrUrl | quote }}
+                {{- if not $useConfig }}
+                - name: RADARR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .apiKeySecret.name | quote }}
+                      key: {{ .apiKeySecret.key | quote }}
+                {{- else }}
+                - name: CONFIG_XML
+                  value: /radarr-config/config.xml
+                {{- end }}
+                - name: DRY_RUN
+                  value: {{ .dryRun | toString | quote }}
+                - name: DEEP_CHECK
+                  value: {{ .deepCheck | toString | quote }}
+                - name: BLOCKLIST_RELEASE
+                  value: {{ .blocklistRelease | toString | quote }}
+                - name: MAX_DELETIONS
+                  value: {{ .maxDeletions | toString | quote }}
+                - name: MIN_AGE_MINUTES
+                  value: {{ .minAgeMinutes | toString | quote }}
+                - name: PROBE_TIMEOUT
+                  value: {{ .probeTimeoutSeconds | toString | quote }}
+                - name: SAMPLE_SECONDS
+                  value: {{ .sampleSeconds | toString | quote }}
+                - name: SAMPLE_POINTS
+                  value: {{ .samplePoints | quote }}
+                - name: HOME
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+                - name: movies
+                  mountPath: {{ .movies.mountPath | default "/movies" }}
+                  readOnly: true
+                {{- if $useConfig }}
+                - name: radarr-config
+                  mountPath: /radarr-config
+                  readOnly: true
+                {{- end }}
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .resources | nindent 16 }}
+          volumes:
+            - name: script
+              configMap:
+                name: radarr-corruption-scan
+            - name: movies
+              {{- if eq (.movies.type | default "emptyDir") "nfs" }}
+              nfs:
+                server: {{ required "corruptionScan.movies.server is required for type nfs" .movies.server | quote }}
+                path: {{ required "corruptionScan.movies.path is required for type nfs" .movies.path | quote }}
+                readOnly: true
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+            {{- if $useConfig }}
+            - name: radarr-config
+              persistentVolumeClaim:
+                claimName: {{ .configClaim | quote }}
+                readOnly: true
+            {{- end }}
+            - name: tmp
+              emptyDir: {}
+{{- end }}
+{{- end }}
