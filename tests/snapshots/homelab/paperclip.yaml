@@ -2184,7 +2184,7 @@ metadata:
 spec:
   image:
     repository: ghcr.io/paperclipai/paperclip
-    tag: "sha-d3e0f0a"
+    tag: "2026.1117.0"
   # Optional keys of the credentials Secret (the enabled per-provider API keys,
   # then extraSecretEnv) followed by extraEnv; both containers receive spec.env.
   env:
@@ -2204,7 +2204,7 @@ spec:
       env:
       - name: PAPERCLIP_CONFIG_PATH
         value: /paperclip/instances/default/config.json
-      image: ghcr.io/paperclipai/paperclip:sha-d3e0f0a
+      image: ghcr.io/paperclipai/paperclip:2026.1117.0
       name: config-scrub
       resources:
         limits:

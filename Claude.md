@@ -299,9 +299,8 @@ images:
   kind-node: "v1.36.1"
   # renovate: datasource=docker depName=versity/versitygw
   versitygw: "v1.8.0"
-  # Master build for paperclipai/paperclip#13515; move back to the first release tag that contains it.
   # renovate: datasource=docker depName=ghcr.io/paperclipai/paperclip
-  paperclip: "sha-d3e0f0a"
+  paperclip: "2026.1117.0"
   # Runtime of the paperclip agent health exporter (charts/paperclip files/paperclip-exporter.ts).
   # renovate: datasource=docker depName=oven/bun
   bun: "1.4.2-alpine"

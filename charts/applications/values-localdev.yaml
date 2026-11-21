@@ -973,7 +973,7 @@ paperclip:
   instance:
     image:
       repository: ghcr.io/paperclipai/paperclip
-      tag: "sha-d3e0f0a"
+      tag: "2026.1117.0"
     # psql for the PostSync heartbeat_runs index Job; same pin as the database.
     dbIndexes:
       image: "ghcr.io/cloudnative-pg/postgresql:17.11"
