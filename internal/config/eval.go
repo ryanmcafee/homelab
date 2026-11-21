@@ -205,7 +205,8 @@ func Eval(schema *Schema, versions *Versions, setName string, layers ...map[stri
 		return nil, fmt.Errorf("expression resolution failed: %w", err)
 	}
 
-	if err := ValidateAddressRoles(schema, resolved); err != nil {
+	lbPool, err := DeriveLBPool(schema, resolved)
+	if err != nil {
 		return nil, fmt.Errorf("validation failed for set %q: %w", setName, err)
 	}
 
@@ -261,6 +262,7 @@ func Eval(schema *Schema, versions *Versions, setName string, layers ...map[stri
 		Set:          setName,
 		ControlPlane: controlPlane,
 		GitOps:       gitOps,
+		LBPool:       lbPool,
 	}, nil
 }
 

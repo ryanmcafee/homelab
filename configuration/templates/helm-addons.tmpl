@@ -297,9 +297,14 @@ cilium-lb-ipam:
   # LB IPAM is a Cilium feature and only useful where LoadBalancer addresses exist.
   enabled: {{ and $cilium $lb }}
 
+  # .LBPool is LB_POOL_START..LB_POOL_END minus the infrastructure addresses inside it.
   lbipam:
     addresses:
+{{- range .LBPool }}
+      - "{{ .Start }}-{{ .Stop }}"
+{{- else }}
       - "{{ .Values.LB_POOL_START.Value }}-{{ .Values.LB_POOL_END.Value }}"
+{{- end }}
 
   # Control Plane VIP - Only advertised by control-plane nodes
   # This creates a dedicated IP pool with restricted node selector

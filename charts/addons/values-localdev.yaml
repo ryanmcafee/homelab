@@ -198,6 +198,7 @@ cilium-lb-ipam:
   # LB IPAM is a Cilium feature and only useful where LoadBalancer addresses exist.
   enabled: false
 
+  # .LBPool is LB_POOL_START..LB_POOL_END minus the infrastructure addresses inside it.
   lbipam:
     addresses:
       - "127.0.0.100-127.0.0.200"

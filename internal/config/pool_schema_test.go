@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// Every control-plane member, not only the literal CP1_IP, must stay outside the LB pool.
-func TestRealSchemaRejectsControlPlaneMembersInsideLBPool(t *testing.T) {
+// Every control-plane member, not only the literal CP1_IP, is carved out of the LB pool.
+func TestRealSchemaCarvesControlPlaneMembersOutOfLBPool(t *testing.T) {
 	configRoot := filepath.Join(findProjectRootForTest(t), "configuration")
 	schema, err := LoadSchemaDir(filepath.Join(configRoot, "schema"))
 	if err != nil {
@@ -37,10 +37,17 @@ func TestRealSchemaRejectsControlPlaneMembersInsideLBPool(t *testing.T) {
 				t.Fatalf("unmutated example must evaluate: %v", err)
 			}
 			env[tc.key] = env["LB_POOL_END"]
-			_, err = Eval(schema, versions, tc.setName, defaults, env)
-			want := tc.key + ": infrastructure-address address " + env["LB_POOL_END"] + " must be outside"
-			if err == nil || !strings.Contains(err.Error(), want) {
-				t.Fatalf("got %v; want %q", err, want)
+			rc, err := Eval(schema, versions, tc.setName, defaults, env)
+			if err != nil {
+				if want := "is " + tc.key + "'s address"; !strings.Contains(err.Error(), want) {
+					t.Fatalf("got %v; want a carve-out or a %q collision", err, want)
+				}
+				return
+			}
+			for _, b := range rc.LBPool {
+				if b.Stop == env["LB_POOL_END"] {
+					t.Fatalf("%s=%s still allocatable in %v", tc.key, env[tc.key], rc.LBPool)
+				}
 			}
 		})
 	}

@@ -142,6 +142,11 @@ type ResolvedConfig struct {
 	// schemas in tests). A template reading it then fails to render, which is
 	// the right outcome for a set that cannot name its own repository.
 	GitOps *GitOpsRepo
+
+	// LBPool is the Cilium LB pool as inclusive ranges, with every infrastructure and
+	// dedicated-pool address inside LB_POOL_START..LB_POOL_END carved out. Nil when no
+	// Cilium LB pool is in use (CNI_PROVIDER/LOAD_BALANCER_ENABLED).
+	LBPool []LBPoolBlock
 }
 
 // ExportFormat identifies an output format.

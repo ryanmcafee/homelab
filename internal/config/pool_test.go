@@ -14,8 +14,9 @@ func poolFixture() (*Schema, map[string]string) {
 }
 func TestValidateAddressRoles(t *testing.T) {
 	for _, tc := range []struct{ name, key, value, want string }{
-		{"inclusive allocations", "", "", ""}, {"NAS start", "NAS_IP", "192.0.2.100", "NAS_IP: infrastructure-address"}, {"NAS end", "NAS_IP", "192.0.2.200", "NAS_IP: infrastructure-address"},
-		{"NAS prefix host", "NAS_LAN", "192.0.2.150/24", "NAS_LAN: infrastructure-address"}, {"VIP start", "CP_VIP", "192.0.2.100", "dedicated-pool-allocation"}, {"VIP end", "CP_VIP", "192.0.2.200", "dedicated-pool-allocation"}, {"gateway overlap", "GATEWAY", "192.0.2.150", "GATEWAY: infrastructure-address"},
+		{"inclusive allocations", "", "", ""}, {"NAS start", "NAS_IP", "192.0.2.100", "TRAEFIK_IP: lb-allocation address 192.0.2.100 is NAS_IP's address"}, {"NAS end", "NAS_IP", "192.0.2.200", "PLEX_IP: lb-allocation address 192.0.2.200 is NAS_IP's address"},
+		{"NAS prefix host", "NAS_LAN", "192.0.2.150/24", "OTEL_IP: lb-allocation address 192.0.2.150 is NAS_LAN's address"}, {"VIP start", "CP_VIP", "192.0.2.100", "is CP_VIP's address"}, {"VIP end", "CP_VIP", "192.0.2.200", "is CP_VIP's address"}, {"gateway overlap", "GATEWAY", "192.0.2.150", "OTEL_IP: lb-allocation address 192.0.2.150 is GATEWAY's address"},
+		{"NAS carved out", "NAS_IP", "192.0.2.149", ""},
 		{"LB below", "TRAEFIK_IP", "192.0.2.99", "must be inside"}, {"LB above", "PLEX_IP", "192.0.2.201", "must be inside"}, {"normalized LB", "OTEL_IP", "192.0.2.150/24", ""}, {"normalized endpoint", "LB_POOL_START", "192.0.2.100/24", ""},
 		{"malformed start", "LB_POOL_START", "192.0.2.999", "LB_POOL_START: expected"}, {"missing end", "LB_POOL_END", "", "LB_POOL_END: expected"}, {"reversed", "LB_POOL_END", "192.0.2.99", "less than or equal"}, {"bad prefix", "NAS_LAN", "192.0.2.150/33", "NAS_LAN: expected"}, {"bad allocation", "OTEL_IP", "bad", "OTEL_IP: expected"}, {"IPv6", "NAS_IP", "::1", "NAS_IP: expected"},
 		{"disabled", "LOAD_BALANCER_ENABLED", "false", ""}, {"other CNI", "CNI_PROVIDER", "calico", ""},
@@ -106,8 +107,9 @@ func TestKeyPatternAddressRoles(t *testing.T) {
 		want  string
 	}{
 		{"outside pool", infra, "192.0.2.12", ""},
-		{"inside pool", infra, "192.0.2.150", "CP2_IP: infrastructure-address address 192.0.2.150 must be outside"},
-		{"pool edge", infra, "192.0.2.200", "CP2_IP: infrastructure-address"},
+		{"inside pool", infra, "192.0.2.150", "OTEL_IP: lb-allocation address 192.0.2.150 is CP2_IP's address"},
+		{"pool edge", infra, "192.0.2.200", "PLEX_IP: lb-allocation address 192.0.2.200 is CP2_IP's address"},
+		{"carved out", infra, "192.0.2.149", ""},
 		{"malformed", infra, "bad", "CP2_IP: expected"},
 		{"missing role", SchemaKeyPattern{SchemaKey: SchemaKey{Pattern: ipv4}}, "192.0.2.12", "^CP([0-9]+)_IP$: IPv4 key pattern requires addressRole"},
 		{"unknown role", SchemaKeyPattern{SchemaKey: SchemaKey{Pattern: ipv4, AddressRole: "infrastructure"}}, "192.0.2.12", "unknown addressRole"},
@@ -132,5 +134,49 @@ func TestLiteralKeyRoleWinsOverPattern(t *testing.T) {
 	values["CP9_IP"] = "192.0.2.150"
 	if err := ValidateAddressRoles(schema, values); err != nil {
 		t.Fatal(err)
+	}
+}
+func TestDeriveLBPoolCarvesOutInfrastructure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		set    map[string]string
+		blocks []LBPoolBlock
+	}{
+		{"nothing inside", nil, []LBPoolBlock{{"192.0.2.100", "192.0.2.200"}}},
+		{"middle", map[string]string{"NAS_IP": "192.0.2.149"}, []LBPoolBlock{{"192.0.2.100", "192.0.2.148"}, {"192.0.2.150", "192.0.2.200"}}},
+		{"adjacent and prefix host", map[string]string{"NAS_IP": "192.0.2.149", "NAS_LAN": "192.0.2.151/24"}, []LBPoolBlock{{"192.0.2.100", "192.0.2.148"}, {"192.0.2.150", "192.0.2.150"}, {"192.0.2.152", "192.0.2.200"}}},
+		{"start edge", map[string]string{"TRAEFIK_IP": "192.0.2.150", "NAS_IP": "192.0.2.100"}, []LBPoolBlock{{"192.0.2.101", "192.0.2.200"}}},
+		{"duplicate owners", map[string]string{"NAS_IP": "192.0.2.149", "GATEWAY": "192.0.2.149"}, []LBPoolBlock{{"192.0.2.100", "192.0.2.148"}, {"192.0.2.150", "192.0.2.200"}}},
+		{"disabled", map[string]string{"LOAD_BALANCER_ENABLED": "false"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			schema, values := poolFixture()
+			for k, v := range tc.set {
+				values[k] = v
+			}
+			blocks, err := DeriveLBPool(schema, values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(blocks) != len(tc.blocks) {
+				t.Fatalf("got %v; want %v", blocks, tc.blocks)
+			}
+			for i := range blocks {
+				if blocks[i] != tc.blocks[i] {
+					t.Fatalf("got %v; want %v", blocks, tc.blocks)
+				}
+			}
+		})
+	}
+}
+func TestDeriveLBPoolRejectsFullyCarvedPool(t *testing.T) {
+	schema, values := poolFixture()
+	values["LB_POOL_START"], values["LB_POOL_END"] = "192.0.2.149", "192.0.2.149"
+	for _, key := range []string{"TRAEFIK_IP", "PLEX_IP", "OTEL_IP"} {
+		delete(values, key)
+	}
+	values["NAS_IP"] = "192.0.2.149"
+	if _, err := DeriveLBPool(schema, values); err == nil || !strings.Contains(err.Error(), "no address left") {
+		t.Fatalf("got %v; want a fully carved pool rejected", err)
 	}
 }
