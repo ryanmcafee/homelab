@@ -1,4 +1,4 @@
-`paperclip.inc` CRDs + controller; `leaderElection.enabled: false` because chart 0.19.1 grants no RBAC on `coordination.k8s.io` leases while enabling `--leader-elect` (the manager never becomes leader, never reconciles, yet reports Ready) |# paperclip
+# paperclip
 
 [Paperclip](https://paperclip.ing/) is an open-source AI agent orchestration platform (org charts,
 budgets, governance and coordination for teams of AI agents). It runs through the official
@@ -14,7 +14,7 @@ All four are rendered by `charts/applications/templates/paperclip.yaml`, gated o
 | Wave | Application | Source | What it deploys |
 |---|---|---|---|
 | 10 | Namespaces `paperclip-operator`, `paperclip` | inline (PodSecurity `baseline`) | targets for the other Applications |
-| 11 | `paperclip-operator` | OCI chart `ghcr.io/paperclipinc/charts/paperclip-operator` 0.19.1 (repository Secret `paperclipinc-oci`), `ServerSideApply=true`, CRDs kept | `paperclip.inc` CRDs + controller |
+| 11 | `paperclip-operator` | OCI chart `ghcr.io/paperclipinc/charts/paperclip-operator` 0.19.1 (repository Secret `paperclipinc-oci`), `ServerSideApply=true`, CRDs kept | `paperclip.inc` CRDs + controller; `leaderElection.enabled: false` because chart 0.19.1 grants no RBAC on `coordination.k8s.io` leases while enabling `--leader-elect` (the manager never becomes leader, never reconciles, yet reports Ready) |
 | 12 | `paperclip-dependencies` (secret store only) | `charts/paperclip-dependencies` | `OnePasswordItem`s `paperclip-auth`, `paperclip-api-keys`, `paperclip-exporter` (the Application is not rendered without a secret store; Kind seeds the Secrets from `localdev/fakes/secrets.yaml`) |
 | 13 | `paperclip-database` | `charts/paperclip-database` | CloudNativePG `Cluster` `paperclip-postgres`: 1 instance, image `ghcr.io/cloudnative-pg/postgresql:17.11` (`images.cloudnative-pg-postgresql`), `STORAGE_CLASS_ISCSI_SSD` (iSCSI block on the SSD pool; NFS classes fail initdb with "wrong ownership", bugs.md 2026-09-15) / 10Gi (local-path / 1Gi in Kind), PodMonitor on. CNPG generates Secret `paperclip-postgres-app`; its `uri` key is the app's `DATABASE_URL` |
 | 14 | `paperclip` | `charts/paperclip` | `paperclip.inc/v1alpha1` `Instance` `paperclip` + PostSync smoke Job `smoke-paperclip` |
@@ -93,18 +93,10 @@ one reference into both variables at once, so it cannot expose one provider's ke
 other's. Both toggles default to `false`: subscriptions are the default, and with them neither
 API-key variable exists in the pod. The 1Password item carries whichever you use.
 
-Since app 2026.916.0 this environment-variable path is the *legacy* one: upstream moved provider
-credentials into the app's Connections as managed accounts with their own grants, and the UI steers
-new agents there. Existing agents keep their current authentication until they explicitly adopt a
-managed connection, so nothing here has to change. Two consequences of the same release: a `plain`
-value set in an agent's adapter env is redacted in every API response after you save it, so read it
-back from 1Password rather than from the API, and the removed "cheap model profile" second execution
-mode means recovery runs now use the same model as normal work.
-
 Since app 2026.916.0 this environment-variable path is the *legacy* one: provider credentials are
 meant to live in the app's Connections as managed accounts with their own grants. Existing agents
 keep their current authentication until they explicitly adopt a managed connection, so nothing here
-has to change — but the UI now steers new agents towards Connections. Two consequences of the same
+has to change -- but the UI now steers new agents towards Connections. Two consequences of the same
 release: a `plain` value set in an agent's adapter env (below) is redacted in every API response
 after you save it, so read it back from 1Password rather than from the API, and the removed "cheap
 model profile" second execution mode means recovery runs now use the same model as normal work.
