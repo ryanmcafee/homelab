@@ -2,7 +2,8 @@
 
 namespace: media
 
-onePasswordItemPath: vaults/homelab/items/plex
+# onePasswordItemPath is NOT set here: the applications plex-config Application
+# passes it through helm.valuesObject from PLEX_1P_PATH.
 
 volumes:
   - pvcName: plex-config-iscsi

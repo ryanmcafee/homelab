@@ -48,6 +48,10 @@ var onePasswordPathKeys = []onePasswordPathKey{
 		values: []string{"unifi", "onePasswordItemPath"}},
 	{key: "DUCKDNS_1P_PATH", parent: "applications", chart: "duckdns-dependencies", item: "duckdns-token",
 		values: []string{"onePasswordItemPath"}},
+	{key: "PLEX_1P_PATH", parent: "applications", chart: "plex-config", item: "plex",
+		values: []string{"onePasswordItemPath"}},
+	{key: "RENOVATE_1P_PATH", parent: "applications", chart: "renovate-config", item: "renovate-token",
+		values: []string{"onePasswordItemPath"}},
 }
 
 // TestOnePasswordItemPathsAreNotCommittedInChildOverlays keeps the duplication
