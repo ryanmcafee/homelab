@@ -238,6 +238,7 @@ function accountsBlockValues(nats: Record<string, unknown>): string[] {
       nats: {
         enabled: true,
         principalNkeys: pairs.join(","),
+        testOnlyAuthWithoutNackInbox: true,
         credentials: { bootstrapSeeded: true },
         ...nats,
       },
