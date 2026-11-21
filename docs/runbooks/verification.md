@@ -776,6 +776,7 @@ Write the configuration key in angle brackets, as
 [`tailscale-dns.md`](tailscale-dns.md) does with `<GATEWAY_IP>/32`. The reserved ranges are
 spent on the example ConfigSets: each `configuration/environments/*.yaml.example` owns one
 outright, which `go test ./internal/config/` enforces, so a runbook cannot borrow one.
+
 ### OpenClaw operator checks
 
 `task verify:text` includes the offline `gitops/<env>/openclaw-intent` check.
