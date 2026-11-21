@@ -133,6 +133,7 @@ jobs:
         || needs.changed-paths.result != 'success'
         || needs.changed-paths.outputs.relevant == 'true')
     runs-on: ubuntu-latest
+    # Measured p95 41m (n=23, 2026-11-15..21); a p95 past 50m is a regression to cut (MCAA-1232).
     timeout-minutes: 60
     permissions:
       contents: read
