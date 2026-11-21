@@ -96,6 +96,8 @@ spec:
                   value: {{ .minScore | toString | quote }}
                 - name: MIN_MARGIN
                   value: {{ .minMargin | toString | quote }}
+                - name: REMOVE_NON_ENGLISH
+                  value: {{ .removeNonEnglish | toString | quote }}
                 - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
                   value: "0"
               securityContext:
@@ -112,6 +114,11 @@ spec:
                   readOnly: true
                 - name: tmp
                   mountPath: /tmp
+                {{- if .removeNonEnglish }}
+                # The app's downloads volume, at the app's path, so non-English releases can be deleted.
+                - name: downloads
+                  mountPath: {{ .downloads.mountPath | default "/downloads" }}
+                {{- end }}
               resources:
                 {{- toYaml .resources | nindent 16 }}
           volumes:
@@ -125,5 +132,15 @@ spec:
             - name: tmp
               emptyDir:
                 sizeLimit: 16Mi
+            {{- if .removeNonEnglish }}
+            - name: downloads
+              {{- if eq (.downloads.type | default "emptyDir") "nfs" }}
+              nfs:
+                server: {{ required "importSweep.downloads.server is required for type nfs" .downloads.server | quote }}
+                path: {{ required "importSweep.downloads.path is required for type nfs" .downloads.path | quote }}
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+            {{- end }}
 {{- end }}
 {{- end }}

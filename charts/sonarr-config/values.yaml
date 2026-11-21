@@ -24,6 +24,15 @@ importSweep:
   dryRun: false
   minScore: 60
   minMargin: 20
+  # Blocklist and delete matched releases whose known languages exclude English
+  # (never on Unknown); mounts the downloads volume below read-write.
+  removeNonEnglish: false
+  # Sonarr's downloads volume, mounted at the same path; type nfs or emptyDir.
+  downloads:
+    type: emptyDir
+    server: ""
+    path: ""
+    mountPath: /downloads
   timeoutSeconds: 3000
   pollSeconds: 2
   activeDeadlineSeconds: 3300

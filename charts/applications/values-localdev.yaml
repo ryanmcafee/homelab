@@ -268,6 +268,8 @@ sonarr:
   # Imports what is left in the completed downloads folder (charts/sonarr-config); needs the NFS downloads export.
   importSweep:
     enabled: false
+    # Media must be English: blocklist and delete non-English releases.
+    removeNonEnglish: true
 
 # ============================================================================
 # Radarr - Movie Management
@@ -361,6 +363,8 @@ radarr:
   # Imports what is left in the completed downloads folder (charts/radarr-config); needs the NFS downloads export.
   importSweep:
     enabled: false
+    # Media must be English: blocklist and delete non-English releases.
+    removeNonEnglish: true
 
 # ============================================================================
 # Prowlarr - Indexer Manager
