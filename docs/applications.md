@@ -80,7 +80,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `otel-collector-agent` | `opentelemetry-collector` | 0.173.1 | — | — | — |
 | `otel-collector-cluster` | `opentelemetry-collector` | 0.173.1 | — | — | — |
 | `otel-collector-gateway` | `opentelemetry-collector` | 0.173.1 | envoy-internal: otel, otlp | — | — |
-| `port-forwarding-controller` | `port-forwarding` | 1.1.1 | — | — | — |
+| `port-forwarding-controller` | `port-forwarding` | 1.1.2 | — | — | — |
 | `port-forwarding-controller-config` | `charts/port-forwarding-controller-config` | git | — | — | — |
 | `prometheus-config` | `charts/prometheus-config` | git | — | — | — |
 | `spegel` | `spegel` | 0.6.0 | — | — | — |
