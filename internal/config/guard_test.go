@@ -444,6 +444,8 @@ func TestIsRealHostname(t *testing.T) {
 		{name: "dot local email", value: "test@homelab.local", want: false},
 		{name: "dot internal", value: "truenas.internal", want: false},
 		{name: "dot test", value: "foo.test", want: false},
+		{name: "home.arpa", value: "home.arpa", want: false},
+		{name: "dot home.arpa", value: "nas.home.arpa", want: false},
 		{name: "localhost", value: "localhost", want: false},
 
 		// Allowlisted committed value.
