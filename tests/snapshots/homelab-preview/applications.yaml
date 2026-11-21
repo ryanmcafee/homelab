@@ -614,10 +614,10 @@ spec:
                 main:
                   resources:
                     limits:
-                      cpu: 4000m
+                      cpu: 1000m
                       memory: 4Gi
                     requests:
-                      cpu: 500m
+                      cpu: 100m
                       memory: 224Mi
         persistence:
           config:

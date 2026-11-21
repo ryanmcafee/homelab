@@ -58,8 +58,13 @@ spec:
       releaseName: nzbget
       values: |
         {{- if .Values.nzbget.workload }}
+        {{- $workload := deepCopy .Values.nzbget.workload }}
+        {{- $container := dig "main" "podSpec" "containers" "main" dict $workload }}
+        {{- if and (include "homelab.preview.enabled" .) $container.resources .Values.nzbget.previewResources }}
+        {{- $_ := mergeOverwrite $container.resources (deepCopy .Values.nzbget.previewResources) }}
+        {{- end }}
         workload:
-          {{- toYaml .Values.nzbget.workload | nindent 10 }}
+          {{- toYaml $workload | nindent 10 }}
         {{- end }}
 
         {{- if .Values.nzbget.persistence }}
