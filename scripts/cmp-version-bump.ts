@@ -15,7 +15,8 @@ import { readFile, writeFile } from "node:fs/promises";
  * Increments patch: 0.1.0 -> 0.1.1
  * Updates versions.yaml and hardcoded CMP image tags.
  * Re-exports the committed localdev parent values (the tag is part of them)
- * and regenerates the golden snapshots, then stages all modified files.
+ * regenerates the golden snapshots and re-embeds Claude.md, then stages all
+ * modified files.
  */
 
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
@@ -239,6 +240,22 @@ async function main() {
       process.exit(1);
     }
     updatedFiles.push("tests/snapshots");
+
+    console.log(cyan("Re-embedding versions.yaml into Claude.md..."));
+    try {
+      await run(["task", "docs:embedme"]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        red(
+          "ERROR: Claude.md could not be re-embedded after the version bump.\n" +
+            "Run: task docs:embedme\n" +
+            message,
+        ),
+      );
+      process.exit(1);
+    }
+    updatedFiles.push("Claude.md");
   }
 
   // Stage all modified files
