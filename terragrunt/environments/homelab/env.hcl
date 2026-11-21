@@ -175,6 +175,9 @@ locals {
   # an environment that fails to resolve it stops rather than inheriting one.
   base_fqdn = local.config.DOMAIN
 
+  argocd_notifications_github_1p_path = local.config.ARGOCD_NOTIFICATIONS_GITHUB_1P_PATH
+  environment_config_1p_path          = local.config.HOMELAB_ENVIRONMENT_CONFIG_1P_PATH
+
   # Optional split-horizon zone for extra A records; empty publishes none.
   local_dns_domain = try(local.config.LOCAL_DNS_DOMAIN, "")
 

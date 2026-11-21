@@ -47,6 +47,10 @@ var consumedOutsideTemplates = map[string]string{
 	"CLUSTER_NAME":     "terragrunt/environments/{homelab,localdev}/env.hcl — locals.cluster_name",
 	"PROXMOX_NODE":     "terragrunt/environments/homelab/env.hcl — locals.proxmox_node and every node's host_node",
 	"LOCAL_DNS_DOMAIN": "terragrunt/environments/homelab/env.hcl — locals.local_dns_domain, the optional zone of the proxmox, k8s and truenas A records",
+	"ARGOCD_NOTIFICATIONS_GITHUB_1P_PATH": "terragrunt/environments/{homelab,localdev}/env.hcl — the root Application's " +
+		"helm parameter bootstrap.argocdNotificationsGithubItemPath; bootstrap installs the CMP, so no template can carry it",
+	"HOMELAB_ENVIRONMENT_CONFIG_1P_PATH": "terragrunt/environments/{homelab,localdev}/env.hcl — the root Application's " +
+		"helm parameter bootstrap.environmentConfigItemPath; the item holds the ConfigSet the CMP reads",
 }
 
 // templateRef is a single recognized expression found on one line of a

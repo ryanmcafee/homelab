@@ -68,6 +68,9 @@ inputs = {
   # ConfigSet. Same source as the rest of the tree now.
   base_fqdn = include.env.locals.base_fqdn
 
+  argocd_notifications_github_1p_path = include.env.locals.argocd_notifications_github_1p_path
+  environment_config_1p_path          = include.env.locals.environment_config_1p_path
+
   # Git repository
   repo_url        = include.env.locals.repo_url
   target_revision = include.env.locals.target_revision
