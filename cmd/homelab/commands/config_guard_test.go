@@ -140,9 +140,9 @@ func TestConfigValidatePoolCLI(t *testing.T) {
 	}{
 		{"valid allocation at end", "192.0.2.20/24", "192.0.2.200", "192.0.2.200", "true", false},
 		{"valid allocation at start", "192.0.2.20", "192.0.2.100", "192.0.2.200", "true", false},
-		{"NAS at start", "192.0.2.100", "192.0.2.150", "192.0.2.200", "true", true},
-		{"NAS at end", "192.0.2.200", "192.0.2.150", "192.0.2.200", "true", true},
-		{"NAS prefix host", "192.0.2.150/24", "192.0.2.200", "192.0.2.200", "true", true},
+		{"NAS at start carved out", "192.0.2.100", "192.0.2.150", "192.0.2.200", "true", false},
+		{"NAS at end carved out", "192.0.2.200", "192.0.2.150", "192.0.2.200", "true", false},
+		{"NAS prefix host collides with an allocation", "192.0.2.150/24", "192.0.2.150", "192.0.2.200", "true", true},
 		{"LB outside", "192.0.2.20", "192.0.2.201", "192.0.2.200", "true", true},
 		{"malformed endpoint", "192.0.2.20", "192.0.2.150", "192.0.2.999", "true", true},
 		{"reversed range", "192.0.2.20", "192.0.2.150", "192.0.2.99", "true", true},

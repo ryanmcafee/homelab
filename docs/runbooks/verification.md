@@ -676,14 +676,16 @@ changing ConfigSet threading.
 
 Use `task config:validate` to validate address roles when Cilium's load balancer
 pool is enabled. Schema `addressRole` declares pool endpoints (`lb-pool-range`),
-allocations that must be inside (`lb-allocation`), addresses that must stay outside
-(`infrastructure-address`, `dedicated-pool-allocation`), and containing network
+allocations that must be inside (`lb-allocation`), addresses Cilium must never hand
+out (`infrastructure-address`, `dedicated-pool-allocation`), and containing network
 ranges (`network-range`). Both endpoints are inclusive; address/prefix values use
-the host address. The Envoy Gateways, Plex, and OTEL belong inside the pool. TrueNAS and the
-control-plane VIP must stay outside. IPv4 `keyPatterns` carry `addressRole` too,
-so every `CPn_IP` member, not only `CP1_IP`, must stay outside the pool. Existing
-forks must check their own ignored `homelab.yaml`: updating the example does not
-fix a previously copied NAS or control-plane collision.
+the host address. The Envoy Gateways, Plex, and OTEL belong inside the pool. TrueNAS,
+the control-plane VIP and every `CPn_IP` member (IPv4 `keyPatterns` carry
+`addressRole` too) are never allocatable: when one falls inside
+`LB_POOL_START..LB_POOL_END`, the resolver carves it out and renders the Cilium pool
+as several ranges (`.LBPool`), so `192.0.2.100-200` around a NAS at `192.0.2.150`
+becomes `192.0.2.100-149` and `192.0.2.151-200`. Validation fails only when an `lb-allocation`
+equals a carved-out address, or when carving leaves no address in the pool.
 
 `task config:guard` remains the full tracked-file entrypoint. Neither check needs
 cluster credentials. CI and the `config-regressions` pre-commit hook execute the
