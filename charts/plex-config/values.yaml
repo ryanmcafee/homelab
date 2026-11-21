@@ -43,3 +43,14 @@ kometa:
     limits:
       cpu: "1"
       memory: 1Gi
+
+# Plex Remote Access through the external Gateway on 443: a TLSRoute passes
+# *.plex.direct TLS through to Plex, which serves its own plex.direct certificate.
+remoteAccess:
+  enabled: false
+  gatewayName: envoy-external
+  gatewayNamespace: envoy-gateway-system
+  sectionName: plex-direct
+  hostname: "*.plex.direct"
+  service: plex-plex-media-server
+  port: 32400

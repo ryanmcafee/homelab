@@ -1295,6 +1295,10 @@ envoy-gateway:
           staticIP: "{{ .Values.GATEWAY_EXTERNAL_STATIC_IP.Value }}"
           annotations:
             port-forwarding.{{ .Values.DOMAIN.Value }}/enable: "true"
+        # Plex Remote Access over public 443: plex.direct SNI reaches Plex's own TLS (charts/plex-config).
+        tlsPassthrough:
+          - name: plex-direct
+            hostname: "*.plex.direct"
 {{- else }}
           type: ClusterIP
 {{- end }}

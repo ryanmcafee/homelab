@@ -664,6 +664,9 @@ var committedSafeHosts = []string{
 	// dynamic-DNS provider, committed so local development resolves.
 	"homelab-dev.duckdns.org",
 
+	// Plex's own TLS namespace (<ip>.<server id>.plex.direct): the external Gateway passes *.plex.direct through to Plex.
+	"plex.direct",
+
 	// Public container registries. These name a global service, never this
 	// infrastructure, and the localdev registry pull-through caches must
 	// spell them out (scripts/localdev-kind.ts registryUpstreams, the Talos

@@ -450,6 +450,9 @@ func TestIsRealHostname(t *testing.T) {
 
 		// Allowlisted committed value.
 		{name: "localdev duckdns target", value: "homelab-dev.duckdns.org", want: false},
+		{name: "plex.direct wildcard", value: "*.plex.direct", want: false},
+		{name: "plex.direct server name", value: "192-0-2-1.abc123.plex.direct", want: false},
+		{name: "plex.direct look-alike suffix", value: "plex.direct.evil.net", want: true},
 		// Public registries the localdev pull-through caches must spell out.
 		{name: "aws public registry", value: "ecr-public.aws.com", want: false},
 		{name: "aws public registry image ref", value: "ecr-public.aws.com/docker/library/redis", want: false},

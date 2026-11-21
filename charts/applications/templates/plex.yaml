@@ -26,6 +26,10 @@ spec:
           portal: {{ .Values.global.iscsi.portal | quote }}
         kometa:
           {{- toYaml .Values.plex.kometa | nindent 10 }}
+        {{- with .Values.plex.remoteAccess }}
+        remoteAccess:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.plex.namespace }}

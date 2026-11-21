@@ -149,6 +149,13 @@ plex:
         memory: 8Gi
 {{- end }}
 
+  # Plex Remote Access on public 443 only: a TLSRoute behind the external Gateway's plex-direct listener.
+  remoteAccess:
+    enabled: {{ $lb }}
+    gatewayName: {{ .Values.GATEWAY_EXTERNAL.Value }}
+    gatewayNamespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+    sectionName: plex-direct
+
   # Kometa needs a Plex token and a TMDb API key from the plex 1Password item.
   kometa:
     enabled: {{ $onepassword }}
@@ -183,7 +190,6 @@ plex:
 {{- if $lb }}
     annotations:
       io.cilium/lb-ipam-ips: "{{ .Values.PLEX_LB_IP.Value }}"
-      port-forwarding.{{ .Values.DOMAIN.Value }}/enable: "true"
 {{- end }}
 
   # Extra volumes for media storage (NFS exports, or emptyDirs where there is

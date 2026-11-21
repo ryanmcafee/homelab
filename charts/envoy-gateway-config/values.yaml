@@ -28,6 +28,9 @@ defaults:
   # DNS target external-dns publishes for every route on this Gateway; empty uses the Gateway address.
   dnsTarget: ""
 
+  # Extra port-443 listeners that pass TLS through by SNI to a TLSRoute instead of terminating it.
+  tlsPassthrough: []
+
   service:
     # ClusterIP where no LoadBalancer exists (Kind): the Gateway then reports the ClusterIP as its address.
     type: LoadBalancer

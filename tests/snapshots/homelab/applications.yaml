@@ -1946,6 +1946,11 @@ spec:
           enabled: true
           image:
             tag: v2.5.5
+        remoteAccess:
+          enabled: true
+          gatewayName: envoy-external
+          gatewayNamespace: envoy-gateway-system
+          sectionName: plex-direct
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2040,7 +2045,6 @@ spec:
         service:
           annotations:
             io.cilium/lb-ipam-ips: 198.51.100.103
-            port-forwarding.replaceme-domain.com/enable: "true"
           externalTrafficPolicy: Local
           port: 32400
           type: LoadBalancer

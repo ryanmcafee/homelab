@@ -33,6 +33,26 @@ test_gateway_listener_fail if {
 	contains(m, "*.other.com")
 }
 
+test_gateway_passthrough_third_party_sni_pass if {
+	obj := {"kind": "Gateway", "metadata": {"name": "envoy-external", "namespace": "envoy-gateway-system"}, "spec": {"listeners": [
+		{"name": "https", "port": 443, "hostname": "*.example.com"},
+		{"name": "plex-direct", "port": 443, "protocol": "TLS", "hostname": "*.plex.direct", "tls": {"mode": "Passthrough"}},
+	]}}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
+}
+
+test_gateway_terminate_third_party_sni_fails if {
+	obj := {"kind": "Gateway", "metadata": {"name": "envoy-external", "namespace": "envoy-gateway-system"}, "spec": {"listeners": [{"name": "plex-direct", "port": 443, "hostname": "*.plex.direct", "tls": {"mode": "Terminate"}}]}}
+	some m in deny with input as obj with data.domain as "example.com"
+	contains(m, "*.plex.direct")
+}
+
+test_gateway_passthrough_unknown_sni_fails if {
+	obj := {"kind": "Gateway", "metadata": {"name": "envoy-external", "namespace": "envoy-gateway-system"}, "spec": {"listeners": [{"name": "other", "port": 443, "hostname": "*.other.com", "tls": {"mode": "Passthrough"}}]}}
+	some m in deny with input as obj with data.domain as "example.com"
+	contains(m, "*.other.com")
+}
+
 test_certificate_apex_and_wildcard_pass if {
 	obj := {"kind": "Certificate", "metadata": {"name": "gateway-wildcard-tls", "namespace": "envoy-gateway-system"}, "spec": {"dnsNames": ["example.com", "*.example.com"]}}
 	count(deny) == 0 with input as obj with data.domain as "example.com"

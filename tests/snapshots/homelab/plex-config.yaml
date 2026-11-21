@@ -203,3 +203,24 @@ metadata:
   namespace: media
 spec:
   itemPath: "vaults/homelab/items/plex"
+
+---
+# Source: plex-config/templates/tlsroute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: TLSRoute
+metadata:
+  name: plex-direct
+  namespace: media
+  labels:
+    app.kubernetes.io/part-of: plex
+spec:
+  parentRefs:
+    - name: envoy-external
+      namespace: envoy-gateway-system
+      sectionName: plex-direct
+  hostnames:
+    - "*.plex.direct"
+  rules:
+    - backendRefs:
+        - name: plex-plex-media-server
+          port: 32400

@@ -87,7 +87,7 @@ sources:
       ref: "{version}"
       paths:
         - config/crd/standard
-    kinds: [Gateway, GatewayClass, HTTPRoute, ReferenceGrant]
+    kinds: [Gateway, GatewayClass, HTTPRoute, ReferenceGrant, TLSRoute]
 
   - name: nack
     versionKey: nack
