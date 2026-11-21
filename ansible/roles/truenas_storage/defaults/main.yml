@@ -71,6 +71,9 @@ truenas_datasets_to_delete:
 
 # SSD Pool Configuration
 truenas_ssd_pool_name: ssd
+# QLC SSDs lose their SLC cache and write speed when never trimmed; TrueNAS defaults Auto TRIM to off.
+truenas_autotrim_pools:
+  - "{{ truenas_ssd_pool_name }}"
 
 # SSD Kubernetes Dataset
 truenas_ssd_k8s_dataset: "{{ truenas_ssd_pool_name }}/k8s"
