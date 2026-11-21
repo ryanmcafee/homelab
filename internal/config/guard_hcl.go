@@ -63,6 +63,8 @@ func hclIdentityKey(key string) bool {
 // HCL is parsed without an evaluation context: variable traversals and function
 // calls remain unresolved, while literal assignments and variable defaults can
 // be checked without Terraform, providers, credentials, or a cluster.
+var _, sharedAddressSpace, _ = net.ParseCIDR("100.64.0.0/10")
+
 func scanHCLShape(path string) (GuardResult, error) {
 	result := GuardResult{File: path}
 	source, err := os.ReadFile(path)
@@ -99,11 +101,12 @@ func scanHCLShape(path string) (GuardResult, error) {
 		// address. A private network (10.244.0.0/16) is left to the value rule:
 		// shape cannot tell the operator's LAN from Kind's fork-invariant pod
 		// network. A public network names someone's allocation, so shape owns it.
+		// RFC 6598 shared space is every tailnet's range, so it is not public.
 		if ip, network, err := net.ParseCIDR(text); err == nil && IsRoutableHostIP(ip.String()) {
 			switch {
 			case !ip.Equal(network.IP):
 				kind = "routable host IP with prefix"
-			case !ip.IsPrivate():
+			case !ip.IsPrivate() && !sharedAddressSpace.Contains(ip):
 				kind = "public network CIDR"
 			}
 		}

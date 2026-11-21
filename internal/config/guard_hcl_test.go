@@ -178,6 +178,9 @@ func TestGuardHCLLeavesPrivateNetworkCIDRsToTheValueRule(t *testing.T) {
 		{`"2a00:1450:4001::/48"`, 1},
 		{`"fd7a:115c:a1e0::/48"`, 0},
 		{`"0.0.0.0/0"`, 0},
+		{`"100.64.0.0/10"`, 0},
+		{`"100.100.0.0/16"`, 0},
+		{`"100.128.0.0/16"`, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.literal, func(t *testing.T) {
@@ -206,6 +209,9 @@ func TestGuardHCLJudgesDomainKeys(t *testing.T) {
 		{"reference", `locals { local_dns_domain = try(local.config.LOCAL_DNS_DOMAIN, "") }`, 0},
 		{"variable default", "variable \"cloud_init_dns_domain\" {\n  default = \"lan.acme.org\"\n}", 1},
 		{"null default", "variable \"cloud_init_dns_domain\" {\n  default = null\n}", 0},
+		{"home.arpa", `locals { local_dns_domain = "home.arpa" }`, 0},
+		{"home.arpa subdomain", `locals { local_dns_domain = "lab.home.arpa" }`, 0},
+		{"other arpa zone", `locals { local_dns_domain = "lan.acme.arpa" }`, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

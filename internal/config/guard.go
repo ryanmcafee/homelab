@@ -76,10 +76,8 @@ func isNonIdentifyingValue(v string) bool {
 	}
 	// Reserved suffixes are documentation or local-network names by definition
 	// (RFC 2606, RFC 6761): localdev's `DOMAIN: homelab.local` is one.
-	for _, suffix := range reservedHostSuffixes {
-		if strings.HasSuffix(host, suffix) {
-			return true
-		}
+	if hasReservedHostSuffix(host) {
+		return true
 	}
 	// A host this repository commits on purpose is not a leak when it appears.
 	for _, safe := range committedSafeHosts {
@@ -596,14 +594,25 @@ func ListGuardFiles(repoRoot string, pathspecs []string) ([]string, error) {
 var configKeyLine = regexp.MustCompile(`^\s*([A-Z][A-Z0-9_]*)\s*:\s*(\S.*)$`)
 
 // reservedHostSuffixes are domain suffixes reserved for documentation, testing
-// and local networks (RFC 2606, RFC 6761). A value under one of them cannot
-// name real infrastructure.
+// and local networks (RFC 2606, RFC 6761, RFC 8375). A value under one of them
+// cannot name real infrastructure.
 var reservedHostSuffixes = []string{
 	".local", ".localhost", ".localdomain", ".internal", ".intranet",
 	".test", ".invalid", ".example", ".example.com", ".example.org", ".example.net",
+	".home.arpa",
 	// Kubernetes in-cluster service names (<svc>.<ns>.svc, with or without
 	// .cluster.local) never leave the cluster and identify nothing outside it.
 	".svc",
+}
+
+// hasReservedHostSuffix reports whether host is a reserved zone or a name under one.
+func hasReservedHostSuffix(host string) bool {
+	for _, suffix := range reservedHostSuffixes {
+		if strings.HasSuffix(host, suffix) || host == suffix[1:] {
+			return true
+		}
+	}
+	return false
 }
 
 // placeholderHosts are exact hostnames used as documentation placeholders.
@@ -781,10 +790,8 @@ func isExamplePlaceholder(value string) bool {
 		}
 	}
 	// Reserved suffixes are placeholders by definition (RFC 2606, RFC 6761).
-	for _, suffix := range reservedHostSuffixes {
-		if strings.HasSuffix(host, suffix) {
-			return true
-		}
+	if hasReservedHostSuffix(host) {
+		return true
 	}
 	return false
 }
@@ -857,10 +864,8 @@ func isRealHostname(v string) bool {
 			return false
 		}
 	}
-	for _, suffix := range reservedHostSuffixes {
-		if strings.HasSuffix(host, suffix) {
-			return false
-		}
+	if hasReservedHostSuffix(host) {
+		return false
 	}
 	for _, safe := range committedSafeHosts {
 		if host == safe || strings.HasSuffix(host, "."+safe) {
