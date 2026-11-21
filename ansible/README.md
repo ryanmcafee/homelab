@@ -328,6 +328,8 @@ For detailed firmware update procedures, troubleshooting, and rollback instructi
 | `storcli_bios_version` | 09.47.00.00 | Target BIOS version |
 | `ipmi_fan_thresholds` | [list] | Fan threshold configuration |
 | `zfs_pool_name` | vm-storage | ZFS pool name |
+| `proxmox_zfs_trim_pools` | vm-storage, cp-storage | Pools that get autotrim and the monthly trim |
+| `proxmox_zfs_dirty_data_max` | 1073741824 | ZFS dirty data limit in bytes |
 | `proxmox_mtu` | 1500 | Network MTU |
 
 ### Host Variables (hosts.yml)

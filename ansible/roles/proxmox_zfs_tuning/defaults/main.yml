@@ -1,0 +1,13 @@
+---
+# ZFS write tuning for the Proxmox host pools that hold VM system disks.
+# See docs/runbooks/control-plane-storage.md ("ZFS write tuning").
+
+proxmox_zfs_trim_pools:
+  - vm-storage
+  - cp-storage
+
+# Debian's auto mode trims NVMe-only pools; vm-storage sits behind a tri-mode HBA that reports SAS.
+proxmox_zfs_periodic_trim: enable
+
+# 1 GiB, down from the 4 GiB default that let one vm-storage txg take 318 s to sync.
+proxmox_zfs_dirty_data_max: 1073741824

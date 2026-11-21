@@ -1,0 +1,54 @@
+---
+- name: Read pool autotrim settings
+  ansible.builtin.command:
+    cmd: "zpool get -H -o value autotrim {{ item }}"
+  loop: "{{ proxmox_zfs_trim_pools }}"
+  register: zfs_autotrim
+  changed_when: false
+  check_mode: false
+
+- name: Enable autotrim on the VM disk pools
+  ansible.builtin.command:
+    cmd: "zpool set autotrim=on {{ item.item }}"
+  loop: "{{ zfs_autotrim.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stdout != 'on'
+  changed_when: true
+
+- name: Read the monthly trim cron opt-in
+  ansible.builtin.command:
+    cmd: "zfs get -H -o value org.debian:periodic-trim {{ item }}"
+  loop: "{{ proxmox_zfs_trim_pools }}"
+  register: zfs_periodic_trim
+  changed_when: false
+  check_mode: false
+
+- name: Opt the VM disk pools into the monthly trim cron
+  ansible.builtin.command:
+    cmd: "zfs set org.debian:periodic-trim={{ proxmox_zfs_periodic_trim }} {{ item.item }}"
+  loop: "{{ zfs_periodic_trim.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stdout != proxmox_zfs_periodic_trim
+  changed_when: true
+
+- name: Persist the ZFS dirty data limit across reboots
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/zfs-write-tuning.conf
+    mode: '0644'
+    content: |
+      # Managed by ansible/roles/proxmox_zfs_tuning (homelab repo).
+      options zfs zfs_dirty_data_max={{ proxmox_zfs_dirty_data_max }}
+  notify: Update initramfs
+
+- name: Read the running ZFS dirty data limit
+  ansible.builtin.slurp:
+    src: /sys/module/zfs/parameters/zfs_dirty_data_max
+  register: zfs_dirty_data_max_current
+
+- name: Apply the ZFS dirty data limit to the running module
+  ansible.builtin.shell:
+    cmd: "echo {{ proxmox_zfs_dirty_data_max | int }} > /sys/module/zfs/parameters/zfs_dirty_data_max"
+  changed_when: true
+  when: (zfs_dirty_data_max_current.content | b64decode | trim | int) != (proxmox_zfs_dirty_data_max | int)

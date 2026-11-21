@@ -296,6 +296,38 @@ Two notes: the logrotate config deliberately does not list `/var/log/pveproxy/ac
 — a path listed in two logrotate configs is **skipped entirely**, not rotated twice. And 157 old
 undeliverable failure mails remain in the postfix queue; they are harmless and small (~4.5 MB).
 
+### ZFS write tuning (2026-11-21)
+
+On 2026-11-21 a worker image pull (Paperclip `2026.1117.0`, ~55 MB/s onto worker-3) drove `vm-storage`
+to 1-7 s write latency. One txg held 3.8 GB dirty and took 318 s to sync. etcd logged hundreds of
+`apply request took too long` and ReadIndex timeouts, although `cp-storage` itself stayed at ~1 ms.
+
+Causes found on the host:
+
+- `vm-storage` (2x Crucial P310, QLC, no DRAM) had **never been trimmed**: `autotrim=off`, and the
+  Debian monthly trim cron (`/usr/lib/zfs-linux/trim`) skips it, because its `auto` mode trims only
+  NVMe-only pools and the SAS3408 tri-mode HBA presents these drives with transport `sas`. After
+  ~50 TB written, the drives treat almost every block as live, so their SLC cache stays small.
+- `zfs_dirty_data_max` was the 4 GiB default, so a slow pool could buffer several GB that then
+  drained at QLC speed and throttled writers well beyond that pool.
+
+Codified in `ansible/roles/proxmox_zfs_tuning` (playbook `ansible/playbooks/proxmox-zfs-tuning.yml`,
+also imported by `site.yml`):
+
+| Setting | Value |
+|---|---|
+| `autotrim` | `on` for `vm-storage` and `cp-storage` |
+| `org.debian:periodic-trim` | `enable` on both, so the monthly cron does a full trim (first Sunday, 00:24) |
+| `zfs_dirty_data_max` | 1 GiB, live via `/sys/module/zfs/parameters` and persisted in `/etc/modprobe.d/zfs-write-tuning.conf` |
+
+```bash
+cd ansible && ansible-playbook -i inventory/homelab.yml playbooks/proxmox-zfs-tuning.yml --check --diff
+cd ansible && ansible-playbook -i inventory/homelab.yml playbooks/proxmox-zfs-tuning.yml
+```
+
+The playbook does not start a full trim. The first full pass of `vm-storage` adds I/O, so run it
+off-hours or let the cron do it: `zpool trim vm-storage`, then `zpool status -t vm-storage`.
+
 ### Still open
 
 - **`~/.talos/config` lists only two endpoints** (`<CP1_IP>` and `<CP2_IP>`). Add `<CP3_IP>`.

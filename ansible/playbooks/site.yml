@@ -27,3 +27,6 @@
 
 - name: Configure GPU passthrough
   import_playbook: proxmox-gpu-passthrough.yml
+
+- name: Tune ZFS writes on the VM disk pools
+  import_playbook: proxmox-zfs-tuning.yml
