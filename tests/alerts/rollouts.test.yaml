@@ -1,0 +1,265 @@
+# promtool unit tests for the homelab-progressive-delivery rules in
+# charts/addons/templates/kube-prometheus-stack.yaml (docs/runbooks/rollouts.md).
+#
+# `task test:alerts` renders the addons chart, extracts every group of
+# additionalPrometheusRulesMap into rules.yaml in a temp directory, copies this
+# file next to it and runs `promtool test rules`, so the expressions under test
+# are the ones that deploy - the test cannot drift from the chart.
+#
+# rollout_info is a gauge that is always 1, with exactly one phase label value
+# per Rollout: the phases are the controller's enum (Completed, Progressing,
+# Paused, Timeout, Error, InvalidSpec, Abort), not the Rollout's status.phase.
+# A phase change is therefore one series ending and another starting, which is
+# what every input_series below models.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 1. The abort the issue was filed for: a canary that fails canary-http-health.
+  #    Progressing for 10m, then Abort. Informational - the stable ReplicaSet
+  #    never stopped serving - so the severity must stay info, which
+  #    Alertmanager routes to the triage agent and to no Pushover receiver.
+  - interval: 1m
+    name: a failed analysis aborts the canary
+    input_series:
+      - series: 'rollout_info{namespace="paperclip",name="paperclip-exporter",strategy="canary",traffic_router="",phase="Progressing"}'
+        values: '1+0x10 _x60'
+      - series: 'rollout_info{namespace="paperclip",name="paperclip-exporter",strategy="canary",traffic_router="",phase="Abort"}'
+        values: '_x10 1+0x60'
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts",instance="10.0.0.1:8090"}'
+        values: '1+0x70'
+    alert_rule_test:
+      # Still promoting: no abort series exists yet.
+      - eval_time: 8m
+        alertname: HomelabRolloutAborted
+        exp_alerts: []
+      # Aborted at 10m, but the rule waits 5m before it is worth saying.
+      - eval_time: 13m
+        alertname: HomelabRolloutAborted
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: HomelabRolloutAborted
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              namespace: paperclip
+              name: paperclip-exporter
+            exp_annotations:
+              summary: 'Rollout paperclip/paperclip-exporter aborted; the previous revision is still serving'
+              description: 'The canary analysis failed, so the controller scaled the canary to zero and the stable ReplicaSet kept serving. The deploy did not land and the same image is never retried. `kubectl describe rollout` names the failed metric; docs/runbooks/rollouts.md.'
+      # An abort is not a timeout, is not a pause, and one of one Rollout is
+      # below the fleet rule's floor of two.
+      - eval_time: 20m
+        alertname: HomelabRolloutProgressDeadlineExceeded
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: HomelabRolloutStuckPaused
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: HomelabRolloutsNotProgressing
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: HomelabRolloutMetricsUnavailable
+        exp_alerts: []
+
+  # 2. Nothing failed and nothing finished: the canary pods never reach Ready,
+  #    so the controller stamps ProgressDeadlineExceeded and the phase becomes
+  #    Timeout. A distinct alert from the abort above, on a longer fuse.
+  - interval: 1m
+    name: a rollout that passes its progress deadline
+    input_series:
+      - series: 'rollout_info{namespace="paperclip",name="paperclip-exporter",strategy="canary",traffic_router="",phase="Progressing"}'
+        values: '1+0x10 _x60'
+      - series: 'rollout_info{namespace="paperclip",name="paperclip-exporter",strategy="canary",traffic_router="",phase="Timeout"}'
+        values: '_x10 1+0x60'
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts",instance="10.0.0.1:8090"}'
+        values: '1+0x70'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: HomelabRolloutProgressDeadlineExceeded
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: HomelabRolloutProgressDeadlineExceeded
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              namespace: paperclip
+              name: paperclip-exporter
+            exp_annotations:
+              summary: 'Rollout paperclip/paperclip-exporter passed its progress deadline with nothing finished'
+              description: 'progressDeadlineSeconds elapsed before the new ReplicaSet became available: nothing failed the analysis, nothing promoted. Usually the canary pods never reach Ready. docs/runbooks/rollouts.md.'
+      - eval_time: 30m
+        alertname: HomelabRolloutAborted
+        exp_alerts: []
+
+  # 3. A Rollout paused on a step is exempt from progressDeadlineSeconds, so it
+  #    never reaches Timeout: without this rule an unpromoted canary is silent
+  #    forever. One hour, because a pause step is a deliberate wait.
+  - interval: 1m
+    name: a rollout paused for an hour
+    input_series:
+      - series: 'rollout_info{namespace="paperclip",name="paperclip-exporter",strategy="canary",traffic_router="",phase="Paused"}'
+        values: '1+0x120'
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts",instance="10.0.0.1:8090"}'
+        values: '1+0x120'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: HomelabRolloutStuckPaused
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: HomelabRolloutStuckPaused
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              namespace: paperclip
+              name: paperclip-exporter
+            exp_annotations:
+              summary: 'Rollout paperclip/paperclip-exporter has been paused for an hour'
+              description: 'A paused Rollout is exempt from progressDeadlineSeconds, so it never reaches the Timeout phase: this is the only signal that a promotion is waiting on a person. `kubectl argo rollouts promote`; docs/runbooks/rollouts.md.'
+      # A pause is not a timeout: the Timeout phase never appears.
+      - eval_time: 70m
+        alertname: HomelabRolloutProgressDeadlineExceeded
+        exp_alerts: []
+
+  # 4. Two of four Rollouts aborted is the gate working twice and stays below
+  #    the threshold; three of four is a fleet fault and is one series, with no
+  #    namespace or name label, however many Rollouts there are.
+  - interval: 1m
+    name: most of the fleet stops progressing
+    input_series:
+      - series: 'rollout_info{namespace="paperclip",name="paperclip-exporter",strategy="canary",traffic_router="",phase="Abort"}'
+        values: '1+0x120'
+      - series: 'rollout_info{namespace="media",name="sonarr",strategy="canary",traffic_router="",phase="Abort"}'
+        values: '1+0x120'
+      - series: 'rollout_info{namespace="media",name="radarr",strategy="canary",traffic_router="",phase="Completed"}'
+        values: '1+0x60 _x60'
+      - series: 'rollout_info{namespace="media",name="radarr",strategy="canary",traffic_router="",phase="InvalidSpec"}'
+        values: '_x60 1+0x60'
+      - series: 'rollout_info{namespace="downloads",name="nzbget",strategy="canary",traffic_router="",phase="Completed"}'
+        values: '1+0x120'
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts",instance="10.0.0.1:8090"}'
+        values: '1+0x120'
+    alert_rule_test:
+      # Two of four is exactly 0.5, and the rule wants more than half.
+      - eval_time: 50m
+        alertname: HomelabRolloutsNotProgressing
+        exp_alerts: []
+      # Three of four from t+60m, plus the 15m fuse.
+      - eval_time: 70m
+        alertname: HomelabRolloutsNotProgressing
+        exp_alerts: []
+      - eval_time: 80m
+        alertname: HomelabRolloutsNotProgressing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: '75% of the Rollouts in the cluster are aborted, timed out or invalid'
+              description: 'More than half the fleet at once is not N independent bad revisions. Check the controller and the shared canary-http-health template before any single Rollout; docs/runbooks/rollouts.md.'
+
+  # 5. A single healthy Rollout must never trip the fleet rule: one of one is
+  #    100 % and would otherwise fire on every abort in a fork that runs one
+  #    canary. The floor of two Rollouts is what keeps it quiet.
+  - interval: 1m
+    name: one aborted rollout is not a fleet regression
+    input_series:
+      - series: 'rollout_info{namespace="paperclip",name="paperclip-exporter",strategy="canary",traffic_router="",phase="Abort"}'
+        values: '1+0x60'
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts",instance="10.0.0.1:8090"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: HomelabRolloutsNotProgressing
+        exp_alerts: []
+
+  # 6. The blindness backstop. absent() covers both shapes: the controller is
+  #    scraped and failing, and the target is gone entirely (a deleted
+  #    ServiceMonitor, or a chart bump that renames the metrics Service).
+  - interval: 1m
+    name: the controller stops answering the scrape
+    input_series:
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts",instance="10.0.0.1:8090"}'
+        values: '1+0x10 0+0x60'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: HomelabRolloutMetricsUnavailable
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: HomelabRolloutMetricsUnavailable
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: HomelabRolloutMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: 'The argo-rollouts controller is not scraped'
+              description: 'Every alert of this group is blind, so an aborted deploy is silent again. The ServiceMonitor is argo-rollouts in the monitoring namespace (charts/prometheus-config); docs/runbooks/rollouts.md.'
+
+  - interval: 1m
+    name: the scrape target disappears
+    input_series:
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts",instance="10.0.0.1:8090"}'
+        values: '1+0x10 _x60'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: HomelabRolloutMetricsUnavailable
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: HomelabRolloutMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: 'The argo-rollouts controller is not scraped'
+              description: 'Every alert of this group is blind, so an aborted deploy is silent again. The ServiceMonitor is argo-rollouts in the monitoring namespace (charts/prometheus-config); docs/runbooks/rollouts.md.'
+
+  # 7. An analysis that cannot measure (the probe Job never ran) errors rather
+  #    than fails. It fires once the run is new and resolves an hour later, so a
+  #    run kept as history does not alert for ever.
+  - interval: 1m
+    name: an analysis run errors
+    input_series:
+      - series: 'analysis_run_info{namespace="paperclip",name="paperclip-exporter-6d8f-2-1",phase="Running"}'
+        values: '1+0x10 _x120'
+      - series: 'analysis_run_info{namespace="paperclip",name="paperclip-exporter-6d8f-2-1",phase="Error"}'
+        values: '_x10 1+0x120'
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts",instance="10.0.0.1:8090"}'
+        values: '1+0x130'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: HomelabAnalysisRunErrored
+        exp_alerts: []
+      - eval_time: 13m
+        alertname: HomelabAnalysisRunErrored
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: HomelabAnalysisRunErrored
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: paperclip
+              name: paperclip-exporter-6d8f-2-1
+            exp_annotations:
+              summary: 'AnalysisRun paperclip/paperclip-exporter-6d8f-2-1 could not take its measurements'
+              description: 'The analysis errored rather than failed: the canary was rolled back because the gate could not measure, not because the revision was bad. Fix the template or its probe Job before retrying the image. `kubectl describe analysisrun`; docs/runbooks/rollouts.md.'
+      # An hour after the run errored it is history, not news.
+      - eval_time: 80m
+        alertname: HomelabAnalysisRunErrored
+        exp_alerts: []
+
+  # 8. A Failed run is the gate doing its job and is reported as the Rollout's
+  #    abort, not a second time here.
+  - interval: 1m
+    name: a failed analysis run is not an errored one
+    input_series:
+      - series: 'analysis_run_info{namespace="paperclip",name="paperclip-exporter-6d8f-2-1",phase="Failed"}'
+        values: '_x10 1+0x60'
+      - series: 'up{job="argo-rollouts",namespace="argo-rollouts",instance="10.0.0.1:8090"}'
+        values: '1+0x70'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: HomelabAnalysisRunErrored
+        exp_alerts: []
