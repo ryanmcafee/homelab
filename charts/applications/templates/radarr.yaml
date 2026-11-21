@@ -78,6 +78,9 @@ spec:
     helm:
       releaseName: radarr
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         {{- if .Values.radarr.workload }}
         workload:
           {{- toYaml .Values.radarr.workload | nindent 10 }}

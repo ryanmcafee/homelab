@@ -57,6 +57,9 @@ spec:
     helm:
       releaseName: flaresolverr
       values: |
+        # The chart default affinity matches every TrueCharts pod with a "config" PVC, pinning all of them to one node.
+        podOptions:
+          defaultAffinity: false
         {{- if .Values.flaresolverr.workload }}
         workload:
           {{- toYaml .Values.flaresolverr.workload | nindent 10 }}
