@@ -65,6 +65,9 @@ on:
       - 'tests/gitops/upstream-values-allowlist.yaml'
       - 'tests/gitops/upgrade-automerge.yaml'
       - 'tests/snapshots/**'
+      - 'Taskfile.yml'
+      - 'scripts/renovate-regen.ts'
+      - 'scripts/renovate-pr-list_test.ts'
 
 concurrency:
   group: upgrade-${{ github.ref }}
@@ -348,6 +351,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_EXPECTED_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: task renovate:deployed-major
 
   regenerate:
