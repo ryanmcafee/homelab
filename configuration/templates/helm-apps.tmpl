@@ -1165,13 +1165,14 @@ paperclip:
 {{- else }}
     storageSize: 10Gi
     # Steady load is 0.4-0.9 cores; a 1-core limit throttled Postgres and slowed the paperclip route
+    # 1Gi was OOMKilled while Paperclip 2026.1117.0 ran its startup migrations.
     resources:
       requests:
         cpu: 500m
-        memory: 512Mi
+        memory: 1Gi
       limits:
         cpu: "2"
-        memory: 1Gi
+        memory: 4Gi
 {{- end }}
 
   # charts/paperclip: the paperclip.inc Instance (external database mode,
