@@ -1,0 +1,15 @@
+collections:
+  Christmas:
+    # TMDb keyword "christmas"
+    tmdb_keyword: 207317
+    plex_search:
+      any:
+        title:
+          - Christmas
+          - Santa Claus
+          - Grinch
+    # append keeps movies added to the collection by hand
+    sync_mode: append
+    collection_order: release
+    sort_title: "!Christmas"
+    summary: Christmas movies, matched by TMDb keyword and title.

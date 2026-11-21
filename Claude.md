@@ -288,6 +288,8 @@ images:
   triage-agent: "0.1.1"
   # renovate: datasource=docker depName=plexinc/pms-docker
   plex: "1.43.5.11029-6bf8af3f0"
+  # renovate: datasource=docker depName=kometateam/kometa
+  kometa: "v2.5.5"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # Chart 2.2.2 defaults to 2.2.0, which predates both freshness timestamps the homelab-iot rules read.

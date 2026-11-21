@@ -1,0 +1,128 @@
+{{- if .Values.kometa.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kometa-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: kometa
+    app.kubernetes.io/part-of: plex
+data:
+  # <<plextoken>> and <<tmdbkey>> are filled by Kometa from KOMETA_PLEXTOKEN and KOMETA_TMDBKEY.
+  config.yml: |
+    libraries:
+      {{ .Values.kometa.movieLibrary | quote }}:
+        collection_files:
+          - file: /config/christmas.yml
+    plex:
+      url: {{ .Values.kometa.plexUrl | quote }}
+      token: <<plextoken>>
+      timeout: 60
+    tmdb:
+      apikey: <<tmdbkey>>
+      language: en
+    settings:
+      cache: true
+      cache_expiration: 60
+      run_order:
+        - collections
+  christmas.yml: |
+    {{- .Files.Get "files/kometa/christmas.yml" | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kometa
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: kometa
+    app.kubernetes.io/part-of: plex
+spec:
+  schedule: {{ .Values.kometa.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: {{ .Values.kometa.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: kometa
+            app.kubernetes.io/part-of: plex
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # Kometa writes its cache and logs next to config.yml, so the config is copied out of the read-only ConfigMap.
+            - name: copy-config
+              image: "{{ .Values.kometa.image.repository }}:{{ .Values.kometa.image.tag }}"
+              imagePullPolicy: {{ .Values.kometa.image.pullPolicy }}
+              command: ["sh", "-c", "cp /config-src/*.yml /config/"]
+              volumeMounts:
+                - name: config-src
+                  mountPath: /config-src
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          containers:
+            - name: kometa
+              image: "{{ .Values.kometa.image.repository }}:{{ .Values.kometa.image.tag }}"
+              imagePullPolicy: {{ .Values.kometa.image.pullPolicy }}
+              args:
+                - --run
+                - --collections-only
+                - --config
+                - /config/config.yml
+              env:
+                - name: TZ
+                  value: {{ .Values.kometa.timezone | quote }}
+                - name: HOME
+                  value: /config
+                - name: KOMETA_PLEXTOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.secretName }}
+                      key: plex-token
+                - name: KOMETA_TMDBKEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.secretName }}
+                      key: tmdb-api-key
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+              resources:
+                {{- toYaml .Values.kometa.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: config-src
+              configMap:
+                name: kometa-config
+            - name: config
+              emptyDir: {}
+{{- end }}

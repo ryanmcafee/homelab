@@ -257,6 +257,13 @@ plex:
       - name: ndots
         value: "5"
 
+  # Kometa CronJob of the plex-config child chart: maintains the Christmas
+  # collection across the whole movie library.
+  kometa:
+    enabled: false
+    image:
+      tag: "v2.5.5"
+
   # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
   # Service after sync; expect lists the accepted HTTP codes.
   smoke:

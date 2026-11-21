@@ -147,6 +147,12 @@ plex:
         memory: 8Gi
 {{- end }}
 
+  # Kometa needs a Plex token and a TMDb API key from the plex 1Password item.
+  kometa:
+    enabled: {{ $onepassword }}
+    image:
+      tag: "{{ index .Versions.Images "kometa" }}"
+
   # Persistence configuration
   persistence:
     config:

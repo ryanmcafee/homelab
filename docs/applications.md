@@ -165,6 +165,11 @@ Notes:
   repo (`homeassistant` is disabled here), so nothing in Git can roll credentials to them.
   The broker is LAN-only: a `LoadBalancer` Service with no ingress and no `external-dns`
   record. Real authentication needs a credential store and a client rollout, not a values key.
+- `plex-config` also runs the `kometa` CronJob (daily, homelab only), which keeps the
+  **Christmas** collection of the Plex movie library in sync: every run scans the whole
+  library, so existing and new movies are classified alike. Definitions live in
+  `charts/plex-config/files/kometa/`; the `plex` 1Password item needs the fields `plex-token`
+  and `tmdb-api-key`, and `kometa.movieLibrary` must match the library name in Plex.
 - The `*-config` and `*-dependencies` children carry no ingress and are covered by their
   parent's suite; they render nothing for the tables' last three columns by design.
 
