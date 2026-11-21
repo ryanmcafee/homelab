@@ -1696,6 +1696,10 @@ spec:
       valuesObject:
         iscsi:
           portal: "127.0.0.1:3260"
+        kometa:
+          enabled: false
+          image:
+            tag: v2.5.5
   destination:
     server: https://kubernetes.default.svc
     namespace: media

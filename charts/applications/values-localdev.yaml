@@ -85,6 +85,12 @@ plex:
         cpu: 1000m
         memory: 1Gi
 
+  # Kometa needs a Plex token and a TMDb API key from the plex 1Password item.
+  kometa:
+    enabled: false
+    image:
+      tag: "v2.5.5"
+
   # Persistence configuration
   persistence:
     config:

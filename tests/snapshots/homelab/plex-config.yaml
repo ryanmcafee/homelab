@@ -1,4 +1,51 @@
 ---
+# Source: plex-config/templates/kometa.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kometa-config
+  namespace: media
+  labels:
+    app.kubernetes.io/name: kometa
+    app.kubernetes.io/part-of: plex
+data:
+  # <<plextoken>> and <<tmdbkey>> are filled by Kometa from KOMETA_PLEXTOKEN and KOMETA_TMDBKEY.
+  config.yml: |
+    libraries:
+      "Movies":
+        collection_files:
+          - file: /config/christmas.yml
+    plex:
+      url: "http://plex-plex-media-server.media.svc.cluster.local:32400"
+      token: <<plextoken>>
+      timeout: 60
+    tmdb:
+      apikey: <<tmdbkey>>
+      language: en
+    settings:
+      cache: true
+      cache_expiration: 60
+      run_order:
+        - collections
+  christmas.yml: |
+    collections:
+      Christmas:
+        # TMDb keyword "christmas"
+        tmdb_keyword: 207317
+        plex_search:
+          any:
+            title:
+              - Christmas
+              - Santa Claus
+              - Grinch
+        # append keeps movies added to the collection by hand
+        sync_mode: append
+        collection_order: release
+        sort_title: "!Christmas"
+        summary: Christmas movies, matched by TMDb keyword and title.
+    
+
+---
 # Source: plex-config/templates/persistent-volume.yaml
 apiVersion: v1
 kind: PersistentVolume
@@ -43,6 +90,109 @@ spec:
   resources:
     requests:
       storage: 100Gi
+
+---
+# Source: plex-config/templates/kometa.yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kometa
+  namespace: media
+  labels:
+    app.kubernetes.io/name: kometa
+    app.kubernetes.io/part-of: plex
+spec:
+  schedule: "17 4 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: kometa
+            app.kubernetes.io/part-of: plex
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # Kometa writes its cache and logs next to config.yml, so the config is copied out of the read-only ConfigMap.
+            - name: copy-config
+              image: "kometateam/kometa:v2.5.5"
+              imagePullPolicy: IfNotPresent
+              command: ["sh", "-c", "cp /config-src/*.yml /config/"]
+              volumeMounts:
+                - name: config-src
+                  mountPath: /config-src
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          containers:
+            - name: kometa
+              image: "kometateam/kometa:v2.5.5"
+              imagePullPolicy: IfNotPresent
+              args:
+                - --run
+                - --collections-only
+                - --config
+                - /config/config.yml
+              env:
+                - name: TZ
+                  value: "UTC"
+                - name: HOME
+                  value: /config
+                - name: KOMETA_PLEXTOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: plex
+                      key: plex-token
+                - name: KOMETA_TMDBKEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: plex
+                      key: tmdb-api-key
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+              resources:
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+          volumes:
+            - name: config-src
+              configMap:
+                name: kometa-config
+            - name: config
+              emptyDir: {}
 
 ---
 # Source: plex-config/templates/secret.yaml

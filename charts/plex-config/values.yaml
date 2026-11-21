@@ -6,7 +6,8 @@ namespace: media
 secretName: plex
 
 # 1Password vault path for Plex credentials
-# The secret should have a field named "plex-claim-token"
+# The secret should have a field named "plex-claim-token" (and "plex-token" and
+# "tmdb-api-key" when kometa is enabled)
 onePasswordItemPath: ""
 
 # Persistent storage for Plex config (iSCSI block storage for SQLite)
@@ -17,3 +18,28 @@ volumes: []
 # never commit a real portal here.
 iscsi:
   portal: ""
+
+# Kometa builds Plex collections on a schedule; each run classifies the whole
+# movie library, so existing and newly added movies are both covered.
+# Collection definitions live in files/kometa/. The secret above also needs
+# the fields "plex-token" and "tmdb-api-key".
+kometa:
+  enabled: false
+  image:
+    repository: kometateam/kometa
+    # Overridden by the parent Application from configuration/versions.yaml
+    tag: "v2.5.5"
+    pullPolicy: IfNotPresent
+  schedule: "17 4 * * *"
+  timezone: UTC
+  ttlSecondsAfterFinished: 86400
+  plexUrl: http://plex-plex-media-server.media.svc.cluster.local:32400
+  # Name of the Plex movie library, exactly as shown in Plex
+  movieLibrary: Movies
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
