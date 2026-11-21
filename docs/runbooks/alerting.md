@@ -195,6 +195,11 @@ Homelab rules live in `additionalPrometheusRulesMap`:
 | homelab-argo-events-trigger-bus | `ArgoEventsTriggerBusExporterDown` | warning | the EventBus metrics sidecar has not answered for 15 m, or was never scraped, so the trigger bus is unwatched ([argo-events-trigger-bus.md](./argo-events-trigger-bus.md)) |
 | homelab-argo-events-trigger-bus | `ArgoEventsTriggerBusApproachingLimit` | warning / critical | the trigger bus stream is above 75 % / 90 % of `maxBytes` or `maxMsgs`, where `discard: old` deletes the oldest triggers |
 | homelab-argo-events-trigger-bus | `ArgoEventsTriggerUnprocessedNearMaxAge` | warning / critical | a Sensor consumer has left a trigger unacked for 2/3 / 5/6 of `maxAge`, which then deletes it with no DLQ |
+| homelab-litellm | `LiteLLMGatewayDown` | critical | no `litellm-gateway` replica has been available for 5 m, so every `/v1` request fails ([litellm.md](./litellm.md)) |
+| homelab-litellm | `LiteLLMGatewayErrorRateHigh` | warning | over 10 % of the requests the proxy accepted failed for 10 m, above a volume floor of about six requests in the window |
+| homelab-litellm | `LiteLLMGatewayMetricsUnavailable` | warning | the gateway metrics sidecar is not scraped for 15 m, so the error-rate alert and the dashboard are blind |
+| homelab-litellm | `LiteLLMMigrationsJobFailed` | warning | the `litellm-migrations` Job reported `Failed` in the last 30 m, so the PreSync hook is failing the sync |
+| homelab-litellm | `LiteLLMDatabaseNotReady` | critical | no `litellm-db` CloudNativePG instance has been scraped for 15 m |
 | homelab-github | `GitHubPullRequestNeedsReview` | info (own route) | an open pull request matched a review query for 5 m ([below](#github-pull-requests-that-need-review)) |
 | homelab-github | `GitHubPullRequestExporterFailing` | warning | a GitHub search query failed (bad token, rate limit) or is not scraped for 15 m |
 | homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |
@@ -248,6 +253,11 @@ advisory of any kind, so a consumer with no such alert fails the boundary qualit
 And the event contract's `max_bytes` sum rule cannot be statically checked — the file store size is
 a cluster fact, not a contract value — so the storage rules are the only thing that enforces it at
 runtime (ADR-042, [jetstream-storage-budget.md](./jetstream-storage-budget.md)).
+
+The `homelab-litellm` rules take the opposite position, because two of them are `absent()` checks:
+they are gated on `litellm.enabled` (`configuration/templates/helm-addons.tmpl`, mirroring the
+`litellm` block of `helm-apps.tmpl`) so a cluster without the proxy never renders a rule whose
+only possible state is firing. See [litellm.md](./litellm.md).
 
 Add a rule next to these (Prometheus `$labels` escaped as in the file), give it a `severity`
 label the table above routes, and run `task verify:text`: kubeconform validates the
