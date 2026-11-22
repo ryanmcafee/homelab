@@ -1334,7 +1334,7 @@ argo-events:
   chart:
     name: argo-events
     repo: https://argoproj.github.io/argo-helm
-    version: "2.4.27"
+    version: "2.4.28"
 
   # The EventBus, EventSource and Sensor CRDs are schemaless
   # (x-kubernetes-preserve-unknown-fields), so the API server accepts any spec
