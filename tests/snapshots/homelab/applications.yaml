@@ -2060,6 +2060,11 @@ spec:
             name: envoy-external
             namespace: envoy-gateway-system
             sectionName: https
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: envoy-internal
+            namespace: envoy-gateway-system
+            sectionName: https
         dnsPolicy: "None"
         dnsConfig:
           nameservers:
