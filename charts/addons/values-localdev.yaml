@@ -1762,7 +1762,7 @@ ecowitt-exporter:
   chart:
     name: ecowitt-exporter
     repo: https://djjudas21.github.io/charts
-    version: "2.2.2"
+    version: "2.2.5"
   imageTag: "2.4.0"
   scrapeInterval: 60s
   # Sensors that must always be reporting, comma-separated. Only these get
