@@ -650,3 +650,59 @@ func containsLine(lines []string, want string) bool {
 	}
 	return false
 }
+
+func TestVersionOnlyDiff(t *testing.T) {
+	tests := []struct {
+		name       string
+		base, head string
+		want       bool
+	}{
+		{"image tag minor bump", "image: quay.io/argoproj/argocli:v4.0.6\n", "image: quay.io/argoproj/argocli:v4.1.0\n", true},
+		{"four-part image tag", "image: clickhouse/clickhouse-server:26.8.10.6\n", "image: clickhouse/clickhouse-server:26.10.10.3\n", true},
+		{"tag with suffix", "tag: 1.4.2-alpine\n", "tag: 1.4.5-alpine\n", true},
+		{"version in URL and plugin pin", "url: https://x/argo-workflows-1.0.18/crds.yaml\nplugins: ds@4.21.3\n", "url: https://x/argo-workflows-1.1.1/crds.yaml\nplugins: ds@4.23.5\n", true},
+		{"checksum annotation", "annotations:\n  checksum/config: 40091b3eb767\n", "annotations:\n  checksum/config: fa765bafe780\n", true},
+		{"major image bump", "image: ghcr.io/renovatebot/renovate:43.110.14\n", "image: ghcr.io/renovatebot/renovate:44.257.9\n", false},
+		{"removed env var", "env:\n  - name: A\n    value: b\n", "env: []\n", false},
+		{"IP address change", "value: 10.0.0.1\n", "value: 10.0.0.2\n", false},
+		{"two-part number change", "cpu: 0.5\n", "cpu: 0.9\n", false},
+		{"identical", "a: 1\n", "a: 1\n", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			base := map[string]string{"Deployment//app": tc.base}
+			head := map[string]string{"Deployment//app": tc.head}
+			if got := versionOnlyDiff(base, head); got != tc.want {
+				t.Errorf("versionOnlyDiff = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestVersionOnlyDiffRedactsSecretValues(t *testing.T) {
+	secret := func(pw string) map[string]string {
+		return map[string]string{"Secret/monitoring/grafana": "apiVersion: v1\nkind: Secret\ndata:\n  admin-password: " + pw + "\n"}
+	}
+	if !versionOnlyDiff(secret("REE0MFl6"), secret("SUxtNnJW")) {
+		t.Error("a regenerated Secret value must not count as a material change")
+	}
+	added := map[string]string{"Secret/monitoring/grafana": "apiVersion: v1\nkind: Secret\ndata:\n  admin-password: a\n  admin-user: b\n"}
+	if versionOnlyDiff(secret("a"), added) {
+		t.Error("an added Secret key is a material change")
+	}
+}
+
+func TestFinishJobReportsVersionOnly(t *testing.T) {
+	j := &upgradeJob{
+		baseOut: []byte(deployment("argo", "quay.io/argoproj/argocli:v4.0.6", "4.0.6")),
+		headOut: []byte(deployment("argo", "quay.io/argoproj/argocli:v4.1.0", "4.1.0")),
+	}
+	item := &UpgradeItem{Check: "upgrade/homelab/argo", Change: "argo 1.0.18 → 1.1.1"}
+	c := finishJob(j, item, 100)
+	if c.Status != StatusPass || !strings.HasPrefix(c.Detail, UpgradeVersionOnly+": argo 1.0.18 → 1.1.1") {
+		t.Errorf("finishJob = %s %q, want pass with prefix %q", c.Status, c.Detail, UpgradeVersionOnly)
+	}
+	if !containsLine(c.Findings, "+        - image: quay.io/argoproj/argocli:v4.1.0") {
+		t.Errorf("the version-only diff must still be reported: %v", c.Findings)
+	}
+}
