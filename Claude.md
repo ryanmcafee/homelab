@@ -190,7 +190,7 @@ charts:
   prometheus-operator-crds: "30.0.0"
   # One key for gateway-helm and gateway-crds-helm: Envoy Gateway releases both charts together.
   # renovate: datasource=docker depName=docker.io/envoyproxy/gateway-helm
-  envoy-gateway: "v1.9.1"
+  envoy-gateway: "1.10.0"
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
   democratic-csi: "0.15.1"
   # renovate: datasource=helm depName=tailscale-operator registryUrl=https://pkgs.tailscale.com/helmcharts
@@ -290,10 +290,10 @@ images:
   # renovate: datasource=docker depName=kometateam/kometa
   kometa: "v2.5.5"
   # renovate: datasource=docker depName=curlimages/curl
-  curl: "8.22.0"
+  curl: "8.23.0"
   # Chart 2.2.2 defaults to 2.2.0, which predates both freshness timestamps the homelab-iot rules read.
   # renovate: datasource=docker depName=djjudas21/ecowitt-exporter
-  ecowitt-exporter: "2.3.0"
+  ecowitt-exporter: "2.4.0"
   # renovate: datasource=docker depName=kindest/node
   kind-node: "v1.36.1"
   # renovate: datasource=docker depName=versity/versitygw
@@ -311,7 +311,7 @@ images:
   # litellm-migrations): BerriAI publishes them alongside the chart, so this has to move
   # with charts.litellm above, whose appVersion is exactly this value.
   # renovate: datasource=docker depName=ghcr.io/berriai/litellm-gateway
-  litellm: "v1.102.1"
+  litellm: "1.110.2"
   # Grafana plugin, installed by the kube-prometheus-stack Grafana at startup.
   # renovate: datasource=github-releases depName=grafana/clickhouse-datasource
   grafana-clickhouse-datasource: "v4.21.3"

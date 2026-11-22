@@ -1948,7 +1948,9 @@ spec:
             tag: v2.5.5
         remoteAccess:
           enabled: true
-          gatewayName: envoy-external
+          gatewayNames:
+          - envoy-external
+          - envoy-internal
           gatewayNamespace: envoy-gateway-system
           sectionName: plex-direct
   destination:
@@ -1990,7 +1992,7 @@ spec:
           repository: plexinc/pms-docker
           tag: 1.43.5.11029-6bf8af3f0
         extraEnv:
-          ADVERTISE_IP: https://plex.replaceme-domain.com:443
+          ADVERTISE_IP: https://plex.replaceme-domain.com:443,https://198-51-100-101.0123456789abcdef0123456789abcdef.plex.direct:443
           CHANGE_CONFIG_DIR_OWNERSHIP: "false"
           PLEX_GID: "100"
           PLEX_UID: "568"

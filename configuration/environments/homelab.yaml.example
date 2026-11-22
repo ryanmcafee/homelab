@@ -28,6 +28,7 @@ GATEWAY_EXTERNAL_STATIC_IP: "198.51.100.200"
 # Pins the internal Gateway to an address (empty: Cilium LB IPAM picks one)
 GATEWAY_INTERNAL_STATIC_IP: "198.51.100.101"
 PLEX_LB_IP: "198.51.100.103"
+PLEX_LAN_CONNECTION: "https://198-51-100-101.0123456789abcdef0123456789abcdef.plex.direct:443"
 # OpenTelemetry gateway collector (UniFi syslog/NetFlow target, otel.<DOMAIN>); a free address in the LB pool
 OTEL_LB_IP: "198.51.100.104"
 NFS_SHARE_ALLOW: "198.51.100.0/24"

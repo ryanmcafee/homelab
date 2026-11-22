@@ -1719,7 +1719,9 @@ spec:
             tag: v2.5.5
         remoteAccess:
           enabled: false
-          gatewayName: envoy-external
+          gatewayNames:
+          - envoy-external
+          - envoy-internal
           gatewayNamespace: envoy-gateway-system
           sectionName: plex-direct
   destination:
