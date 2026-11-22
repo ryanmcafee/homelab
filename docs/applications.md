@@ -51,9 +51,9 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `democratic-csi-iscsi` | `democratic-csi` | 0.15.1 | — | — | — |
 | `democratic-csi-iscsi-hdd` | `democratic-csi` | 0.15.1 | — | — | — |
 | `democratic-csi-ssd` | `democratic-csi` | 0.15.1 | — | — | — |
-| `envoy-gateway` | `gateway-helm` | v1.9.1 | — | envoy-gateway | — |
+| `envoy-gateway` | `gateway-helm` | 1.10.0 | — | envoy-gateway | — |
 | `envoy-gateway-config` | `charts/envoy-gateway-config` | git | — | envoy-gateway | — |
-| `envoy-gateway-crds` | `gateway-crds-helm` | v1.9.1 | — | — | — |
+| `envoy-gateway-crds` | `gateway-crds-helm` | 1.10.0 | — | — | — |
 | `external-dns-cloudflare` | `external-dns` | 1.21.1 | — | — | — |
 | `external-dns-cloudflare-crd` | `external-dns` | 1.21.1 | — | — | — |
 | `external-dns-config` | `charts/external-dns-config` | git | — | — | — |
