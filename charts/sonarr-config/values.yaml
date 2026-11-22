@@ -38,8 +38,16 @@ importSweep:
   activeDeadlineSeconds: 3300
   # Short, so a transient failure's KubeJobFailed clears before the next runs.
   ttlSecondsAfterFinished: 3600
-  # Sonarr's config claim, mounted read-only for <ApiKey> in config.xml; it is
-  # ReadWriteOnce, so the pod is scheduled onto the node running Sonarr.
+  # API key source. With apiKeySecret.name set, ARR_API_KEY comes from that
+  # Secret (field key, which must equal <ApiKey> in Sonarr's config.xml) and the
+  # pod runs on any node; onePasswordItemPath renders it as a OnePasswordItem.
+  apiKeySecret:
+    name: ""
+    key: api-key
+    onePasswordItemPath: ""
+  # Only without apiKeySecret.name: Sonarr's config claim, mounted read-only for
+  # <ApiKey> in config.xml; it is ReadWriteOnce, so the pod is scheduled onto
+  # the node running Sonarr (podAffinity on appPodLabels).
   configClaim: sonarr-config
   appPodLabels:
     app.kubernetes.io/name: sonarr

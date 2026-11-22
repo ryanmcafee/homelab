@@ -2274,11 +2274,15 @@ spec:
             server: "truenas.replaceme-domain.com"
             path: "/mnt/storage/movies"
             mountPath: "/movies"
-        # The import sweep reads the API key from Radarr's config claim, runs as Radarr's user and
-        # mounts Radarr's downloads volume to delete non-English releases.
+        # The import sweep reads the API key from the radarr-api-key Secret (1Password) and then
+        # runs on any node; without an item path it falls back to Radarr's config claim and node.
+        # It runs as Radarr's user and mounts Radarr's downloads volume to delete non-English releases.
         importSweep:
           enabled: true
           removeNonEnglish: true
+          apiKeySecret:
+            name: "radarr-api-key"
+            onePasswordItemPath: "vaults/homelab/items/radarr"
           downloads:
             type: "nfs"
             server: "truenas.replaceme-domain.com"
@@ -2542,11 +2546,15 @@ spec:
       valuesObject:
         iscsi:
           portal: "198.51.100.50:3260"
-        # The import sweep reads the API key from Sonarr's config claim, runs as Sonarr's user and
-        # mounts Sonarr's downloads volume to delete non-English releases.
+        # The import sweep reads the API key from the sonarr-api-key Secret (1Password) and then
+        # runs on any node; without an item path it falls back to Sonarr's config claim and node.
+        # It runs as Sonarr's user and mounts Sonarr's downloads volume to delete non-English releases.
         importSweep:
           enabled: true
           removeNonEnglish: true
+          apiKeySecret:
+            name: "sonarr-api-key"
+            onePasswordItemPath: "vaults/homelab/items/sonarr"
           downloads:
             type: "nfs"
             server: "truenas.replaceme-domain.com"

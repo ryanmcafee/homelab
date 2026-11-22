@@ -430,6 +430,19 @@ test("readConfig takes flags over env and reads the key from config.xml", () => 
   );
 });
 
+test("readConfig takes ARR_API_KEY without reading config.xml", () => {
+  // Production mounts the key from a Secret and no config claim at all.
+  const config = readConfig(
+    [],
+    { ARR_APP: "sonarr", ARR_URL: "u", IMPORT_PATH: "p", ARR_API_KEY: "k" },
+    (path) => {
+      throw new Error(`ENOENT: ${path}`);
+    },
+  );
+  assert(config !== "help");
+  assertEquals(config.apiKey, "k");
+});
+
 test("the Sonarr and Radarr chart copies are identical", () => {
   const read = (chart: string) =>
     readFileSync(
