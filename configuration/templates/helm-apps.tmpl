@@ -237,8 +237,7 @@ plex:
       mountPath: /pictures
       readOnly: false
 
-  # HTTPRoute on the https listener of the external Gateway (GATEWAY_EXTERNAL);
-  # Cloudflare CNAMEs the hostname to the Gateway's target, EXTERNAL_DNS_DEFAULT_TARGET.
+  # Split-horizon route: Cloudflare publishes the external Gateway, UniFi LAN DNS the internal one.
   httpRoute:
     enabled: true
     annotations:
@@ -247,6 +246,11 @@ plex:
       - group: gateway.networking.k8s.io
         kind: Gateway
         name: {{ .Values.GATEWAY_EXTERNAL.Value }}
+        namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+        sectionName: https
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: {{ .Values.GATEWAY_INTERNAL.Value }}
         namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
         sectionName: https
     hostnames:

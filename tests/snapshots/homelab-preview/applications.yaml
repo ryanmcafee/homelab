@@ -81,7 +81,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://flaresolverr.preview-123.svc.cluster.local:8191/"
@@ -132,7 +132,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://lazylibrarian.preview-123.svc.cluster.local:5299/"
@@ -183,7 +183,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://nzbget.preview-123.svc.cluster.local:10057/"
@@ -234,7 +234,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://prowlarr.preview-123.svc.cluster.local:9696/ping"
@@ -285,7 +285,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://radarr.preview-123.svc.cluster.local:7878/ping"
@@ -336,7 +336,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://sonarr.preview-123.svc.cluster.local:8989/ping"
@@ -387,7 +387,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://tautulli.preview-123.svc.cluster.local:8181/status"
