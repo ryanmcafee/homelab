@@ -117,16 +117,15 @@ jobs:
           path: ~/.cache/homelab-kubeconform
           key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
 
-      # The checkout is the PR merge commit, so base..HEAD is exactly this
-      # PR's change. The report is bounded to fit one PR comment; the JSON
-      # carries every diff line up to --max-diff-lines per check.
+      # The checkout is the PR merge commit and the base branch may have moved
+      # since GitHub built it, so diff against its first parent, not origin/<base>.
+      # The report is bounded to fit one PR comment; the JSON carries every
+      # diff line up to --max-diff-lines per check.
       - name: Upstream manifest diff
         id: upgrade
-        env:
-          BASE: ${{ github.base_ref }}
         run: |
           set +e
-          task verify:upgrade -- --base "origin/${BASE}" --json \
+          task verify:upgrade -- --base HEAD^1 --json \
             --report upgrade-report.md --report-max-bytes 50000 > upgrade.raw.json
           code=$?
           set -e
