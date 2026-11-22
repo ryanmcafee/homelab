@@ -156,7 +156,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://flaresolverr.media.svc.cluster.local:8191/"
@@ -207,7 +207,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://lazylibrarian.media.svc.cluster.local:5299/"
@@ -258,7 +258,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://litellm-gateway.litellm.svc.cluster.local:4000/health/readiness"
@@ -309,7 +309,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://nzbget.media.svc.cluster.local:10057/"
@@ -360,7 +360,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://paperclip.paperclip.svc.cluster.local:3100/api/health"
@@ -411,7 +411,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://plex-plex-media-server.media.svc.cluster.local:32400/identity"
@@ -462,7 +462,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://prowlarr.media.svc.cluster.local:9696/ping"
@@ -513,7 +513,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://radarr.media.svc.cluster.local:7878/ping"
@@ -564,7 +564,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://sonarr.media.svc.cluster.local:8989/ping"
@@ -615,7 +615,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://tautulli.media.svc.cluster.local:8181/status"
@@ -1033,7 +1033,7 @@ spec:
               enabled: true
           activeDeadlineSeconds: 1800
           image:
-            tag: "v1.102.1"
+            tag: "1.110.2"
           resources:
             limits:
               cpu: "1"
@@ -1043,7 +1043,7 @@ spec:
               memory: 256Mi
         gateway:
           image:
-            tag: "v1.102.1"
+            tag: "1.110.2"
           # LITELLM_SALT_KEY encrypts every provider credential the proxy
           # stores in the database and the chart has no value for it, so both
           # it and the provider keys arrive as whole-Secret envFrom. The
@@ -1103,7 +1103,7 @@ spec:
               memory: 256Mi
         backend:
           image:
-            tag: "v1.102.1"
+            tag: "1.110.2"
           envSecrets:
             - litellm-salt-key
           extraEnv:
@@ -1131,7 +1131,7 @@ spec:
               memory: 256Mi
         ui:
           image:
-            tag: "v1.102.1"
+            tag: "1.110.2"
           # The dashboard is a static bundle: it calls the backend from the
           # browser, so this is the routable host wave 14 publishes, not a
           # cluster Service. The chart's own Ingress serves the management API

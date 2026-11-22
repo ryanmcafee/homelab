@@ -29,7 +29,7 @@ global:
   # Images shared by the chart's own templates (PostSync smoke Jobs) and the
   # import sweeps it hands to the sonarr-config/radarr-config charts.
   images:
-    curl: "8.22.0"
+    curl: "8.23.0"
     bun: "1.4.2-alpine"
 
   # iSCSI target portal (IP:port) handed to the *-config child charts via
@@ -1113,7 +1113,7 @@ litellm:
       repo: ghcr.io/berriai/litellm/chart
       version: "1.102.1"
     # All four component images ship on one tag (versions.yaml images.litellm).
-    imageTag: "v1.102.1"
+    imageTag: "1.110.2"
     serviceMonitor:
       enabled: true
 
