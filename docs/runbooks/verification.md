@@ -351,13 +351,16 @@ only when every `upgrade/*` check is `unchanged` (an Application listed in
 sets a helm value its chart does not declare, otherwise
 `failure` ("rendered manifests changed — human review required, automerge blocked").
 `renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
-(`kindest/node`, majors, infrastructure tools and ksops stay manual) and patch bumps
+(`kindest/node`, majors, infrastructure tools and ksops stay manual; TrueCharts and Plex
+majors also automerge, since TrueCharts ships app releases as chart majors) and patch bumps
 elsewhere, always with `platformAutomerge: false`: Renovate merges itself, and only when
 every status on the head commit is green. GitHub native auto-merge is never used because
 the `main` ruleset requires no status checks, so it would merge before CI ran. In practice
 a bump whose upstream render changes anything (an image tag, a CRD) waits for a human who
-reads the `upgrade-diff` comment, except for those listed Applications (Plex), whose
-non-major bumps merge and ArgoCD syncs them once every other check is green.
+reads the `upgrade-diff` comment, except for those listed Applications (Plex and the TrueCharts apps), whose bumps merge
+and ArgoCD syncs them once every other check is green. Each `versions.yaml` bump is its
+own PR (only the `Monitoring stack`, `Envoy Gateway`, `ArgoCD`, `TrueCharts applications`
+and `Plex` groups combine), so one failing release never holds back the rest.
 
 **Regeneration bot (optional).** A chart bump also needs the committed localdev values,
 `tests/schemas`, `tests/snapshots`, the `configuration/versions.yaml` block embedded in

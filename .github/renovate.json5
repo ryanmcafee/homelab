@@ -25,8 +25,9 @@
   semanticCommits: 'enabled',
   separateMajorMinor: true,
   separateMinorPatch: false,
-  prConcurrentLimit: 5,
-  prHourlyLimit: 2,
+  // Every versions.yaml bump is its own gated PR, so a low cap queues them for days.
+  prConcurrentLimit: 25,
+  prHourlyLimit: 0,
   rebaseWhen: 'behind-base-branch',
   automerge: false,
   // Renovate merges an automerge PR itself, and only once every status check
@@ -70,6 +71,10 @@
       groupName: 'Helm charts',
       matchDatasources: [
         'helm',
+      ],
+      // versions.yaml bumps stay ungrouped so one gated failure cannot hold back every other release.
+      matchFileNames: [
+        '!configuration/versions.yaml',
       ],
       schedule: [
         'every weekend',
@@ -133,6 +138,10 @@
       groupName: 'Container images',
       matchDatasources: [
         'docker',
+      ],
+      // versions.yaml bumps stay ungrouped so one gated failure cannot hold back every other release.
+      matchFileNames: [
+        '!configuration/versions.yaml',
       ],
       schedule: [
         'after 10pm every weekday',
@@ -256,6 +265,23 @@
         'dependencies',
         'major',
       ],
+    },
+    // TrueCharts ships app releases as chart majors; the gate still blocks anything outside upgrade-automerge.yaml.
+    {
+      matchPackageNames: [
+        '/^oci\\.trueforge\\.org\\/truecharts\\//',
+        'plex-media-server',
+        'plexinc/pms-docker',
+      ],
+      matchFileNames: [
+        'configuration/versions.yaml',
+      ],
+      matchUpdateTypes: [
+        'major',
+      ],
+      automerge: true,
+      automergeType: 'pr',
+      platformAutomerge: false,
     },
   ],
   // Patterns are anchored at the repository root: internal/scaffold/testdata/repo

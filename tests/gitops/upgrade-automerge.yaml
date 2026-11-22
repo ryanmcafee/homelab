@@ -7,3 +7,27 @@ applications:
     reason: >-
       Stateless media server whose upstream ships frequent minor and patch
       releases; a bad release is rolled back by reverting the versions.yaml bump.
+  - name: sonarr
+    reason: &media >-
+      Media app whose TrueCharts chart moves with every upstream release; config
+      lives on its PVC and a bad release is rolled back by reverting the bump.
+  - name: radarr
+    reason: *media
+  - name: prowlarr
+    reason: *media
+  - name: nzbget
+    reason: *media
+  - name: tautulli
+    reason: *media
+  - name: lazylibrarian
+    reason: *media
+  - name: flaresolverr
+    reason: *media
+  - name: mosquitto
+    reason: >-
+      MQTT broker from the same TrueCharts release train; a bad release is
+      rolled back by reverting the versions.yaml bump.
+  - name: home-assistant
+    reason: >-
+      TrueCharts app on the same release train; a bad release is rolled back by
+      reverting the versions.yaml bump.
