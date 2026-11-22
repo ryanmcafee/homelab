@@ -35,7 +35,7 @@
               "type": "array"
             },
             "clientCertificateRef": {
-              "description": "ClientCertificateRef defines the reference to a Kubernetes Secret that contains\nthe client certificate and private key for Envoy to use when connecting to\nbackend services and external services, such as ExtAuth, ALS, OpenTelemetry, etc.\nThis secret should be located within the same namespace as the Envoy proxy resource that references it.",
+              "description": "ClientCertificateRef defines the reference to a Kubernetes Secret that contains\nthe client certificate and private key for Envoy to use when connecting to\nbackend services and external services, such as ExtAuth, ALS, OpenTelemetry, etc.\nThe Secret must be in the same namespace as the EnvoyProxy or Backend resource\nthat references it.\nCross-namespace references are not supported, even with a ReferenceGrant.\nThe ReferenceGrant requirement in the namespace field's description is inherited\nfrom the Gateway API SecretObjectReference type and does not apply to this field.",
               "properties": {
                 "group": {
                   "default": "",
@@ -220,6 +220,7 @@
                         "description": "Path is the absolute filesystem path to the dynamic module shared library (.so file).",
                         "maxLength": 4096,
                         "minLength": 1,
+                        "pattern": "^/.*",
                         "type": "string"
                       }
                     },
@@ -280,7 +281,7 @@
           "type": "array"
         },
         "filterOrder": {
-          "description": "FilterOrder defines the order of filters in the Envoy proxy's HTTP filter chain.\nThe FilterPosition in the list will be applied in the order they are defined.\nIf unspecified, the default filter order is applied.\nDefault filter order is:\n\n- envoy.filters.http.custom_response\n\n- envoy.filters.http.health_check\n\n- envoy.filters.http.fault\n\n- envoy.filters.http.cors\n\n- envoy.filters.http.header_mutation\n\n- envoy.filters.http.ext_authz\n\n- envoy.filters.http.api_key_auth\n\n- envoy.filters.http.basic_auth\n\n- envoy.filters.http.oauth2\n\n- envoy.filters.http.jwt_authn\n\n- envoy.filters.http.stateful_session\n\n- envoy.filters.http.buffer\n\n- envoy.filters.http.lua\n\n- envoy.filters.http.ext_proc\n\n- envoy.filters.http.wasm\n\n- envoy.filters.http.dynamic_modules\n\n- envoy.filters.http.geoip\n\n- envoy.filters.http.rbac\n\n- envoy.filters.http.local_ratelimit\n\n- envoy.filters.http.ratelimit\n\n- envoy.filters.http.bandwidth_limit\n\n- envoy.filters.http.grpc_web\n\n- envoy.filters.http.grpc_stats\n\n- envoy.filters.http.credential_injector\n\n- envoy.filters.http.compressor\n\n- envoy.filters.http.dynamic_forward_proxy\n\n- envoy.filters.http.router\n\nNote: \"envoy.filters.http.router\" cannot be reordered, it's always the last filter in the chain.",
+          "description": "FilterOrder defines the order of filters in the Envoy proxy's HTTP filter chain.\nThe FilterPosition in the list will be applied in the order they are defined.\nIf unspecified, the default filter order is applied.\nDefault filter order is:\n\n- envoy.filters.http.custom_response\n\n- envoy.filters.http.health_check\n\n- envoy.filters.http.fault\n\n- envoy.filters.http.cors\n\n- envoy.filters.http.header_mutation\n\n- envoy.filters.http.ext_authz\n\n- envoy.filters.http.api_key_auth\n\n- envoy.filters.http.basic_auth\n\n- envoy.filters.http.oauth2\n\n- envoy.filters.http.jwt_authn\n\n- envoy.filters.http.stateful_session\n\n- envoy.filters.http.buffer\n\n- envoy.filters.http.lua\n\n- envoy.filters.http.ext_proc\n\n- envoy.filters.http.wasm\n\n- envoy.filters.http.dynamic_modules\n\n- envoy.filters.http.geoip\n\n- envoy.filters.http.rbac\n\n- envoy.filters.http.local_ratelimit\n\n- envoy.filters.http.ratelimit\n\n- envoy.filters.http.bandwidth_limit\n\n- envoy.filters.http.grpc_web\n\n- envoy.filters.http.grpc_json_transcoder\n\n- envoy.filters.http.grpc_stats\n\n- envoy.filters.http.credential_injector\n\n- envoy.filters.http.compressor\n\n- envoy.filters.http.dynamic_forward_proxy\n\n- envoy.filters.http.alternate_protocols_cache\n\n- envoy.filters.http.router\n\nNote: \"envoy.filters.http.router\" cannot be reordered, it's always the last filter in the chain.",
           "items": {
             "description": "FilterPosition defines the position of an Envoy HTTP filter in the filter chain.",
             "properties": {
@@ -310,10 +311,12 @@
                   "envoy.filters.http.ratelimit",
                   "envoy.filters.http.bandwidth_limit",
                   "envoy.filters.http.grpc_web",
+                  "envoy.filters.http.grpc_json_transcoder",
                   "envoy.filters.http.grpc_stats",
                   "envoy.filters.http.credential_injector",
                   "envoy.filters.http.compressor",
-                  "envoy.filters.http.dynamic_forward_proxy"
+                  "envoy.filters.http.dynamic_forward_proxy",
+                  "envoy.filters.http.alternate_protocols_cache"
                 ],
                 "type": "string"
               },
@@ -343,10 +346,12 @@
                   "envoy.filters.http.ratelimit",
                   "envoy.filters.http.bandwidth_limit",
                   "envoy.filters.http.grpc_web",
+                  "envoy.filters.http.grpc_json_transcoder",
                   "envoy.filters.http.grpc_stats",
                   "envoy.filters.http.credential_injector",
                   "envoy.filters.http.compressor",
-                  "envoy.filters.http.dynamic_forward_proxy"
+                  "envoy.filters.http.dynamic_forward_proxy",
+                  "envoy.filters.http.alternate_protocols_cache"
                 ],
                 "type": "string"
               },
@@ -376,10 +381,12 @@
                   "envoy.filters.http.ratelimit",
                   "envoy.filters.http.bandwidth_limit",
                   "envoy.filters.http.grpc_web",
+                  "envoy.filters.http.grpc_json_transcoder",
                   "envoy.filters.http.grpc_stats",
                   "envoy.filters.http.credential_injector",
                   "envoy.filters.http.compressor",
-                  "envoy.filters.http.dynamic_forward_proxy"
+                  "envoy.filters.http.dynamic_forward_proxy",
+                  "envoy.filters.http.alternate_protocols_cache"
                 ],
                 "type": "string"
               }
@@ -542,7 +549,8 @@
           "enum": [
             "IPv4",
             "IPv6",
-            "DualStack"
+            "DualStack",
+            "PreferDualStack"
           ],
           "type": "string"
         },
@@ -577,8 +585,50 @@
           },
           "type": "object"
         },
+        "lua": {
+          "description": "Lua configures how Lua scripts from EnvoyExtensionPolicy resources are\nvalidated in the gateway controller. It selects the validation mode and, for the Strict\nmode, defines the filesystem paths and environment variables the scripts are permitted to\naccess during validation.",
+          "properties": {
+            "strictValidation": {
+              "description": "StrictValidation configures the security sandbox that the Strict validation mode executes Lua\nscripts in, defining the filesystem paths and environment variables the scripts are permitted\nto access during validation.\n\nIt has no effect for the InsecureSyntax or Disabled modes, which do not execute the security\nsandbox.",
+              "properties": {
+                "allowedEnvVars": {
+                  "description": "AllowedEnvVars is the list of environment variable names that Lua scripts are permitted to\naccess during validation (via os.getenv, os.setenv). Matching is exact and case-sensitive.\nWhen empty, access to all environment variables is denied. Blank or whitespace-only entries\nare rejected.",
+                  "items": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 64,
+                  "type": "array"
+                },
+                "allowedPaths": {
+                  "description": "AllowedPaths is the list of filesystem path prefixes that Lua scripts are permitted to\naccess during validation (via io.open, io.input, io.output, io.lines, os.remove, os.rename).\nA path is allowed when it equals an entry or is contained within an entry's subtree\n(e.g. \"/tmp\" allows \"/tmp/file.txt\"). Paths are normalized (separators collapsed, made\nabsolute) before matching, and any \".\" or \"..\" traversal segment is always rejected.\nWhen empty, all filesystem access is denied. Blank or whitespace-only entries are rejected,\nas they would otherwise match every path and disable the sandbox. The filesystem root (\"/\")\nis likewise rejected, as it would allow access to the entire filesystem and defeat the sandbox.\nNote that a built-in set of sensitive paths is always denied, even if they are added to the\nallowed paths here: /etc, /proc, /sys, /certs, /var/run/secrets, and /run/secrets.",
+                  "items": {
+                    "maxLength": 4096,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 64,
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "validationType": {
+              "default": "Strict",
+              "description": "ValidationType determines the strictness of the Lua script validation.\nDefault: Strict",
+              "enum": [
+                "Strict",
+                "InsecureSyntax",
+                "Disabled"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
         "luaValidation": {
-          "description": "LuaValidation determines strictness of the Lua script validation for Lua EnvoyExtensionPolicies\nDefault: Strict",
+          "description": "LuaValidation determines strictness of the Lua script validation for Lua EnvoyExtensionPolicies\nDefault: Strict\n\nDeprecated: Use Lua.ValidationType instead. This field will be removed in a future release.",
           "enum": [
             "Strict",
             "InsecureSyntax",
@@ -587,7 +637,7 @@
           "type": "string"
         },
         "mergeBackends": {
-          "description": "MergeBackends configures cluster deduplication: routes that reference the same backend\nshare a single Envoy cluster instead of Envoy Gateway generating one cluster per route\nrule. This reduces xDS size, active health-check traffic, and stats cardinality, and\nimproves upstream connection pooling.\n\nDisabled when unset; specifying this field at all (even without further configuration)\nenables it. Mutually exclusive with MergeGateways.",
+          "description": "MergeBackends configures cluster deduplication: routes that reference the same backend\nshare a single Envoy cluster instead of Envoy Gateway generating one cluster per route\nrule. This reduces xDS size, active health-check traffic, and stats cardinality, and\nimproves upstream connection pooling.\n\nOnly a route's own backendRefs (HTTPRoute, GRPCRoute, TLSRoute, TCPRoute, UDPRoute) are\nconsidered. A backend used any other way, such as a RequestMirror filter or an external\nservice of a SecurityPolicy or EnvoyExtensionPolicy, is never merged. A BackendTrafficPolicy\nthat targets a backend only reports status for Gateways where the backend is used as a route\nbackendRef.\n\nDisabled when unset; specifying this field at all (even without further configuration)\nenables it. Mutually exclusive with MergeGateways.",
           "properties": {
             "selector": {
               "description": "Selector restricts cluster deduplication to backends whose target Service, ServiceImport,\nor Backend resource matches this label selector. When unset, every otherwise-eligible\nbackend is merged. Use this to opt individual backends into deduplication gradually\ninstead of enabling it for every backend at once.",
@@ -693,7 +743,7 @@
                                     "description": "Selects a key of a ConfigMap.",
                                     "properties": {
                                       "key": {
-                                        "description": "The key to select.",
+                                        "description": "The key to select from the ConfigMap's Data field.\nKeys in the BinaryData field are not currently propagated to container env vars.",
                                         "type": "string"
                                       },
                                       "name": {
@@ -1024,8 +1074,15 @@
                           "items": {
                             "description": "VolumeMount describes a mounting of a Volume within a container.",
                             "properties": {
+                              "bindMountOptions": {
+                                "description": "bindMountOptions is the list of additional bind mount options to apply when\nmounting this volume into the container. Allowed values are noexec,\nnodev, and nosuid. These are Linux mount options and have no effect on\nWindows nodes.\nThis field is not supported with image volumes.\nThis is an alpha field and requires enabling the VolumeBindMountOptions feature gate.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
                               "mountPath": {
-                                "description": "Path within the container at which the volume should be mounted.  Must\nnot contain ':'.",
+                                "description": "Path within the container at which the volume should be mounted.",
                                 "type": "string"
                               },
                               "mountPropagation": {
@@ -1874,7 +1931,7 @@
                               "type": "integer"
                             },
                             "seLinuxChangePolicy": {
-                              "description": "seLinuxChangePolicy defines how the container's SELinux label is applied to all volumes used by the Pod.\nIt has no effect on nodes that do not support SELinux or to volumes does not support SELinux.\nValid values are \"MountOption\" and \"Recursive\".\n\n\"Recursive\" means relabeling of all files on all Pod volumes by the container runtime.\nThis may be slow for large volumes, but allows mixing privileged and unprivileged Pods sharing the same volume on the same node.\n\n\"MountOption\" mounts all eligible Pod volumes with `-o context` mount option.\nThis requires all Pods that share the same volume to use the same SELinux label.\nIt is not possible to share the same volume among privileged and unprivileged Pods.\nEligible volumes are in-tree FibreChannel and iSCSI volumes, and all CSI volumes\nwhose CSI driver announces SELinux support by setting spec.seLinuxMount: true in their\nCSIDriver instance. Other volumes are always re-labelled recursively.\n\"MountOption\" value is allowed only when SELinuxMount feature gate is enabled.\n\nIf not specified and SELinuxMount feature gate is enabled, \"MountOption\" is used.\nIf not specified and SELinuxMount feature gate is disabled, \"MountOption\" is used for ReadWriteOncePod volumes\nand \"Recursive\" for all other volumes.\n\nThis field affects only Pods that have SELinux label set, either in PodSecurityContext or in SecurityContext of all containers.\n\nAll Pods that use the same volume should use the same seLinuxChangePolicy, otherwise some pods can get stuck in ContainerCreating state.\nNote that this field cannot be set when spec.os.name is windows.",
+                              "description": "seLinuxChangePolicy defines how the container's SELinux label is applied to all volumes used by the Pod.\nIt has no effect on nodes that do not support SELinux or to volumes does not support SELinux.\nValid values are \"MountOption\" and \"Recursive\".\n\n\"Recursive\" means relabeling of all files on all Pod volumes by the container runtime.\nThis may be slow for large volumes, but allows mixing privileged and unprivileged Pods sharing the same volume on the same node.\n\n\"MountOption\" mounts all eligible Pod volumes with `-o context` mount option.\nThis requires all Pods that share the same volume to use the same SELinux label.\nIt is not possible to share the same volume among privileged and unprivileged Pods.\nEligible volumes are in-tree FibreChannel and iSCSI volumes, and all CSI volumes\nwhose CSI driver announces SELinux support by setting spec.seLinuxMount: true in their\nCSIDriver instance. Other volumes are always re-labelled recursively.\n\nIf not specified, \"MountOption\" is used.\n\nThis field affects only Pods that have SELinux label set, either in PodSecurityContext or in SecurityContext of all containers.\n\nAll Pods that use the same volume should use the same seLinuxChangePolicy, otherwise some pods can get stuck in ContainerCreating state.\nNote that this field cannot be set when spec.os.name is windows.",
                               "type": "string"
                             },
                             "seLinuxOptions": {
@@ -2268,6 +2325,11 @@
                                     "format": "int32",
                                     "type": "integer"
                                   },
+                                  "defaultUser": {
+                                    "description": "defaultUser is Optional: The owner UID of the created files by default.\nThe defaultUser field is only used as a fallback when the item-level user field is unset.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                    "format": "int64",
+                                    "type": "integer"
+                                  },
                                   "items": {
                                     "description": "items if unspecified, each key-value pair in the Data field of the referenced\nConfigMap will be projected into the volume as a file whose name is the\nkey and content is the value. If specified, the listed keys will be\nprojected into the specified paths, and unlisted keys will not be\npresent. If a key is specified which is not present in the ConfigMap,\nthe volume setup will error unless it is marked optional. Paths must be\nrelative and may not contain the '..' path or start with '..'.",
                                     "items": {
@@ -2285,6 +2347,11 @@
                                         "path": {
                                           "description": "path is the relative path of the file to map the key to.\nMay not be an absolute path.\nMay not contain the path element '..'.\nMay not start with the string '..'.",
                                           "type": "string"
+                                        },
+                                        "user": {
+                                          "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                          "format": "int64",
+                                          "type": "integer"
                                         }
                                       },
                                       "required": [
@@ -2354,6 +2421,11 @@
                                     "format": "int32",
                                     "type": "integer"
                                   },
+                                  "defaultUser": {
+                                    "description": "defaultUser is Optional: The owner UID of the created files by default.\nThe defaultUser field is only used as a fallback when the item-level user field is unset.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                    "format": "int64",
+                                    "type": "integer"
+                                  },
                                   "items": {
                                     "description": "Items is a list of downward API volume file",
                                     "items": {
@@ -2413,6 +2485,11 @@
                                             "resource"
                                           ],
                                           "type": "object"
+                                        },
+                                        "user": {
+                                          "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                          "format": "int64",
+                                          "type": "integer"
                                         }
                                       },
                                       "required": [
@@ -2431,6 +2508,11 @@
                                   "medium": {
                                     "description": "medium represents what type of storage medium should back this directory.\nThe default is \"\" which means to use the node's default medium.\nMust be an empty string (default) or Memory.\nMore info: https://kubernetes.io/docs/concepts/storage/volumes#emptydir",
                                     "type": "string"
+                                  },
+                                  "mode": {
+                                    "description": "mode specifies the permission bits for the emptyDir directory, in numeric\nnotation (e.g., 0755, 01777). Must be a value between 0000 and 01777.\nIf not specified, defaults to 0777.\nThis might be in conflict with other options that affect the file\nmode, like fsGroup. If fsGroup is specified, the fsGroup permissions\nwill override the mode specified here.\nThis field has no effect on Windows.\nThis field is alpha and requires EmptyDirVolumeMode featuregate to be enabled.",
+                                    "format": "int32",
+                                    "type": "integer"
                                   },
                                   "sizeLimit": {
                                     "anyOf": [
@@ -2468,7 +2550,7 @@
                                             "type": "array"
                                           },
                                           "dataSource": {
-                                            "description": "dataSource field can be used to specify either:\n* An existing VolumeSnapshot object (snapshot.storage.k8s.io/VolumeSnapshot)\n* An existing PVC (PersistentVolumeClaim)\nIf the provisioner or an external controller can support the specified data source,\nit will create a new volume based on the contents of the specified data source.\nWhen the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,\nand dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.\nIf the namespace is specified, then dataSourceRef will not be copied to dataSource.",
+                                            "description": "dataSource field can be used to specify either:\n* An existing VolumeSnapshot object (snapshot.storage.k8s.io/VolumeSnapshot)\n* An existing PVC (PersistentVolumeClaim)\nIf the provisioner or an external controller can support the specified data source,\nit will create a new volume based on the contents of the specified data source.\ndataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be\ncopied to dataSource when dataSourceRef.namespace is not specified.\nIf the namespace is specified, then dataSourceRef will not be copied to dataSource.",
                                             "properties": {
                                               "apiGroup": {
                                                 "description": "APIGroup is the group for the resource being referenced.\nIf APIGroup is not specified, the specified Kind must be in the core API group.\nFor any other third-party types, APIGroup is required.",
@@ -2490,7 +2572,7 @@
                                             "type": "object"
                                           },
                                           "dataSourceRef": {
-                                            "description": "dataSourceRef specifies the object from which to populate the volume with data, if a non-empty\nvolume is desired. This may be any object from a non-empty API group (non\ncore object) or a PersistentVolumeClaim object.\nWhen this field is specified, volume binding will only succeed if the type of\nthe specified object matches some installed volume populator or dynamic\nprovisioner.\nThis field will replace the functionality of the dataSource field and as such\nif both fields are non-empty, they must have the same value. For backwards\ncompatibility, when namespace isn't specified in dataSourceRef,\nboth fields (dataSource and dataSourceRef) will be set to the same\nvalue automatically if one of them is empty and the other is non-empty.\nWhen namespace is specified in dataSourceRef,\ndataSource isn't set to the same value and must be empty.\nThere are three important differences between dataSource and dataSourceRef:\n* While dataSource only allows two specific types of objects, dataSourceRef\n  allows any non-core object, as well as PersistentVolumeClaim objects.\n* While dataSource ignores disallowed values (dropping them), dataSourceRef\n  preserves all values, and generates an error if a disallowed value is\n  specified.\n* While dataSource only allows local objects, dataSourceRef allows objects\n  in any namespaces.\n(Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.\n(Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.",
+                                            "description": "dataSourceRef specifies the object from which to populate the volume with data, if a non-empty\nvolume is desired. This may be any object from a non-empty API group (non\ncore object) or a PersistentVolumeClaim object.\nWhen this field is specified, volume binding will only succeed if the type of\nthe specified object matches some installed volume populator or dynamic\nprovisioner.\nThis field will replace the functionality of the dataSource field and as such\nif both fields are non-empty, they must have the same value. For backwards\ncompatibility, when namespace isn't specified in dataSourceRef,\nboth fields (dataSource and dataSourceRef) will be set to the same\nvalue automatically if one of them is empty and the other is non-empty.\nWhen namespace is specified in dataSourceRef,\ndataSource isn't set to the same value and must be empty.\nThere are three important differences between dataSource and dataSourceRef:\n* While dataSource only allows two specific types of objects, dataSourceRef\n  allows any non-core object, as well as PersistentVolumeClaim objects.\n* While dataSource ignores disallowed values (dropping them), dataSourceRef\n  preserves all values, and generates an error if a disallowed value is\n  specified.\n* While dataSource only allows local objects, dataSourceRef allows objects\n  in any namespaces.\n(Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.",
                                             "properties": {
                                               "apiGroup": {
                                                 "description": "APIGroup is the group for the resource being referenced.\nIf APIGroup is not specified, the specified Kind must be in the core API group.\nFor any other third-party types, APIGroup is required.",
@@ -2963,6 +3045,11 @@
                                     "format": "int32",
                                     "type": "integer"
                                   },
+                                  "defaultUser": {
+                                    "description": "defaultUser is Optional: The owner UID of the created files by default.\nThe defaultUser field is only used as a fallback when the item-level user field is unset.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                    "format": "int64",
+                                    "type": "integer"
+                                  },
                                   "sources": {
                                     "description": "sources is the list of volume projections. Each entry in this list\nhandles one source.",
                                     "items": {
@@ -3028,6 +3115,11 @@
                                             "signerName": {
                                               "description": "Select all ClusterTrustBundles that match this signer name.\nMutually-exclusive with name.  The contents of all selected\nClusterTrustBundles will be unified and deduplicated.",
                                               "type": "string"
+                                            },
+                                            "user": {
+                                              "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                              "format": "int64",
+                                              "type": "integer"
                                             }
                                           },
                                           "required": [
@@ -3055,6 +3147,11 @@
                                                   "path": {
                                                     "description": "path is the relative path of the file to map the key to.\nMay not be an absolute path.\nMay not contain the path element '..'.\nMay not start with the string '..'.",
                                                     "type": "string"
+                                                  },
+                                                  "user": {
+                                                    "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                                    "format": "int64",
+                                                    "type": "integer"
                                                   }
                                                 },
                                                 "required": [
@@ -3139,6 +3236,11 @@
                                                       "resource"
                                                     ],
                                                     "type": "object"
+                                                  },
+                                                  "user": {
+                                                    "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                                    "format": "int64",
+                                                    "type": "integer"
                                                   }
                                                 },
                                                 "required": [
@@ -3179,6 +3281,11 @@
                                               "description": "Kubelet's generated CSRs will be addressed to this signer.",
                                               "type": "string"
                                             },
+                                            "user": {
+                                              "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                              "format": "int64",
+                                              "type": "integer"
+                                            },
                                             "userAnnotations": {
                                               "additionalProperties": {
                                                 "type": "string"
@@ -3213,6 +3320,11 @@
                                                   "path": {
                                                     "description": "path is the relative path of the file to map the key to.\nMay not be an absolute path.\nMay not contain the path element '..'.\nMay not start with the string '..'.",
                                                     "type": "string"
+                                                  },
+                                                  "user": {
+                                                    "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                                    "format": "int64",
+                                                    "type": "integer"
                                                   }
                                                 },
                                                 "required": [
@@ -3250,6 +3362,11 @@
                                             "path": {
                                               "description": "path is the path relative to the mount point of the file to project the\ntoken into.",
                                               "type": "string"
+                                            },
+                                            "user": {
+                                              "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                              "format": "int64",
+                                              "type": "integer"
                                             }
                                           },
                                           "required": [
@@ -3422,6 +3539,11 @@
                                     "format": "int32",
                                     "type": "integer"
                                   },
+                                  "defaultUser": {
+                                    "description": "defaultUser is Optional: The owner UID of the created files by default.\nThe defaultUser field is only used as a fallback when the item-level user field is unset.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                    "format": "int64",
+                                    "type": "integer"
+                                  },
                                   "items": {
                                     "description": "items If unspecified, each key-value pair in the Data field of the referenced\nSecret will be projected into the volume as a file whose name is the\nkey and content is the value. If specified, the listed keys will be\nprojected into the specified paths, and unlisted keys will not be\npresent. If a key is specified which is not present in the Secret,\nthe volume setup will error unless it is marked optional. Paths must be\nrelative and may not contain the '..' path or start with '..'.",
                                     "items": {
@@ -3439,6 +3561,11 @@
                                         "path": {
                                           "description": "path is the relative path of the file to map the key to.\nMay not be an absolute path.\nMay not contain the path element '..'.\nMay not start with the string '..'.",
                                           "type": "string"
+                                        },
+                                        "user": {
+                                          "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                          "format": "int64",
+                                          "type": "integer"
                                         }
                                       },
                                       "required": [
@@ -3596,7 +3723,7 @@
                                     "description": "Selects a key of a ConfigMap.",
                                     "properties": {
                                       "key": {
-                                        "description": "The key to select.",
+                                        "description": "The key to select from the ConfigMap's Data field.\nKeys in the BinaryData field are not currently propagated to container env vars.",
                                         "type": "string"
                                       },
                                       "name": {
@@ -3927,8 +4054,15 @@
                           "items": {
                             "description": "VolumeMount describes a mounting of a Volume within a container.",
                             "properties": {
+                              "bindMountOptions": {
+                                "description": "bindMountOptions is the list of additional bind mount options to apply when\nmounting this volume into the container. Allowed values are noexec,\nnodev, and nosuid. These are Linux mount options and have no effect on\nWindows nodes.\nThis field is not supported with image volumes.\nThis is an alpha field and requires enabling the VolumeBindMountOptions feature gate.",
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
                               "mountPath": {
-                                "description": "Path within the container at which the volume should be mounted.  Must\nnot contain ':'.",
+                                "description": "Path within the container at which the volume should be mounted.",
                                 "type": "string"
                               },
                               "mountPropagation": {
@@ -4006,7 +4140,7 @@
                                       "description": "Selects a key of a ConfigMap.",
                                       "properties": {
                                         "key": {
-                                          "description": "The key to select.",
+                                          "description": "The key to select from the ConfigMap's Data field.\nKeys in the BinaryData field are not currently propagated to container env vars.",
                                           "type": "string"
                                         },
                                         "name": {
@@ -4246,6 +4380,10 @@
                                         ],
                                         "description": "Name or number of the port to access on the container.\nNumber must be in the range 1 to 65535.\nName must be an IANA_SVC_NAME."
                                       },
+                                      "protocol": {
+                                        "description": "Protocol selects the wire protocol for the probe connection.\nNil defaults to HTTP/1.1.",
+                                        "type": "string"
+                                      },
                                       "scheme": {
                                         "description": "Scheme to use for connecting to the host.\nDefaults to HTTP.",
                                         "type": "string"
@@ -4357,6 +4495,10 @@
                                         ],
                                         "description": "Name or number of the port to access on the container.\nNumber must be in the range 1 to 65535.\nName must be an IANA_SVC_NAME."
                                       },
+                                      "protocol": {
+                                        "description": "Protocol selects the wire protocol for the probe connection.\nNil defaults to HTTP/1.1.",
+                                        "type": "string"
+                                      },
                                       "scheme": {
                                         "description": "Scheme to use for connecting to the host.\nDefaults to HTTP.",
                                         "type": "string"
@@ -4439,6 +4581,10 @@
                               "grpc": {
                                 "description": "GRPC specifies a GRPC HealthCheckRequest.",
                                 "properties": {
+                                  "mode": {
+                                    "description": "mode specifies the connection mode for the gRPC health probe.\nSet to \"TLS\" to use TLS without certificate verification.\nSet to \"Plaintext\" to use a plaintext (insecure) connection explicitly.\nIf not specified, the probe uses a plaintext (insecure) connection.",
+                                    "type": "string"
+                                  },
                                   "port": {
                                     "description": "Port number of the gRPC service. Number must be in the range 1 to 65535.",
                                     "format": "int32",
@@ -4498,6 +4644,10 @@
                                       }
                                     ],
                                     "description": "Name or number of the port to access on the container.\nNumber must be in the range 1 to 65535.\nName must be an IANA_SVC_NAME."
+                                  },
+                                  "protocol": {
+                                    "description": "Protocol selects the wire protocol for the probe connection.\nNil defaults to HTTP/1.1.",
+                                    "type": "string"
                                   },
                                   "scheme": {
                                     "description": "Scheme to use for connecting to the host.\nDefaults to HTTP.",
@@ -4625,6 +4775,10 @@
                               "grpc": {
                                 "description": "GRPC specifies a GRPC HealthCheckRequest.",
                                 "properties": {
+                                  "mode": {
+                                    "description": "mode specifies the connection mode for the gRPC health probe.\nSet to \"TLS\" to use TLS without certificate verification.\nSet to \"Plaintext\" to use a plaintext (insecure) connection explicitly.\nIf not specified, the probe uses a plaintext (insecure) connection.",
+                                    "type": "string"
+                                  },
                                   "port": {
                                     "description": "Port number of the gRPC service. Number must be in the range 1 to 65535.",
                                     "format": "int32",
@@ -4684,6 +4838,10 @@
                                       }
                                     ],
                                     "description": "Name or number of the port to access on the container.\nNumber must be in the range 1 to 65535.\nName must be an IANA_SVC_NAME."
+                                  },
+                                  "protocol": {
+                                    "description": "Protocol selects the wire protocol for the probe connection.\nNil defaults to HTTP/1.1.",
+                                    "type": "string"
                                   },
                                   "scheme": {
                                     "description": "Scheme to use for connecting to the host.\nDefaults to HTTP.",
@@ -5028,6 +5186,10 @@
                               "grpc": {
                                 "description": "GRPC specifies a GRPC HealthCheckRequest.",
                                 "properties": {
+                                  "mode": {
+                                    "description": "mode specifies the connection mode for the gRPC health probe.\nSet to \"TLS\" to use TLS without certificate verification.\nSet to \"Plaintext\" to use a plaintext (insecure) connection explicitly.\nIf not specified, the probe uses a plaintext (insecure) connection.",
+                                    "type": "string"
+                                  },
                                   "port": {
                                     "description": "Port number of the gRPC service. Number must be in the range 1 to 65535.",
                                     "format": "int32",
@@ -5087,6 +5249,10 @@
                                       }
                                     ],
                                     "description": "Name or number of the port to access on the container.\nNumber must be in the range 1 to 65535.\nName must be an IANA_SVC_NAME."
+                                  },
+                                  "protocol": {
+                                    "description": "Protocol selects the wire protocol for the probe connection.\nNil defaults to HTTP/1.1.",
+                                    "type": "string"
                                   },
                                   "scheme": {
                                     "description": "Scheme to use for connecting to the host.\nDefaults to HTTP.",
@@ -5197,8 +5363,15 @@
                             "items": {
                               "description": "VolumeMount describes a mounting of a Volume within a container.",
                               "properties": {
+                                "bindMountOptions": {
+                                  "description": "bindMountOptions is the list of additional bind mount options to apply when\nmounting this volume into the container. Allowed values are noexec,\nnodev, and nosuid. These are Linux mount options and have no effect on\nWindows nodes.\nThis field is not supported with image volumes.\nThis is an alpha field and requires enabling the VolumeBindMountOptions feature gate.",
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                },
                                 "mountPath": {
-                                  "description": "Path within the container at which the volume should be mounted.  Must\nnot contain ':'.",
+                                  "description": "Path within the container at which the volume should be mounted.",
                                   "type": "string"
                                 },
                                 "mountPropagation": {
@@ -6056,7 +6229,7 @@
                               "type": "integer"
                             },
                             "seLinuxChangePolicy": {
-                              "description": "seLinuxChangePolicy defines how the container's SELinux label is applied to all volumes used by the Pod.\nIt has no effect on nodes that do not support SELinux or to volumes does not support SELinux.\nValid values are \"MountOption\" and \"Recursive\".\n\n\"Recursive\" means relabeling of all files on all Pod volumes by the container runtime.\nThis may be slow for large volumes, but allows mixing privileged and unprivileged Pods sharing the same volume on the same node.\n\n\"MountOption\" mounts all eligible Pod volumes with `-o context` mount option.\nThis requires all Pods that share the same volume to use the same SELinux label.\nIt is not possible to share the same volume among privileged and unprivileged Pods.\nEligible volumes are in-tree FibreChannel and iSCSI volumes, and all CSI volumes\nwhose CSI driver announces SELinux support by setting spec.seLinuxMount: true in their\nCSIDriver instance. Other volumes are always re-labelled recursively.\n\"MountOption\" value is allowed only when SELinuxMount feature gate is enabled.\n\nIf not specified and SELinuxMount feature gate is enabled, \"MountOption\" is used.\nIf not specified and SELinuxMount feature gate is disabled, \"MountOption\" is used for ReadWriteOncePod volumes\nand \"Recursive\" for all other volumes.\n\nThis field affects only Pods that have SELinux label set, either in PodSecurityContext or in SecurityContext of all containers.\n\nAll Pods that use the same volume should use the same seLinuxChangePolicy, otherwise some pods can get stuck in ContainerCreating state.\nNote that this field cannot be set when spec.os.name is windows.",
+                              "description": "seLinuxChangePolicy defines how the container's SELinux label is applied to all volumes used by the Pod.\nIt has no effect on nodes that do not support SELinux or to volumes does not support SELinux.\nValid values are \"MountOption\" and \"Recursive\".\n\n\"Recursive\" means relabeling of all files on all Pod volumes by the container runtime.\nThis may be slow for large volumes, but allows mixing privileged and unprivileged Pods sharing the same volume on the same node.\n\n\"MountOption\" mounts all eligible Pod volumes with `-o context` mount option.\nThis requires all Pods that share the same volume to use the same SELinux label.\nIt is not possible to share the same volume among privileged and unprivileged Pods.\nEligible volumes are in-tree FibreChannel and iSCSI volumes, and all CSI volumes\nwhose CSI driver announces SELinux support by setting spec.seLinuxMount: true in their\nCSIDriver instance. Other volumes are always re-labelled recursively.\n\nIf not specified, \"MountOption\" is used.\n\nThis field affects only Pods that have SELinux label set, either in PodSecurityContext or in SecurityContext of all containers.\n\nAll Pods that use the same volume should use the same seLinuxChangePolicy, otherwise some pods can get stuck in ContainerCreating state.\nNote that this field cannot be set when spec.os.name is windows.",
                               "type": "string"
                             },
                             "seLinuxOptions": {
@@ -6450,6 +6623,11 @@
                                     "format": "int32",
                                     "type": "integer"
                                   },
+                                  "defaultUser": {
+                                    "description": "defaultUser is Optional: The owner UID of the created files by default.\nThe defaultUser field is only used as a fallback when the item-level user field is unset.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                    "format": "int64",
+                                    "type": "integer"
+                                  },
                                   "items": {
                                     "description": "items if unspecified, each key-value pair in the Data field of the referenced\nConfigMap will be projected into the volume as a file whose name is the\nkey and content is the value. If specified, the listed keys will be\nprojected into the specified paths, and unlisted keys will not be\npresent. If a key is specified which is not present in the ConfigMap,\nthe volume setup will error unless it is marked optional. Paths must be\nrelative and may not contain the '..' path or start with '..'.",
                                     "items": {
@@ -6467,6 +6645,11 @@
                                         "path": {
                                           "description": "path is the relative path of the file to map the key to.\nMay not be an absolute path.\nMay not contain the path element '..'.\nMay not start with the string '..'.",
                                           "type": "string"
+                                        },
+                                        "user": {
+                                          "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                          "format": "int64",
+                                          "type": "integer"
                                         }
                                       },
                                       "required": [
@@ -6536,6 +6719,11 @@
                                     "format": "int32",
                                     "type": "integer"
                                   },
+                                  "defaultUser": {
+                                    "description": "defaultUser is Optional: The owner UID of the created files by default.\nThe defaultUser field is only used as a fallback when the item-level user field is unset.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                    "format": "int64",
+                                    "type": "integer"
+                                  },
                                   "items": {
                                     "description": "Items is a list of downward API volume file",
                                     "items": {
@@ -6595,6 +6783,11 @@
                                             "resource"
                                           ],
                                           "type": "object"
+                                        },
+                                        "user": {
+                                          "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                          "format": "int64",
+                                          "type": "integer"
                                         }
                                       },
                                       "required": [
@@ -6613,6 +6806,11 @@
                                   "medium": {
                                     "description": "medium represents what type of storage medium should back this directory.\nThe default is \"\" which means to use the node's default medium.\nMust be an empty string (default) or Memory.\nMore info: https://kubernetes.io/docs/concepts/storage/volumes#emptydir",
                                     "type": "string"
+                                  },
+                                  "mode": {
+                                    "description": "mode specifies the permission bits for the emptyDir directory, in numeric\nnotation (e.g., 0755, 01777). Must be a value between 0000 and 01777.\nIf not specified, defaults to 0777.\nThis might be in conflict with other options that affect the file\nmode, like fsGroup. If fsGroup is specified, the fsGroup permissions\nwill override the mode specified here.\nThis field has no effect on Windows.\nThis field is alpha and requires EmptyDirVolumeMode featuregate to be enabled.",
+                                    "format": "int32",
+                                    "type": "integer"
                                   },
                                   "sizeLimit": {
                                     "anyOf": [
@@ -6650,7 +6848,7 @@
                                             "type": "array"
                                           },
                                           "dataSource": {
-                                            "description": "dataSource field can be used to specify either:\n* An existing VolumeSnapshot object (snapshot.storage.k8s.io/VolumeSnapshot)\n* An existing PVC (PersistentVolumeClaim)\nIf the provisioner or an external controller can support the specified data source,\nit will create a new volume based on the contents of the specified data source.\nWhen the AnyVolumeDataSource feature gate is enabled, dataSource contents will be copied to dataSourceRef,\nand dataSourceRef contents will be copied to dataSource when dataSourceRef.namespace is not specified.\nIf the namespace is specified, then dataSourceRef will not be copied to dataSource.",
+                                            "description": "dataSource field can be used to specify either:\n* An existing VolumeSnapshot object (snapshot.storage.k8s.io/VolumeSnapshot)\n* An existing PVC (PersistentVolumeClaim)\nIf the provisioner or an external controller can support the specified data source,\nit will create a new volume based on the contents of the specified data source.\ndataSource contents will be copied to dataSourceRef, and dataSourceRef contents will be\ncopied to dataSource when dataSourceRef.namespace is not specified.\nIf the namespace is specified, then dataSourceRef will not be copied to dataSource.",
                                             "properties": {
                                               "apiGroup": {
                                                 "description": "APIGroup is the group for the resource being referenced.\nIf APIGroup is not specified, the specified Kind must be in the core API group.\nFor any other third-party types, APIGroup is required.",
@@ -6672,7 +6870,7 @@
                                             "type": "object"
                                           },
                                           "dataSourceRef": {
-                                            "description": "dataSourceRef specifies the object from which to populate the volume with data, if a non-empty\nvolume is desired. This may be any object from a non-empty API group (non\ncore object) or a PersistentVolumeClaim object.\nWhen this field is specified, volume binding will only succeed if the type of\nthe specified object matches some installed volume populator or dynamic\nprovisioner.\nThis field will replace the functionality of the dataSource field and as such\nif both fields are non-empty, they must have the same value. For backwards\ncompatibility, when namespace isn't specified in dataSourceRef,\nboth fields (dataSource and dataSourceRef) will be set to the same\nvalue automatically if one of them is empty and the other is non-empty.\nWhen namespace is specified in dataSourceRef,\ndataSource isn't set to the same value and must be empty.\nThere are three important differences between dataSource and dataSourceRef:\n* While dataSource only allows two specific types of objects, dataSourceRef\n  allows any non-core object, as well as PersistentVolumeClaim objects.\n* While dataSource ignores disallowed values (dropping them), dataSourceRef\n  preserves all values, and generates an error if a disallowed value is\n  specified.\n* While dataSource only allows local objects, dataSourceRef allows objects\n  in any namespaces.\n(Beta) Using this field requires the AnyVolumeDataSource feature gate to be enabled.\n(Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.",
+                                            "description": "dataSourceRef specifies the object from which to populate the volume with data, if a non-empty\nvolume is desired. This may be any object from a non-empty API group (non\ncore object) or a PersistentVolumeClaim object.\nWhen this field is specified, volume binding will only succeed if the type of\nthe specified object matches some installed volume populator or dynamic\nprovisioner.\nThis field will replace the functionality of the dataSource field and as such\nif both fields are non-empty, they must have the same value. For backwards\ncompatibility, when namespace isn't specified in dataSourceRef,\nboth fields (dataSource and dataSourceRef) will be set to the same\nvalue automatically if one of them is empty and the other is non-empty.\nWhen namespace is specified in dataSourceRef,\ndataSource isn't set to the same value and must be empty.\nThere are three important differences between dataSource and dataSourceRef:\n* While dataSource only allows two specific types of objects, dataSourceRef\n  allows any non-core object, as well as PersistentVolumeClaim objects.\n* While dataSource ignores disallowed values (dropping them), dataSourceRef\n  preserves all values, and generates an error if a disallowed value is\n  specified.\n* While dataSource only allows local objects, dataSourceRef allows objects\n  in any namespaces.\n(Alpha) Using the namespace field of dataSourceRef requires the CrossNamespaceVolumeDataSource feature gate to be enabled.",
                                             "properties": {
                                               "apiGroup": {
                                                 "description": "APIGroup is the group for the resource being referenced.\nIf APIGroup is not specified, the specified Kind must be in the core API group.\nFor any other third-party types, APIGroup is required.",
@@ -7145,6 +7343,11 @@
                                     "format": "int32",
                                     "type": "integer"
                                   },
+                                  "defaultUser": {
+                                    "description": "defaultUser is Optional: The owner UID of the created files by default.\nThe defaultUser field is only used as a fallback when the item-level user field is unset.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                    "format": "int64",
+                                    "type": "integer"
+                                  },
                                   "sources": {
                                     "description": "sources is the list of volume projections. Each entry in this list\nhandles one source.",
                                     "items": {
@@ -7210,6 +7413,11 @@
                                             "signerName": {
                                               "description": "Select all ClusterTrustBundles that match this signer name.\nMutually-exclusive with name.  The contents of all selected\nClusterTrustBundles will be unified and deduplicated.",
                                               "type": "string"
+                                            },
+                                            "user": {
+                                              "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                              "format": "int64",
+                                              "type": "integer"
                                             }
                                           },
                                           "required": [
@@ -7237,6 +7445,11 @@
                                                   "path": {
                                                     "description": "path is the relative path of the file to map the key to.\nMay not be an absolute path.\nMay not contain the path element '..'.\nMay not start with the string '..'.",
                                                     "type": "string"
+                                                  },
+                                                  "user": {
+                                                    "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                                    "format": "int64",
+                                                    "type": "integer"
                                                   }
                                                 },
                                                 "required": [
@@ -7321,6 +7534,11 @@
                                                       "resource"
                                                     ],
                                                     "type": "object"
+                                                  },
+                                                  "user": {
+                                                    "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                                    "format": "int64",
+                                                    "type": "integer"
                                                   }
                                                 },
                                                 "required": [
@@ -7361,6 +7579,11 @@
                                               "description": "Kubelet's generated CSRs will be addressed to this signer.",
                                               "type": "string"
                                             },
+                                            "user": {
+                                              "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                              "format": "int64",
+                                              "type": "integer"
+                                            },
                                             "userAnnotations": {
                                               "additionalProperties": {
                                                 "type": "string"
@@ -7395,6 +7618,11 @@
                                                   "path": {
                                                     "description": "path is the relative path of the file to map the key to.\nMay not be an absolute path.\nMay not contain the path element '..'.\nMay not start with the string '..'.",
                                                     "type": "string"
+                                                  },
+                                                  "user": {
+                                                    "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                                    "format": "int64",
+                                                    "type": "integer"
                                                   }
                                                 },
                                                 "required": [
@@ -7432,6 +7660,11 @@
                                             "path": {
                                               "description": "path is the path relative to the mount point of the file to project the\ntoken into.",
                                               "type": "string"
+                                            },
+                                            "user": {
+                                              "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                              "format": "int64",
+                                              "type": "integer"
                                             }
                                           },
                                           "required": [
@@ -7604,6 +7837,11 @@
                                     "format": "int32",
                                     "type": "integer"
                                   },
+                                  "defaultUser": {
+                                    "description": "defaultUser is Optional: The owner UID of the created files by default.\nThe defaultUser field is only used as a fallback when the item-level user field is unset.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                    "format": "int64",
+                                    "type": "integer"
+                                  },
                                   "items": {
                                     "description": "items If unspecified, each key-value pair in the Data field of the referenced\nSecret will be projected into the volume as a file whose name is the\nkey and content is the value. If specified, the listed keys will be\nprojected into the specified paths, and unlisted keys will not be\npresent. If a key is specified which is not present in the Secret,\nthe volume setup will error unless it is marked optional. Paths must be\nrelative and may not contain the '..' path or start with '..'.",
                                     "items": {
@@ -7621,6 +7859,11 @@
                                         "path": {
                                           "description": "path is the relative path of the file to map the key to.\nMay not be an absolute path.\nMay not contain the path element '..'.\nMay not start with the string '..'.",
                                           "type": "string"
+                                        },
+                                        "user": {
+                                          "description": "user is Optional: The owner UID of the created file.\nIf specified, the item-level user field takes precedence over defaultUser.\n(Alpha) This field requires the AtomicWriteVolumeUserFields feature gate to be enabled.",
+                                          "format": "int64",
+                                          "type": "integer"
                                         }
                                       },
                                       "required": [
@@ -7813,7 +8056,7 @@
                                   "type": "string"
                                 }
                               ],
-                              "description": "tolerance is the tolerance on the ratio between the current and desired\nmetric value under which no updates are made to the desired number of\nreplicas (e.g. 0.01 for 1%). Must be greater than or equal to zero. If not\nset, the default cluster-wide tolerance is applied (by default 10%).\n\nFor example, if autoscaling is configured with a memory consumption target of 100Mi,\nand scale-down and scale-up tolerances of 5% and 1% respectively, scaling will be\ntriggered when the actual consumption falls below 95Mi or exceeds 101Mi.\n\nThis is an beta field and requires the HPAConfigurableTolerance feature\ngate to be enabled.",
+                              "description": "tolerance is the tolerance on the ratio between the current and desired\nmetric value under which no updates are made to the desired number of\nreplicas (e.g. 0.01 for 1%). Must be greater than or equal to zero. If not\nset, the default cluster-wide tolerance is applied (by default 10%).\n\nFor example, if autoscaling is configured with a memory consumption target of 100Mi,\nand scale-down and scale-up tolerances of 5% and 1% respectively, scaling will be\ntriggered when the actual consumption falls below 95Mi or exceeds 101Mi.",
                               "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
                             }
                           },
@@ -7869,7 +8112,7 @@
                                   "type": "string"
                                 }
                               ],
-                              "description": "tolerance is the tolerance on the ratio between the current and desired\nmetric value under which no updates are made to the desired number of\nreplicas (e.g. 0.01 for 1%). Must be greater than or equal to zero. If not\nset, the default cluster-wide tolerance is applied (by default 10%).\n\nFor example, if autoscaling is configured with a memory consumption target of 100Mi,\nand scale-down and scale-up tolerances of 5% and 1% respectively, scaling will be\ntriggered when the actual consumption falls below 95Mi or exceeds 101Mi.\n\nThis is an beta field and requires the HPAConfigurableTolerance feature\ngate to be enabled.",
+                              "description": "tolerance is the tolerance on the ratio between the current and desired\nmetric value under which no updates are made to the desired number of\nreplicas (e.g. 0.01 for 1%). Must be greater than or equal to zero. If not\nset, the default cluster-wide tolerance is applied (by default 10%).\n\nFor example, if autoscaling is configured with a memory consumption target of 100Mi,\nand scale-down and scale-up tolerances of 5% and 1% respectively, scaling will be\ntriggered when the actual consumption falls below 95Mi or exceeds 101Mi.",
                               "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
                             }
                           },
@@ -8483,8 +8726,10 @@
                     "loadBalancerSourceRanges": {
                       "description": "LoadBalancerSourceRanges defines a list of allowed IP addresses which will be configured as\nfirewall rules on the platform providers load balancer. This is not guaranteed to be working as\nit happens outside of kubernetes and has to be supported and handled by the platform provider.\nThis field may only be set for services with type LoadBalancer and will be cleared if the type\nis changed to any other type.",
                       "items": {
+                        "format": "cidr",
                         "type": "string"
                       },
+                      "maxItems": 64,
                       "type": "array"
                     },
                     "name": {
@@ -8633,7 +8878,7 @@
                               "description": "ALS defines the gRPC Access Log Service (ALS) sink.",
                               "properties": {
                                 "backendRef": {
-                                  "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead.",
+                                  "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                                   "properties": {
                                     "group": {
                                       "default": "",
@@ -8928,9 +9173,20 @@
                                         "active": {
                                           "description": "Active health check configuration",
                                           "properties": {
+                                            "disableConnectionReuse": {
+                                              "description": "DisableConnectionReuse determines whether the active health check connection to a\nbackend host is closed after each health check probe. When set to true, Envoy opens a\nnew connection for each health check, which is useful for backends (such as\nhaproxy-style agent checks) that do not expect a reused connection.\nDefaults to false, which reuses the connection across probes.",
+                                              "type": "boolean"
+                                            },
                                             "grpc": {
                                               "description": "GRPC defines the configuration of the GRPC health checker.\nIt's optional, and can only be used if the specified type is GRPC.",
                                               "properties": {
+                                                "hostname": {
+                                                  "description": "Hostname defines the value of the :authority header sent with active gRPC\nhealth checks. Authority selection uses this order: this field, the\nassociated Backend endpoint hostname if available, then the effective Route\nhostname. If none of them is set, Envoy falls back to the name of the\ncluster, which is not a valid authority and is rejected by some gRPC\nservers.",
+                                                  "maxLength": 253,
+                                                  "minLength": 1,
+                                                  "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+                                                  "type": "string"
+                                                },
                                                 "service": {
                                                   "description": "Service to send in the health check request.\nIf this is not specified, then the health check request applies to the entire\nserver and not to a specific service.",
                                                   "type": "string"
@@ -9066,6 +9322,16 @@
                                                   "description": "Path defines the HTTP path that will be requested during health checking.",
                                                   "maxLength": 1024,
                                                   "minLength": 1,
+                                                  "type": "string"
+                                                },
+                                                "protocol": {
+                                                  "default": "Auto",
+                                                  "description": "Protocol is the HTTP protocol that active health check requests are sent with.\n\nDefaults to Auto, which uses the same protocol as regular requests to the backend:\n\n  - HTTP2 for a backend configured for HTTP/2, through a `kubernetes.io/h2c`,\n    `gateway.envoyproxy.io/h2c` or `grpc` appProtocol, or as the backend of a\n    GRPCRoute.\n  - The protocol negotiated through ALPN for a TLS backend that negotiates it,\n    with HTTP1 as the fallback when nothing is negotiated.\n  - HTTP1 otherwise.\n\nSet HTTP1 or HTTP2 when the health check endpoint speaks a different protocol than\nthe application, for example a backend that serves HTTP/1.1 traffic but only\naccepts HTTP/2 health checks. An explicit protocol is always used as is.",
+                                                  "enum": [
+                                                    "Auto",
+                                                    "HTTP1",
+                                                    "HTTP2"
+                                                  ],
                                                   "type": "string"
                                                 },
                                                 "requestBody": {
@@ -9331,6 +9597,20 @@
                                       },
                                       "type": "object"
                                     },
+                                    "http1": {
+                                      "description": "HTTP1 provides HTTP/1 configuration for backend connections.\nWhen both this field and the deprecated HTTP1 field on ClientTrafficPolicy are set,\nthis field takes precedence for backend (upstream) traffic.\n\nBehavior when targeting route kinds that do not use HTTP/1:\n  - GRPCRoute, TCPRoute, TLSRoute, UDPRoute: targeting these route kinds\n    directly adds a Warning condition on the policy; the field is ignored.\n  - Gateway / ListenerSet / sectionName targets: this field is silently\n    ignored for any GRPCRoute, TCPRoute, TLSRoute, or UDPRoute destinations\n    beneath that target; no warning is emitted.\n  - gRPC-only external services (ExtProc, gRPC ExtAuth, ALS, OpenTelemetry\n    access log/metrics, tracing providers): rejected at admission on their\n    own BackendSettings via separate validation rules.",
+                                      "properties": {
+                                        "enableTrailers": {
+                                          "description": "EnableTrailers defines if HTTP/1 trailers should be proxied by Envoy.",
+                                          "type": "boolean"
+                                        },
+                                        "preserveHeaderCase": {
+                                          "description": "PreserveHeaderCase defines if Envoy should preserve the letter case of headers.\nBy default, Envoy will lowercase all the headers.",
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "type": "object"
+                                    },
                                     "http2": {
                                       "description": "HTTP2 provides HTTP/2 configuration for backend connections.",
                                       "properties": {
@@ -9409,6 +9689,20 @@
                                         },
                                         "onInvalidMessage": {
                                           "description": "OnInvalidMessage determines if Envoy will terminate the connection or just the offending stream in the event of HTTP messaging error\nIt's recommended for L2 Envoy deployments to set this value to TerminateStream.\nhttps://www.envoyproxy.io/docs/envoy/latest/configuration/best_practices/level_two\nDefault: TerminateConnection",
+                                          "type": "string"
+                                        }
+                                      },
+                                      "type": "object"
+                                    },
+                                    "http3": {
+                                      "description": "HTTP3 enables HTTP/3 for backend connections.\nHTTP/3 always runs over TLS, so the backend must be configured\nwith TLS through a BackendTLSPolicy or the Backend's spec.tls.\nHTTP/3 is only supported for the backends of a route, through\nBackendTrafficPolicy. It is rejected for the backends of other\nresources, such as the external services of a SecurityPolicy\nor EnvoyExtensionPolicy and the sinks of an EnvoyProxy.",
+                                      "properties": {
+                                        "mode": {
+                                          "description": "Mode determines when HTTP/3 is used to reach the backend.\nDefaults to Auto, which only uses HTTP/3 for backends advertising it via alt-svc.",
+                                          "enum": [
+                                            "Auto",
+                                            "Always"
+                                          ],
                                           "type": "string"
                                         }
                                       },
@@ -9510,7 +9804,7 @@
                                               "type": "object"
                                             },
                                             "header": {
-                                              "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead",
+                                              "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead. This field will be removed in v1.11.",
                                               "properties": {
                                                 "name": {
                                                   "description": "Name of the header to hash.",
@@ -9665,6 +9959,10 @@
                                             "preferLocal": {
                                               "description": "PreferLocalZone configures zone-aware routing to prefer sending traffic to the local locality zone.",
                                               "properties": {
+                                                "failTrafficOnPanic": {
+                                                  "description": "FailTrafficOnPanic rejects traffic instead of routing to all endpoints when the\ncluster is in panic mode. Panic mode is entered when the share of healthy endpoints\ndrops below HealthCheck.PanicThreshold, and by default Envoy then load balances\nacross every endpoint, healthy or not. Setting this to true makes Envoy fail the\nrequests instead, applying backpressure to clients and giving the backend room to\nrecover.\nDefaults to false.",
+                                                  "type": "boolean"
+                                                },
                                                 "force": {
                                                   "description": "ForceLocalZone defines override configuration for forcing all traffic to stay within the local zone instead of the default behavior\nwhich maintains equal distribution among upstream endpoints while sending as much traffic as possible locally.",
                                                   "properties": {
@@ -9957,7 +10255,7 @@
                               "description": "OpenTelemetry defines the OpenTelemetry accesslog sink.",
                               "properties": {
                                 "backendRef": {
-                                  "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead.",
+                                  "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                                   "properties": {
                                     "group": {
                                       "default": "",
@@ -10252,9 +10550,20 @@
                                         "active": {
                                           "description": "Active health check configuration",
                                           "properties": {
+                                            "disableConnectionReuse": {
+                                              "description": "DisableConnectionReuse determines whether the active health check connection to a\nbackend host is closed after each health check probe. When set to true, Envoy opens a\nnew connection for each health check, which is useful for backends (such as\nhaproxy-style agent checks) that do not expect a reused connection.\nDefaults to false, which reuses the connection across probes.",
+                                              "type": "boolean"
+                                            },
                                             "grpc": {
                                               "description": "GRPC defines the configuration of the GRPC health checker.\nIt's optional, and can only be used if the specified type is GRPC.",
                                               "properties": {
+                                                "hostname": {
+                                                  "description": "Hostname defines the value of the :authority header sent with active gRPC\nhealth checks. Authority selection uses this order: this field, the\nassociated Backend endpoint hostname if available, then the effective Route\nhostname. If none of them is set, Envoy falls back to the name of the\ncluster, which is not a valid authority and is rejected by some gRPC\nservers.",
+                                                  "maxLength": 253,
+                                                  "minLength": 1,
+                                                  "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+                                                  "type": "string"
+                                                },
                                                 "service": {
                                                   "description": "Service to send in the health check request.\nIf this is not specified, then the health check request applies to the entire\nserver and not to a specific service.",
                                                   "type": "string"
@@ -10390,6 +10699,16 @@
                                                   "description": "Path defines the HTTP path that will be requested during health checking.",
                                                   "maxLength": 1024,
                                                   "minLength": 1,
+                                                  "type": "string"
+                                                },
+                                                "protocol": {
+                                                  "default": "Auto",
+                                                  "description": "Protocol is the HTTP protocol that active health check requests are sent with.\n\nDefaults to Auto, which uses the same protocol as regular requests to the backend:\n\n  - HTTP2 for a backend configured for HTTP/2, through a `kubernetes.io/h2c`,\n    `gateway.envoyproxy.io/h2c` or `grpc` appProtocol, or as the backend of a\n    GRPCRoute.\n  - The protocol negotiated through ALPN for a TLS backend that negotiates it,\n    with HTTP1 as the fallback when nothing is negotiated.\n  - HTTP1 otherwise.\n\nSet HTTP1 or HTTP2 when the health check endpoint speaks a different protocol than\nthe application, for example a backend that serves HTTP/1.1 traffic but only\naccepts HTTP/2 health checks. An explicit protocol is always used as is.",
+                                                  "enum": [
+                                                    "Auto",
+                                                    "HTTP1",
+                                                    "HTTP2"
+                                                  ],
                                                   "type": "string"
                                                 },
                                                 "requestBody": {
@@ -10655,6 +10974,20 @@
                                       },
                                       "type": "object"
                                     },
+                                    "http1": {
+                                      "description": "HTTP1 provides HTTP/1 configuration for backend connections.\nWhen both this field and the deprecated HTTP1 field on ClientTrafficPolicy are set,\nthis field takes precedence for backend (upstream) traffic.\n\nBehavior when targeting route kinds that do not use HTTP/1:\n  - GRPCRoute, TCPRoute, TLSRoute, UDPRoute: targeting these route kinds\n    directly adds a Warning condition on the policy; the field is ignored.\n  - Gateway / ListenerSet / sectionName targets: this field is silently\n    ignored for any GRPCRoute, TCPRoute, TLSRoute, or UDPRoute destinations\n    beneath that target; no warning is emitted.\n  - gRPC-only external services (ExtProc, gRPC ExtAuth, ALS, OpenTelemetry\n    access log/metrics, tracing providers): rejected at admission on their\n    own BackendSettings via separate validation rules.",
+                                      "properties": {
+                                        "enableTrailers": {
+                                          "description": "EnableTrailers defines if HTTP/1 trailers should be proxied by Envoy.",
+                                          "type": "boolean"
+                                        },
+                                        "preserveHeaderCase": {
+                                          "description": "PreserveHeaderCase defines if Envoy should preserve the letter case of headers.\nBy default, Envoy will lowercase all the headers.",
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "type": "object"
+                                    },
                                     "http2": {
                                       "description": "HTTP2 provides HTTP/2 configuration for backend connections.",
                                       "properties": {
@@ -10733,6 +11066,20 @@
                                         },
                                         "onInvalidMessage": {
                                           "description": "OnInvalidMessage determines if Envoy will terminate the connection or just the offending stream in the event of HTTP messaging error\nIt's recommended for L2 Envoy deployments to set this value to TerminateStream.\nhttps://www.envoyproxy.io/docs/envoy/latest/configuration/best_practices/level_two\nDefault: TerminateConnection",
+                                          "type": "string"
+                                        }
+                                      },
+                                      "type": "object"
+                                    },
+                                    "http3": {
+                                      "description": "HTTP3 enables HTTP/3 for backend connections.\nHTTP/3 always runs over TLS, so the backend must be configured\nwith TLS through a BackendTLSPolicy or the Backend's spec.tls.\nHTTP/3 is only supported for the backends of a route, through\nBackendTrafficPolicy. It is rejected for the backends of other\nresources, such as the external services of a SecurityPolicy\nor EnvoyExtensionPolicy and the sinks of an EnvoyProxy.",
+                                      "properties": {
+                                        "mode": {
+                                          "description": "Mode determines when HTTP/3 is used to reach the backend.\nDefaults to Auto, which only uses HTTP/3 for backends advertising it via alt-svc.",
+                                          "enum": [
+                                            "Auto",
+                                            "Always"
+                                          ],
                                           "type": "string"
                                         }
                                       },
@@ -10834,7 +11181,7 @@
                                               "type": "object"
                                             },
                                             "header": {
-                                              "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead",
+                                              "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead. This field will be removed in v1.11.",
                                               "properties": {
                                                 "name": {
                                                   "description": "Name of the header to hash.",
@@ -10989,6 +11336,10 @@
                                             "preferLocal": {
                                               "description": "PreferLocalZone configures zone-aware routing to prefer sending traffic to the local locality zone.",
                                               "properties": {
+                                                "failTrafficOnPanic": {
+                                                  "description": "FailTrafficOnPanic rejects traffic instead of routing to all endpoints when the\ncluster is in panic mode. Panic mode is entered when the share of healthy endpoints\ndrops below HealthCheck.PanicThreshold, and by default Envoy then load balances\nacross every endpoint, healthy or not. Setting this to true makes Envoy fail the\nrequests instead, applying backpressure to clients and giving the backend room to\nrecover.\nDefaults to false.",
+                                                  "type": "boolean"
+                                                },
                                                 "force": {
                                                   "description": "ForceLocalZone defines override configuration for forcing all traffic to stay within the local zone instead of the default behavior\nwhich maintains equal distribution among upstream endpoints while sending as much traffic as possible locally.",
                                                   "properties": {
@@ -11250,12 +11601,12 @@
                                   "type": "array"
                                 },
                                 "host": {
-                                  "description": "Host define the extension service hostname.\n\nDeprecated: Use BackendRefs instead.",
+                                  "description": "Host define the extension service hostname.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                                   "type": "string"
                                 },
                                 "port": {
                                   "default": 4317,
-                                  "description": "Port defines the port the extension service is exposed on.\n\nDeprecated: Use BackendRefs instead.",
+                                  "description": "Port defines the port the extension service is exposed on.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                                   "format": "int32",
                                   "minimum": 0,
                                   "type": "integer"
@@ -11376,7 +11727,12 @@
               "properties": {
                 "clusterStatName": {
                   "description": "ClusterStatName defines the value of cluster alt_stat_name, determining how cluster stats are named.\nFor more details, see envoy docs: https://www.envoyproxy.io/docs/envoy/latest/api-v3/config/cluster/v3/cluster.proto.html\nThe supported operators for this pattern are:\n`%ROUTE_NAME%`: name of Gateway API xRoute resource\n`%ROUTE_NAMESPACE%`: namespace of Gateway API xRoute resource\n`%ROUTE_KIND%`: kind of Gateway API xRoute resource\n`%ROUTE_RULE_NAME%`: name of the Gateway API xRoute section\n`%ROUTE_RULE_NUMBER%`: name of the Gateway API xRoute section\n`%BACKEND_REFS%`: names of all backends referenced in `<NAMESPACE>/<NAME>|<NAMESPACE>/<NAME>|...` format\nOnly xDS Clusters created for HTTPRoute and GRPCRoute are currently supported.\nDefault: `%ROUTE_KIND%/%ROUTE_NAMESPACE%/%ROUTE_NAME%/rule/%ROUTE_RULE_NUMBER%`\nExample: `httproute/my-ns/my-route/rule/0`",
+                  "maxLength": 1024,
                   "type": "string"
+                },
+                "enableCircuitBreakerRemainingStats": {
+                  "description": "EnableCircuitBreakerRemainingStats enables Envoy's circuit breaker `remaining_*` gauges,\nwhich expose the number of resources remaining before each circuit breaker opens.\nEnabling this adds 5 additional gauges per cluster, see:\nhttps://www.envoyproxy.io/docs/envoy/latest/configuration/upstream/cluster_manager/cluster_stats#circuit-breakers-statistics",
+                  "type": "boolean"
                 },
                 "enableGRPCStats": {
                   "description": "EnableGRPCStats enables the gRPC stats filter on listeners.\nThis is enabled by default for GRPCRoute and opt-in for HTTPRoute.\nIn general, gRPC traffic should be handled via GRPCRoute, but there are cases where\nusers want to route gRPC using HTTPRoute for its richer matching capabilities.\nTherefore, we enable this behavior only when it is explicitly opted in.",
@@ -11432,10 +11788,95 @@
                       "properties": {
                         "brotli": {
                           "description": "The configuration for Brotli compressor.",
+                          "properties": {
+                            "chunkSize": {
+                              "description": "ChunkSize is the size in bytes of the compressor's next output buffer, from\n4096 to 65536. If not set, defaults to 4096.",
+                              "format": "int32",
+                              "maximum": 65536,
+                              "minimum": 4096,
+                              "type": "integer"
+                            },
+                            "disableLiteralContextModeling": {
+                              "description": "DisableLiteralContextModeling disables the \"literal context modeling\" format\nfeature. This flag is a \"decoding-speed vs compression ratio\" trade-off.\nIf not set, defaults to false.",
+                              "type": "boolean"
+                            },
+                            "encoderMode": {
+                              "description": "EncoderMode tunes the encoder for a specific input.\nIf not set, defaults to Default.",
+                              "enum": [
+                                "Default",
+                                "Generic",
+                                "Text",
+                                "Font"
+                              ],
+                              "type": "string"
+                            },
+                            "inputBlockBits": {
+                              "description": "InputBlockBits represents the base two logarithm of the compressor's input block\nsize, from 16 to 24. Larger input block results in better compression at the\nexpense of memory usage. If not set, defaults to 24.",
+                              "format": "int32",
+                              "maximum": 24,
+                              "minimum": 16,
+                              "type": "integer"
+                            },
+                            "quality": {
+                              "description": "Quality controls the main compression speed-density lever, from 0 to 11.\nThe higher the quality, the slower the compression. If not set, defaults to 3.",
+                              "format": "int32",
+                              "maximum": 11,
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "windowBits": {
+                              "description": "WindowBits represents the base two logarithm of the compressor's window size,\nfrom 10 to 24. Larger window results in better compression at the expense of\nmemory usage. If not set, defaults to 18.",
+                              "format": "int32",
+                              "maximum": 24,
+                              "minimum": 10,
+                              "type": "integer"
+                            }
+                          },
                           "type": "object"
                         },
                         "gzip": {
                           "description": "The configuration for GZIP compressor.",
+                          "properties": {
+                            "chunkSize": {
+                              "description": "ChunkSize is the size in bytes of zlib's next output buffer, from 4096 to 65536.\nIf not set, defaults to 4096.",
+                              "format": "int32",
+                              "maximum": 65536,
+                              "minimum": 4096,
+                              "type": "integer"
+                            },
+                            "compressionLevel": {
+                              "description": "CompressionLevel sets the zlib compression level, from 1 (fastest compression,\nlowest compression ratio) to 9 (slowest compression, best compression ratio).\nIf not set, Envoy uses the zlib default level, which is equivalent to level 6.",
+                              "format": "int32",
+                              "maximum": 9,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "compressionStrategy": {
+                              "description": "CompressionStrategy selects the zlib compression strategy, which is directly\nrelated to the characteristics of the content. Most of the time \"Default\" is\nthe best choice. If not set, defaults to Default.",
+                              "enum": [
+                                "Default",
+                                "Filtered",
+                                "HuffmanOnly",
+                                "RLE",
+                                "Fixed"
+                              ],
+                              "type": "string"
+                            },
+                            "memoryLevel": {
+                              "description": "MemoryLevel controls the amount of internal memory used by zlib, from 1 to 9.\nHigher values use more memory, but are faster and produce better compression\nresults. If not set, defaults to 5.",
+                              "format": "int32",
+                              "maximum": 9,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "windowBits": {
+                              "description": "WindowBits represents the base two logarithm of the compressor's window size,\nfrom 9 to 15. Larger window results in better compression at the expense of\nmemory usage. If not set, defaults to 12, which will produce a 4096 bytes window.",
+                              "format": "int32",
+                              "maximum": 15,
+                              "minimum": 9,
+                              "type": "integer"
+                            }
+                          },
                           "type": "object"
                         },
                         "minContentLength": {
@@ -11468,6 +11909,42 @@
                         },
                         "zstd": {
                           "description": "The configuration for Zstd compressor.",
+                          "properties": {
+                            "chunkSize": {
+                              "description": "ChunkSize is the size in bytes of the compressor's next output buffer, from\n4096 to 65536. If not set, defaults to 4096.",
+                              "format": "int32",
+                              "maximum": 65536,
+                              "minimum": 4096,
+                              "type": "integer"
+                            },
+                            "compressionLevel": {
+                              "description": "CompressionLevel sets the compression parameters according to the pre-defined\nzstd compression level table, from 1 to 22. Note that the exact compression\nparameters are dynamically determined, depending on both compression level and\nsource content size (when known). If not set, defaults to 3.",
+                              "format": "int32",
+                              "maximum": 22,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "enableChecksum": {
+                              "description": "EnableChecksum specifies whether a 32-bits checksum of the content is written\nat the end of the frame. If not set, defaults to false.",
+                              "type": "boolean"
+                            },
+                            "strategy": {
+                              "description": "Strategy selects the zstd compression strategy. The higher the value of the\nselected strategy, the more complex it is, resulting in stronger and slower\ncompression. If not set, defaults to Default.",
+                              "enum": [
+                                "Default",
+                                "Fast",
+                                "DFast",
+                                "Greedy",
+                                "Lazy",
+                                "Lazy2",
+                                "BTLazy2",
+                                "BTOpt",
+                                "BTUltra",
+                                "BTUltra2"
+                              ],
+                              "type": "string"
+                            }
+                          },
                           "type": "object"
                         }
                       },
@@ -11492,7 +11969,7 @@
                         "description": "OpenTelemetry defines the configuration for OpenTelemetry sink.\nIt's required if the sink type is OpenTelemetry.",
                         "properties": {
                           "backendRef": {
-                            "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead.",
+                            "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                             "properties": {
                               "group": {
                                 "default": "",
@@ -11787,9 +12264,20 @@
                                   "active": {
                                     "description": "Active health check configuration",
                                     "properties": {
+                                      "disableConnectionReuse": {
+                                        "description": "DisableConnectionReuse determines whether the active health check connection to a\nbackend host is closed after each health check probe. When set to true, Envoy opens a\nnew connection for each health check, which is useful for backends (such as\nhaproxy-style agent checks) that do not expect a reused connection.\nDefaults to false, which reuses the connection across probes.",
+                                        "type": "boolean"
+                                      },
                                       "grpc": {
                                         "description": "GRPC defines the configuration of the GRPC health checker.\nIt's optional, and can only be used if the specified type is GRPC.",
                                         "properties": {
+                                          "hostname": {
+                                            "description": "Hostname defines the value of the :authority header sent with active gRPC\nhealth checks. Authority selection uses this order: this field, the\nassociated Backend endpoint hostname if available, then the effective Route\nhostname. If none of them is set, Envoy falls back to the name of the\ncluster, which is not a valid authority and is rejected by some gRPC\nservers.",
+                                            "maxLength": 253,
+                                            "minLength": 1,
+                                            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+                                            "type": "string"
+                                          },
                                           "service": {
                                             "description": "Service to send in the health check request.\nIf this is not specified, then the health check request applies to the entire\nserver and not to a specific service.",
                                             "type": "string"
@@ -11925,6 +12413,16 @@
                                             "description": "Path defines the HTTP path that will be requested during health checking.",
                                             "maxLength": 1024,
                                             "minLength": 1,
+                                            "type": "string"
+                                          },
+                                          "protocol": {
+                                            "default": "Auto",
+                                            "description": "Protocol is the HTTP protocol that active health check requests are sent with.\n\nDefaults to Auto, which uses the same protocol as regular requests to the backend:\n\n  - HTTP2 for a backend configured for HTTP/2, through a `kubernetes.io/h2c`,\n    `gateway.envoyproxy.io/h2c` or `grpc` appProtocol, or as the backend of a\n    GRPCRoute.\n  - The protocol negotiated through ALPN for a TLS backend that negotiates it,\n    with HTTP1 as the fallback when nothing is negotiated.\n  - HTTP1 otherwise.\n\nSet HTTP1 or HTTP2 when the health check endpoint speaks a different protocol than\nthe application, for example a backend that serves HTTP/1.1 traffic but only\naccepts HTTP/2 health checks. An explicit protocol is always used as is.",
+                                            "enum": [
+                                              "Auto",
+                                              "HTTP1",
+                                              "HTTP2"
+                                            ],
                                             "type": "string"
                                           },
                                           "requestBody": {
@@ -12190,6 +12688,20 @@
                                 },
                                 "type": "object"
                               },
+                              "http1": {
+                                "description": "HTTP1 provides HTTP/1 configuration for backend connections.\nWhen both this field and the deprecated HTTP1 field on ClientTrafficPolicy are set,\nthis field takes precedence for backend (upstream) traffic.\n\nBehavior when targeting route kinds that do not use HTTP/1:\n  - GRPCRoute, TCPRoute, TLSRoute, UDPRoute: targeting these route kinds\n    directly adds a Warning condition on the policy; the field is ignored.\n  - Gateway / ListenerSet / sectionName targets: this field is silently\n    ignored for any GRPCRoute, TCPRoute, TLSRoute, or UDPRoute destinations\n    beneath that target; no warning is emitted.\n  - gRPC-only external services (ExtProc, gRPC ExtAuth, ALS, OpenTelemetry\n    access log/metrics, tracing providers): rejected at admission on their\n    own BackendSettings via separate validation rules.",
+                                "properties": {
+                                  "enableTrailers": {
+                                    "description": "EnableTrailers defines if HTTP/1 trailers should be proxied by Envoy.",
+                                    "type": "boolean"
+                                  },
+                                  "preserveHeaderCase": {
+                                    "description": "PreserveHeaderCase defines if Envoy should preserve the letter case of headers.\nBy default, Envoy will lowercase all the headers.",
+                                    "type": "boolean"
+                                  }
+                                },
+                                "type": "object"
+                              },
                               "http2": {
                                 "description": "HTTP2 provides HTTP/2 configuration for backend connections.",
                                 "properties": {
@@ -12268,6 +12780,20 @@
                                   },
                                   "onInvalidMessage": {
                                     "description": "OnInvalidMessage determines if Envoy will terminate the connection or just the offending stream in the event of HTTP messaging error\nIt's recommended for L2 Envoy deployments to set this value to TerminateStream.\nhttps://www.envoyproxy.io/docs/envoy/latest/configuration/best_practices/level_two\nDefault: TerminateConnection",
+                                    "type": "string"
+                                  }
+                                },
+                                "type": "object"
+                              },
+                              "http3": {
+                                "description": "HTTP3 enables HTTP/3 for backend connections.\nHTTP/3 always runs over TLS, so the backend must be configured\nwith TLS through a BackendTLSPolicy or the Backend's spec.tls.\nHTTP/3 is only supported for the backends of a route, through\nBackendTrafficPolicy. It is rejected for the backends of other\nresources, such as the external services of a SecurityPolicy\nor EnvoyExtensionPolicy and the sinks of an EnvoyProxy.",
+                                "properties": {
+                                  "mode": {
+                                    "description": "Mode determines when HTTP/3 is used to reach the backend.\nDefaults to Auto, which only uses HTTP/3 for backends advertising it via alt-svc.",
+                                    "enum": [
+                                      "Auto",
+                                      "Always"
+                                    ],
                                     "type": "string"
                                   }
                                 },
@@ -12369,7 +12895,7 @@
                                         "type": "object"
                                       },
                                       "header": {
-                                        "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead",
+                                        "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead. This field will be removed in v1.11.",
                                         "properties": {
                                           "name": {
                                             "description": "Name of the header to hash.",
@@ -12524,6 +13050,10 @@
                                       "preferLocal": {
                                         "description": "PreferLocalZone configures zone-aware routing to prefer sending traffic to the local locality zone.",
                                         "properties": {
+                                          "failTrafficOnPanic": {
+                                            "description": "FailTrafficOnPanic rejects traffic instead of routing to all endpoints when the\ncluster is in panic mode. Panic mode is entered when the share of healthy endpoints\ndrops below HealthCheck.PanicThreshold, and by default Envoy then load balances\nacross every endpoint, healthy or not. Setting this to true makes Envoy fail the\nrequests instead, applying backpressure to clients and giving the backend room to\nrecover.\nDefaults to false.",
+                                            "type": "boolean"
+                                          },
                                           "force": {
                                             "description": "ForceLocalZone defines override configuration for forcing all traffic to stay within the local zone instead of the default behavior\nwhich maintains equal distribution among upstream endpoints while sending as much traffic as possible locally.",
                                             "properties": {
@@ -12785,16 +13315,20 @@
                             "type": "array"
                           },
                           "host": {
-                            "description": "Host define the service hostname.\n\nDeprecated: Use BackendRefs instead.",
+                            "description": "Host define the service hostname.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                             "type": "string"
                           },
                           "port": {
                             "default": 4317,
-                            "description": "Port defines the port the service is exposed on.\n\nDeprecated: Use BackendRefs instead.",
+                            "description": "Port defines the port the service is exposed on.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                             "format": "int32",
                             "maximum": 65535,
                             "minimum": 0,
                             "type": "integer"
+                          },
+                          "prefix": {
+                            "description": "Prefix configures the OpenTelemetry sink to prepend the given prefix to emitted stat names,\nthe full stat name will be `<prefix>.<stat_name>`.",
+                            "type": "string"
                           },
                           "reportCountersAsDeltas": {
                             "description": "ReportCountersAsDeltas configures the OpenTelemetry sink to report\ncounters as delta temporality instead of cumulative.",
@@ -12966,7 +13500,7 @@
                   "description": "Provider defines the tracing provider.",
                   "properties": {
                     "backendRef": {
-                      "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead.",
+                      "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                       "properties": {
                         "group": {
                           "default": "",
@@ -13261,9 +13795,20 @@
                             "active": {
                               "description": "Active health check configuration",
                               "properties": {
+                                "disableConnectionReuse": {
+                                  "description": "DisableConnectionReuse determines whether the active health check connection to a\nbackend host is closed after each health check probe. When set to true, Envoy opens a\nnew connection for each health check, which is useful for backends (such as\nhaproxy-style agent checks) that do not expect a reused connection.\nDefaults to false, which reuses the connection across probes.",
+                                  "type": "boolean"
+                                },
                                 "grpc": {
                                   "description": "GRPC defines the configuration of the GRPC health checker.\nIt's optional, and can only be used if the specified type is GRPC.",
                                   "properties": {
+                                    "hostname": {
+                                      "description": "Hostname defines the value of the :authority header sent with active gRPC\nhealth checks. Authority selection uses this order: this field, the\nassociated Backend endpoint hostname if available, then the effective Route\nhostname. If none of them is set, Envoy falls back to the name of the\ncluster, which is not a valid authority and is rejected by some gRPC\nservers.",
+                                      "maxLength": 253,
+                                      "minLength": 1,
+                                      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+                                      "type": "string"
+                                    },
                                     "service": {
                                       "description": "Service to send in the health check request.\nIf this is not specified, then the health check request applies to the entire\nserver and not to a specific service.",
                                       "type": "string"
@@ -13399,6 +13944,16 @@
                                       "description": "Path defines the HTTP path that will be requested during health checking.",
                                       "maxLength": 1024,
                                       "minLength": 1,
+                                      "type": "string"
+                                    },
+                                    "protocol": {
+                                      "default": "Auto",
+                                      "description": "Protocol is the HTTP protocol that active health check requests are sent with.\n\nDefaults to Auto, which uses the same protocol as regular requests to the backend:\n\n  - HTTP2 for a backend configured for HTTP/2, through a `kubernetes.io/h2c`,\n    `gateway.envoyproxy.io/h2c` or `grpc` appProtocol, or as the backend of a\n    GRPCRoute.\n  - The protocol negotiated through ALPN for a TLS backend that negotiates it,\n    with HTTP1 as the fallback when nothing is negotiated.\n  - HTTP1 otherwise.\n\nSet HTTP1 or HTTP2 when the health check endpoint speaks a different protocol than\nthe application, for example a backend that serves HTTP/1.1 traffic but only\naccepts HTTP/2 health checks. An explicit protocol is always used as is.",
+                                      "enum": [
+                                        "Auto",
+                                        "HTTP1",
+                                        "HTTP2"
+                                      ],
                                       "type": "string"
                                     },
                                     "requestBody": {
@@ -13664,6 +14219,20 @@
                           },
                           "type": "object"
                         },
+                        "http1": {
+                          "description": "HTTP1 provides HTTP/1 configuration for backend connections.\nWhen both this field and the deprecated HTTP1 field on ClientTrafficPolicy are set,\nthis field takes precedence for backend (upstream) traffic.\n\nBehavior when targeting route kinds that do not use HTTP/1:\n  - GRPCRoute, TCPRoute, TLSRoute, UDPRoute: targeting these route kinds\n    directly adds a Warning condition on the policy; the field is ignored.\n  - Gateway / ListenerSet / sectionName targets: this field is silently\n    ignored for any GRPCRoute, TCPRoute, TLSRoute, or UDPRoute destinations\n    beneath that target; no warning is emitted.\n  - gRPC-only external services (ExtProc, gRPC ExtAuth, ALS, OpenTelemetry\n    access log/metrics, tracing providers): rejected at admission on their\n    own BackendSettings via separate validation rules.",
+                          "properties": {
+                            "enableTrailers": {
+                              "description": "EnableTrailers defines if HTTP/1 trailers should be proxied by Envoy.",
+                              "type": "boolean"
+                            },
+                            "preserveHeaderCase": {
+                              "description": "PreserveHeaderCase defines if Envoy should preserve the letter case of headers.\nBy default, Envoy will lowercase all the headers.",
+                              "type": "boolean"
+                            }
+                          },
+                          "type": "object"
+                        },
                         "http2": {
                           "description": "HTTP2 provides HTTP/2 configuration for backend connections.",
                           "properties": {
@@ -13742,6 +14311,20 @@
                             },
                             "onInvalidMessage": {
                               "description": "OnInvalidMessage determines if Envoy will terminate the connection or just the offending stream in the event of HTTP messaging error\nIt's recommended for L2 Envoy deployments to set this value to TerminateStream.\nhttps://www.envoyproxy.io/docs/envoy/latest/configuration/best_practices/level_two\nDefault: TerminateConnection",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "http3": {
+                          "description": "HTTP3 enables HTTP/3 for backend connections.\nHTTP/3 always runs over TLS, so the backend must be configured\nwith TLS through a BackendTLSPolicy or the Backend's spec.tls.\nHTTP/3 is only supported for the backends of a route, through\nBackendTrafficPolicy. It is rejected for the backends of other\nresources, such as the external services of a SecurityPolicy\nor EnvoyExtensionPolicy and the sinks of an EnvoyProxy.",
+                          "properties": {
+                            "mode": {
+                              "description": "Mode determines when HTTP/3 is used to reach the backend.\nDefaults to Auto, which only uses HTTP/3 for backends advertising it via alt-svc.",
+                              "enum": [
+                                "Auto",
+                                "Always"
+                              ],
                               "type": "string"
                             }
                           },
@@ -13843,7 +14426,7 @@
                                   "type": "object"
                                 },
                                 "header": {
-                                  "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead",
+                                  "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead. This field will be removed in v1.11.",
                                   "properties": {
                                     "name": {
                                       "description": "Name of the header to hash.",
@@ -13998,6 +14581,10 @@
                                 "preferLocal": {
                                   "description": "PreferLocalZone configures zone-aware routing to prefer sending traffic to the local locality zone.",
                                   "properties": {
+                                    "failTrafficOnPanic": {
+                                      "description": "FailTrafficOnPanic rejects traffic instead of routing to all endpoints when the\ncluster is in panic mode. Panic mode is entered when the share of healthy endpoints\ndrops below HealthCheck.PanicThreshold, and by default Envoy then load balances\nacross every endpoint, healthy or not. Setting this to true makes Envoy fail the\nrequests instead, applying backpressure to clients and giving the backend room to\nrecover.\nDefaults to false.",
+                                      "type": "boolean"
+                                    },
                                     "force": {
                                       "description": "ForceLocalZone defines override configuration for forcing all traffic to stay within the local zone instead of the default behavior\nwhich maintains equal distribution among upstream endpoints while sending as much traffic as possible locally.",
                                       "properties": {
@@ -14230,7 +14817,7 @@
                       "type": "object"
                     },
                     "host": {
-                      "description": "Host define the provider service hostname.\n\nDeprecated: Use BackendRefs instead.",
+                      "description": "Host define the provider service hostname.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                       "type": "string"
                     },
                     "openTelemetry": {
@@ -14319,7 +14906,7 @@
                     },
                     "port": {
                       "default": 4317,
-                      "description": "Port defines the port the provider service is exposed on.\n\nDeprecated: Use BackendRefs instead.",
+                      "description": "Port defines the port the provider service is exposed on.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                       "format": "int32",
                       "minimum": 0,
                       "type": "integer"
@@ -14418,6 +15005,58 @@
             }
           },
           "type": "object"
+        },
+        "wasmModules": {
+          "description": "WasmModules defines the set of Wasm modules that are allowed to be used by\nEnvoyExtensionPolicy resources. Each entry registers a module by a logical\nname and a source (currently Local path).\n\nWhen EnvoyExtensionPolicy.wasm[].code is omitted, wasm[].name is looked up\nin this list.\n\nThe EnvoyProxy owner is responsible for ensuring Local modules are available\non the proxy container's filesystem (e.g., via init containers, custom images,\nor shared volumes). EnvoyExtensionPolicy never carries a raw filesystem path.",
+          "items": {
+            "description": "WasmModuleEntry defines a Wasm module that is registered and allowed for use\nby EnvoyExtensionPolicy resources.",
+            "properties": {
+              "name": {
+                "description": "Name is the logical name for this module. EnvoyExtensionPolicy resources\nreference modules by this name when wasm[].code is omitted.",
+                "maxLength": 253,
+                "minLength": 1,
+                "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$",
+                "type": "string"
+              },
+              "source": {
+                "description": "Source defines where the Wasm module code is loaded from.",
+                "properties": {
+                  "local": {
+                    "description": "Local specifies a module loaded from the proxy's local filesystem\nby absolute path.",
+                    "properties": {
+                      "path": {
+                        "description": "Path is the absolute filesystem path to the Wasm module on the Envoy proxy.",
+                        "maxLength": 4096,
+                        "minLength": 1,
+                        "pattern": "^/.*",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "type": "object"
+                  },
+                  "type": {
+                    "default": "Local",
+                    "description": "Type is the type of the source of the Wasm module.\nDefaults to Local.",
+                    "enum": [
+                      "Local"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "name",
+              "source"
+            ],
+            "type": "object"
+          },
+          "maxItems": 16,
+          "type": "array"
         }
       },
       "type": "object"

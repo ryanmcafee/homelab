@@ -210,9 +210,10 @@
                     "description": "Principal specifies the client identity of a request.\nIf there are multiple principal types, all principals must match for the rule to match.\nFor example, if there are two principals: one for client IP and one for JWT claim,\nthe rule will match only if both the client IP and the JWT claim match.",
                     "properties": {
                       "clientCIDRs": {
-                        "description": "ClientCIDRs are the IP CIDR ranges of the client.\nValid examples are \"192.168.1.0/24\" or \"2001:db8::/64\"\n\nIf multiple CIDR ranges are specified, one of the CIDR ranges must match\nthe client IP for the rule to match.\n\nThe client IP is inferred from the X-Forwarded-For header, a custom header,\nor the proxy protocol.\nYou can use the `ClientIPDetection` or the `ProxyProtocol` field in\nthe `ClientTrafficPolicy` to configure how the client IP is detected.\n\nFor TCPRoute targets (raw TCP connections), HTTP headers such as\nX-Forwarded-For are not available. The client IP is obtained from the\nTCP connection's peer address. If intermediaries (load balancers, NAT)\nterminate or proxy TCP, the original client IP will only be available\nif the intermediary preserves the source address (for example by\nenabling the PROXY protocol or avoiding SNAT). Ensure your L4 proxy is\nconfigured to preserve the source IP to enable correct client-IP\nmatching for TCPRoute targets.",
+                        "description": "ClientCIDRs are the IP CIDR ranges of the client.\nValid examples are \"192.168.1.0/24\" or \"2001:db8::/64\"\n\nIf multiple CIDR ranges are specified, one of the CIDR ranges must match\nthe client IP for the rule to match.\n\nThe client IP is inferred from the X-Forwarded-For header, a custom header,\nor the proxy protocol.\nYou can use the `ClientIPDetection` or the `ProxyProtocol` field in\nthe `ClientTrafficPolicy` to configure how the client IP is detected.\n\nFor TCPRoute and UDPRoute targets (raw L4 traffic), HTTP headers such as\nX-Forwarded-For are not available. The client IP is obtained from the\nTCP connection's peer address, or from the source address of the UDP\ndatagram. If intermediaries (load balancers, NAT) terminate or proxy the\ntraffic, the original client IP will only be available if the\nintermediary preserves the source address (for example by enabling the\nPROXY protocol or avoiding SNAT). Note that the PROXY protocol is not\navailable on the UDP path, so a UDPRoute target relies entirely on the\ndatagram source address being preserved. Ensure your L4 proxy is\nconfigured to preserve the source IP to enable correct client-IP\nmatching for TCPRoute and UDPRoute targets.",
                         "items": {
                           "description": "CIDR defines a CIDR Address range.\nA CIDR can be an IPv4 address range such as \"192.168.1.0/24\" or an IPv6 address range such as \"2001:0db8:11a3:09d7::/64\".",
+                          "maxLength": 64,
                           "pattern": "((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\/([0-9]+))|((([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))\\/([0-9]+))",
                           "type": "string"
                         },
@@ -220,7 +221,7 @@
                         "type": "array"
                       },
                       "clientIPGeoLocations": {
-                        "description": "ClientIPGeoLocations authorizes the request based on geolocation metadata derived from the client IP.\nThis field is supported for HTTPRoute and GRPCRoute authorization.\nIt is not supported for TCPRoute targets.\n\nIf multiple entries are specified,  one of the ClientIPGeoLocation entries must match for the rule to match.\n\nThe client IP is inferred from the X-Forwarded-For header, a custom header, or the\ndirect downstream connection source address (the TCP peer of the connection terminated by Envoy).\nYou can use the `ClientIPDetection` field in the `ClientTrafficPolicy` to configure the client IP detection.",
+                        "description": "ClientIPGeoLocations authorizes the request based on geolocation metadata derived from the client IP.\nThis field is supported for HTTPRoute and GRPCRoute authorization.\nIt is not supported for TCPRoute or UDPRoute targets.\n\nIf multiple entries are specified,  one of the ClientIPGeoLocation entries must match for the rule to match.\n\nThe client IP is inferred from the X-Forwarded-For header, a custom header, or the\ndirect downstream connection source address (the TCP peer of the connection terminated by Envoy).\nYou can use the `ClientIPDetection` field in the `ClientTrafficPolicy` to configure the client IP detection.",
                         "items": {
                           "description": "ClientIPGeoLocation specifies geolocation-based match criteria for authorization.",
                           "properties": {
@@ -363,7 +364,7 @@
                             "type": "array"
                           },
                           "provider": {
-                            "description": "Provider is the name of the JWT provider that used to verify the JWT token.\nIn order to use JWT claims for authorization, you must configure the JWT\nauthentication with the same provider in the same `SecurityPolicy`.",
+                            "description": "Provider is the name of the JWT provider that used to verify the JWT token.\nIn order to use JWT claims for authorization, you must configure the JWT\nauthentication with the same provider in the same `SecurityPolicy`, or,\nwhen `mergeType` is set, in the parent `SecurityPolicy` this policy is\nmerged into.",
                             "maxLength": 253,
                             "minLength": 1,
                             "type": "string"
@@ -470,6 +471,16 @@
               },
               "type": "array"
             },
+            "allowOriginRegexes": {
+              "description": "AllowOriginRegexes defines regular expressions that are matched against the Origin header.\nIt specifies additional allowed origins in the Access-Control-Allow-Origin CORS response header.\nAn origin is allowed when it matches any entry in AllowOrigins or AllowOriginRegexes.",
+              "items": {
+                "description": "CORSOriginRegex is a regular expression that is matched against the full Origin header value,\nincluding the scheme and the port if present.\nThe regex string must adhere to the syntax documented in\nhttps://github.com/google/re2/wiki/Syntax, except for the \\C escape sequence,\nwhich is not supported.\nA regular expression that matches the literal string \"*\" is rejected.\nThe value \"*\" in AllowOrigins allows any origin.",
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
             "allowOrigins": {
               "description": "AllowOrigins defines the origins that are allowed to make requests.\nIt specifies the allowed origins in the Access-Control-Allow-Origin CORS response header.\nThe value \"*\" allows any origin to make requests.",
               "items": {
@@ -541,15 +552,16 @@
               "description": "BodyToExtAuth defines the Body to Ext Auth configuration.",
               "properties": {
                 "maxRequestBytes": {
-                  "description": "MaxRequestBytes is the maximum size of a message body that the filter will hold in memory.\nEnvoy will return HTTP 413 and will not initiate the authorization process when buffer\nreaches the number set in this field.\nNote that this setting will have precedence over failOpen mode.",
+                  "description": "MaxRequestBytes is the maximum size of a message body that the filter will hold in memory.\nEnvoy will return HTTP 413 and will not initiate the authorization process when buffer\nreaches the number set in this field.\nNote that this setting will have precedence over failOpen mode.\nDefaults to 32768 bytes (32KiB), which matches the default per-connection buffer limit.",
                   "format": "int32",
                   "minimum": 1,
                   "type": "integer"
+                },
+                "packAsBytes": {
+                  "description": "PackAsBytes, when true, sends the request body to the external authorization\nservice as raw bytes, populating the raw_body field of the HTTP request\nattribute context. Otherwise, the body is sent as a UTF-8 string in the body field.\nThis field is only supported for gRPC external authorization services.\nDefaults to false.",
+                  "type": "boolean"
                 }
               },
-              "required": [
-                "maxRequestBytes"
-              ],
               "type": "object"
             },
             "contextExtensions": {
@@ -627,7 +639,7 @@
               "description": "GRPC defines the gRPC External Authorization service.\nEither GRPCService or HTTPService must be specified,\nand only one of them can be provided.",
               "properties": {
                 "backendRef": {
-                  "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead.",
+                  "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                   "properties": {
                     "group": {
                       "default": "",
@@ -922,9 +934,20 @@
                         "active": {
                           "description": "Active health check configuration",
                           "properties": {
+                            "disableConnectionReuse": {
+                              "description": "DisableConnectionReuse determines whether the active health check connection to a\nbackend host is closed after each health check probe. When set to true, Envoy opens a\nnew connection for each health check, which is useful for backends (such as\nhaproxy-style agent checks) that do not expect a reused connection.\nDefaults to false, which reuses the connection across probes.",
+                              "type": "boolean"
+                            },
                             "grpc": {
                               "description": "GRPC defines the configuration of the GRPC health checker.\nIt's optional, and can only be used if the specified type is GRPC.",
                               "properties": {
+                                "hostname": {
+                                  "description": "Hostname defines the value of the :authority header sent with active gRPC\nhealth checks. Authority selection uses this order: this field, the\nassociated Backend endpoint hostname if available, then the effective Route\nhostname. If none of them is set, Envoy falls back to the name of the\ncluster, which is not a valid authority and is rejected by some gRPC\nservers.",
+                                  "maxLength": 253,
+                                  "minLength": 1,
+                                  "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+                                  "type": "string"
+                                },
                                 "service": {
                                   "description": "Service to send in the health check request.\nIf this is not specified, then the health check request applies to the entire\nserver and not to a specific service.",
                                   "type": "string"
@@ -1060,6 +1083,16 @@
                                   "description": "Path defines the HTTP path that will be requested during health checking.",
                                   "maxLength": 1024,
                                   "minLength": 1,
+                                  "type": "string"
+                                },
+                                "protocol": {
+                                  "default": "Auto",
+                                  "description": "Protocol is the HTTP protocol that active health check requests are sent with.\n\nDefaults to Auto, which uses the same protocol as regular requests to the backend:\n\n  - HTTP2 for a backend configured for HTTP/2, through a `kubernetes.io/h2c`,\n    `gateway.envoyproxy.io/h2c` or `grpc` appProtocol, or as the backend of a\n    GRPCRoute.\n  - The protocol negotiated through ALPN for a TLS backend that negotiates it,\n    with HTTP1 as the fallback when nothing is negotiated.\n  - HTTP1 otherwise.\n\nSet HTTP1 or HTTP2 when the health check endpoint speaks a different protocol than\nthe application, for example a backend that serves HTTP/1.1 traffic but only\naccepts HTTP/2 health checks. An explicit protocol is always used as is.",
+                                  "enum": [
+                                    "Auto",
+                                    "HTTP1",
+                                    "HTTP2"
+                                  ],
                                   "type": "string"
                                 },
                                 "requestBody": {
@@ -1325,6 +1358,20 @@
                       },
                       "type": "object"
                     },
+                    "http1": {
+                      "description": "HTTP1 provides HTTP/1 configuration for backend connections.\nWhen both this field and the deprecated HTTP1 field on ClientTrafficPolicy are set,\nthis field takes precedence for backend (upstream) traffic.\n\nBehavior when targeting route kinds that do not use HTTP/1:\n  - GRPCRoute, TCPRoute, TLSRoute, UDPRoute: targeting these route kinds\n    directly adds a Warning condition on the policy; the field is ignored.\n  - Gateway / ListenerSet / sectionName targets: this field is silently\n    ignored for any GRPCRoute, TCPRoute, TLSRoute, or UDPRoute destinations\n    beneath that target; no warning is emitted.\n  - gRPC-only external services (ExtProc, gRPC ExtAuth, ALS, OpenTelemetry\n    access log/metrics, tracing providers): rejected at admission on their\n    own BackendSettings via separate validation rules.",
+                      "properties": {
+                        "enableTrailers": {
+                          "description": "EnableTrailers defines if HTTP/1 trailers should be proxied by Envoy.",
+                          "type": "boolean"
+                        },
+                        "preserveHeaderCase": {
+                          "description": "PreserveHeaderCase defines if Envoy should preserve the letter case of headers.\nBy default, Envoy will lowercase all the headers.",
+                          "type": "boolean"
+                        }
+                      },
+                      "type": "object"
+                    },
                     "http2": {
                       "description": "HTTP2 provides HTTP/2 configuration for backend connections.",
                       "properties": {
@@ -1403,6 +1450,20 @@
                         },
                         "onInvalidMessage": {
                           "description": "OnInvalidMessage determines if Envoy will terminate the connection or just the offending stream in the event of HTTP messaging error\nIt's recommended for L2 Envoy deployments to set this value to TerminateStream.\nhttps://www.envoyproxy.io/docs/envoy/latest/configuration/best_practices/level_two\nDefault: TerminateConnection",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "http3": {
+                      "description": "HTTP3 enables HTTP/3 for backend connections.\nHTTP/3 always runs over TLS, so the backend must be configured\nwith TLS through a BackendTLSPolicy or the Backend's spec.tls.\nHTTP/3 is only supported for the backends of a route, through\nBackendTrafficPolicy. It is rejected for the backends of other\nresources, such as the external services of a SecurityPolicy\nor EnvoyExtensionPolicy and the sinks of an EnvoyProxy.",
+                      "properties": {
+                        "mode": {
+                          "description": "Mode determines when HTTP/3 is used to reach the backend.\nDefaults to Auto, which only uses HTTP/3 for backends advertising it via alt-svc.",
+                          "enum": [
+                            "Auto",
+                            "Always"
+                          ],
                           "type": "string"
                         }
                       },
@@ -1504,7 +1565,7 @@
                               "type": "object"
                             },
                             "header": {
-                              "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead",
+                              "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead. This field will be removed in v1.11.",
                               "properties": {
                                 "name": {
                                   "description": "Name of the header to hash.",
@@ -1659,6 +1720,10 @@
                             "preferLocal": {
                               "description": "PreferLocalZone configures zone-aware routing to prefer sending traffic to the local locality zone.",
                               "properties": {
+                                "failTrafficOnPanic": {
+                                  "description": "FailTrafficOnPanic rejects traffic instead of routing to all endpoints when the\ncluster is in panic mode. Panic mode is entered when the share of healthy endpoints\ndrops below HealthCheck.PanicThreshold, and by default Envoy then load balances\nacross every endpoint, healthy or not. Setting this to true makes Envoy fail the\nrequests instead, applying backpressure to clients and giving the backend room to\nrecover.\nDefaults to false.",
+                                  "type": "boolean"
+                                },
                                 "force": {
                                   "description": "ForceLocalZone defines override configuration for forcing all traffic to stay within the local zone instead of the default behavior\nwhich maintains equal distribution among upstream endpoints while sending as much traffic as possible locally.",
                                   "properties": {
@@ -1904,7 +1969,7 @@
               "description": "HTTP defines the HTTP External Authorization service.\nEither GRPCService or HTTPService must be specified,\nand only one of them can be provided.",
               "properties": {
                 "backendRef": {
-                  "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead.",
+                  "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                   "properties": {
                     "group": {
                       "default": "",
@@ -2199,9 +2264,20 @@
                         "active": {
                           "description": "Active health check configuration",
                           "properties": {
+                            "disableConnectionReuse": {
+                              "description": "DisableConnectionReuse determines whether the active health check connection to a\nbackend host is closed after each health check probe. When set to true, Envoy opens a\nnew connection for each health check, which is useful for backends (such as\nhaproxy-style agent checks) that do not expect a reused connection.\nDefaults to false, which reuses the connection across probes.",
+                              "type": "boolean"
+                            },
                             "grpc": {
                               "description": "GRPC defines the configuration of the GRPC health checker.\nIt's optional, and can only be used if the specified type is GRPC.",
                               "properties": {
+                                "hostname": {
+                                  "description": "Hostname defines the value of the :authority header sent with active gRPC\nhealth checks. Authority selection uses this order: this field, the\nassociated Backend endpoint hostname if available, then the effective Route\nhostname. If none of them is set, Envoy falls back to the name of the\ncluster, which is not a valid authority and is rejected by some gRPC\nservers.",
+                                  "maxLength": 253,
+                                  "minLength": 1,
+                                  "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+                                  "type": "string"
+                                },
                                 "service": {
                                   "description": "Service to send in the health check request.\nIf this is not specified, then the health check request applies to the entire\nserver and not to a specific service.",
                                   "type": "string"
@@ -2337,6 +2413,16 @@
                                   "description": "Path defines the HTTP path that will be requested during health checking.",
                                   "maxLength": 1024,
                                   "minLength": 1,
+                                  "type": "string"
+                                },
+                                "protocol": {
+                                  "default": "Auto",
+                                  "description": "Protocol is the HTTP protocol that active health check requests are sent with.\n\nDefaults to Auto, which uses the same protocol as regular requests to the backend:\n\n  - HTTP2 for a backend configured for HTTP/2, through a `kubernetes.io/h2c`,\n    `gateway.envoyproxy.io/h2c` or `grpc` appProtocol, or as the backend of a\n    GRPCRoute.\n  - The protocol negotiated through ALPN for a TLS backend that negotiates it,\n    with HTTP1 as the fallback when nothing is negotiated.\n  - HTTP1 otherwise.\n\nSet HTTP1 or HTTP2 when the health check endpoint speaks a different protocol than\nthe application, for example a backend that serves HTTP/1.1 traffic but only\naccepts HTTP/2 health checks. An explicit protocol is always used as is.",
+                                  "enum": [
+                                    "Auto",
+                                    "HTTP1",
+                                    "HTTP2"
+                                  ],
                                   "type": "string"
                                 },
                                 "requestBody": {
@@ -2602,6 +2688,20 @@
                       },
                       "type": "object"
                     },
+                    "http1": {
+                      "description": "HTTP1 provides HTTP/1 configuration for backend connections.\nWhen both this field and the deprecated HTTP1 field on ClientTrafficPolicy are set,\nthis field takes precedence for backend (upstream) traffic.\n\nBehavior when targeting route kinds that do not use HTTP/1:\n  - GRPCRoute, TCPRoute, TLSRoute, UDPRoute: targeting these route kinds\n    directly adds a Warning condition on the policy; the field is ignored.\n  - Gateway / ListenerSet / sectionName targets: this field is silently\n    ignored for any GRPCRoute, TCPRoute, TLSRoute, or UDPRoute destinations\n    beneath that target; no warning is emitted.\n  - gRPC-only external services (ExtProc, gRPC ExtAuth, ALS, OpenTelemetry\n    access log/metrics, tracing providers): rejected at admission on their\n    own BackendSettings via separate validation rules.",
+                      "properties": {
+                        "enableTrailers": {
+                          "description": "EnableTrailers defines if HTTP/1 trailers should be proxied by Envoy.",
+                          "type": "boolean"
+                        },
+                        "preserveHeaderCase": {
+                          "description": "PreserveHeaderCase defines if Envoy should preserve the letter case of headers.\nBy default, Envoy will lowercase all the headers.",
+                          "type": "boolean"
+                        }
+                      },
+                      "type": "object"
+                    },
                     "http2": {
                       "description": "HTTP2 provides HTTP/2 configuration for backend connections.",
                       "properties": {
@@ -2680,6 +2780,20 @@
                         },
                         "onInvalidMessage": {
                           "description": "OnInvalidMessage determines if Envoy will terminate the connection or just the offending stream in the event of HTTP messaging error\nIt's recommended for L2 Envoy deployments to set this value to TerminateStream.\nhttps://www.envoyproxy.io/docs/envoy/latest/configuration/best_practices/level_two\nDefault: TerminateConnection",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "http3": {
+                      "description": "HTTP3 enables HTTP/3 for backend connections.\nHTTP/3 always runs over TLS, so the backend must be configured\nwith TLS through a BackendTLSPolicy or the Backend's spec.tls.\nHTTP/3 is only supported for the backends of a route, through\nBackendTrafficPolicy. It is rejected for the backends of other\nresources, such as the external services of a SecurityPolicy\nor EnvoyExtensionPolicy and the sinks of an EnvoyProxy.",
+                      "properties": {
+                        "mode": {
+                          "description": "Mode determines when HTTP/3 is used to reach the backend.\nDefaults to Auto, which only uses HTTP/3 for backends advertising it via alt-svc.",
+                          "enum": [
+                            "Auto",
+                            "Always"
+                          ],
                           "type": "string"
                         }
                       },
@@ -2781,7 +2895,7 @@
                               "type": "object"
                             },
                             "header": {
-                              "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead",
+                              "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead. This field will be removed in v1.11.",
                               "properties": {
                                 "name": {
                                   "description": "Name of the header to hash.",
@@ -2936,6 +3050,10 @@
                             "preferLocal": {
                               "description": "PreferLocalZone configures zone-aware routing to prefer sending traffic to the local locality zone.",
                               "properties": {
+                                "failTrafficOnPanic": {
+                                  "description": "FailTrafficOnPanic rejects traffic instead of routing to all endpoints when the\ncluster is in panic mode. Panic mode is entered when the share of healthy endpoints\ndrops below HealthCheck.PanicThreshold, and by default Envoy then load balances\nacross every endpoint, healthy or not. Setting this to true makes Envoy fail the\nrequests instead, applying backpressure to clients and giving the backend room to\nrecover.\nDefaults to false.",
+                                  "type": "boolean"
+                                },
                                 "force": {
                                   "description": "ForceLocalZone defines override configuration for forcing all traffic to stay within the local zone instead of the default behavior\nwhich maintains equal distribution among upstream endpoints while sending as much traffic as possible locally.",
                                   "properties": {
@@ -3275,8 +3393,17 @@
                       "description": "ClaimToHeader defines a configuration to convert JWT claims into HTTP headers",
                       "properties": {
                         "claim": {
-                          "description": "Claim is the JWT Claim that should be saved into the header : it can be a nested claim of type\n(eg. \"claim.nested.key\", \"sub\"). The nested claim name must use dot \".\"\nto separate the JSON name path.",
+                          "description": "Claim is the JWT Claim that should be saved into the header : it can be a nested claim of type\n(eg. \"claim.nested.key\", \"sub\"). The nested claim name must use dot \".\"\nto separate the JSON name path.\n\nBecause the name is always split on \".\", a claim whose own name contains a dot -- a\nURI-namespaced claim such as \"https://example.com/claims/tenant_name\" commonly emitted by\nOIDC providers -- cannot be addressed this way. Use ClaimPath for those claims instead.\n\nExactly one of Claim or ClaimPath must be specified.",
                           "type": "string"
+                        },
+                        "claimPath": {
+                          "description": "ClaimPath is the path to the claim to copy, given as an explicit list of segments. Each\nsegment is matched in full against a key of the enclosing JSON object, so claim names\ncontaining dots are addressable. For example, a top-level claim named\n\"https://example.com/claims/tenant_name\" is selected with:\n\n\tclaimPath:\n\t- \"https://example.com/claims/tenant_name\"\n\nand a nested claim `{\"nested\": {\"claim\": {\"key\": \"value\"}}}` is selected with:\n\n\tclaimPath:\n\t- nested\n\t- claim\n\t- key\n\nExactly one of Claim or ClaimPath must be specified.",
+                          "items": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "minItems": 1,
+                          "type": "array"
                         },
                         "header": {
                           "description": "Header defines the name of the HTTP request header that the JWT Claim will be saved into.",
@@ -3284,7 +3411,6 @@
                         }
                       },
                       "required": [
-                        "claim",
                         "header"
                       ],
                       "type": "object"
@@ -3403,7 +3529,7 @@
                     "description": "RemoteJWKS defines how to fetch and cache JSON Web Key Sets (JWKS) from a remote\nHTTP/HTTPS endpoint.",
                     "properties": {
                       "backendRef": {
-                        "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead.",
+                        "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                         "properties": {
                           "group": {
                             "default": "",
@@ -3698,9 +3824,20 @@
                               "active": {
                                 "description": "Active health check configuration",
                                 "properties": {
+                                  "disableConnectionReuse": {
+                                    "description": "DisableConnectionReuse determines whether the active health check connection to a\nbackend host is closed after each health check probe. When set to true, Envoy opens a\nnew connection for each health check, which is useful for backends (such as\nhaproxy-style agent checks) that do not expect a reused connection.\nDefaults to false, which reuses the connection across probes.",
+                                    "type": "boolean"
+                                  },
                                   "grpc": {
                                     "description": "GRPC defines the configuration of the GRPC health checker.\nIt's optional, and can only be used if the specified type is GRPC.",
                                     "properties": {
+                                      "hostname": {
+                                        "description": "Hostname defines the value of the :authority header sent with active gRPC\nhealth checks. Authority selection uses this order: this field, the\nassociated Backend endpoint hostname if available, then the effective Route\nhostname. If none of them is set, Envoy falls back to the name of the\ncluster, which is not a valid authority and is rejected by some gRPC\nservers.",
+                                        "maxLength": 253,
+                                        "minLength": 1,
+                                        "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+                                        "type": "string"
+                                      },
                                       "service": {
                                         "description": "Service to send in the health check request.\nIf this is not specified, then the health check request applies to the entire\nserver and not to a specific service.",
                                         "type": "string"
@@ -3836,6 +3973,16 @@
                                         "description": "Path defines the HTTP path that will be requested during health checking.",
                                         "maxLength": 1024,
                                         "minLength": 1,
+                                        "type": "string"
+                                      },
+                                      "protocol": {
+                                        "default": "Auto",
+                                        "description": "Protocol is the HTTP protocol that active health check requests are sent with.\n\nDefaults to Auto, which uses the same protocol as regular requests to the backend:\n\n  - HTTP2 for a backend configured for HTTP/2, through a `kubernetes.io/h2c`,\n    `gateway.envoyproxy.io/h2c` or `grpc` appProtocol, or as the backend of a\n    GRPCRoute.\n  - The protocol negotiated through ALPN for a TLS backend that negotiates it,\n    with HTTP1 as the fallback when nothing is negotiated.\n  - HTTP1 otherwise.\n\nSet HTTP1 or HTTP2 when the health check endpoint speaks a different protocol than\nthe application, for example a backend that serves HTTP/1.1 traffic but only\naccepts HTTP/2 health checks. An explicit protocol is always used as is.",
+                                        "enum": [
+                                          "Auto",
+                                          "HTTP1",
+                                          "HTTP2"
+                                        ],
                                         "type": "string"
                                       },
                                       "requestBody": {
@@ -4101,6 +4248,20 @@
                             },
                             "type": "object"
                           },
+                          "http1": {
+                            "description": "HTTP1 provides HTTP/1 configuration for backend connections.\nWhen both this field and the deprecated HTTP1 field on ClientTrafficPolicy are set,\nthis field takes precedence for backend (upstream) traffic.\n\nBehavior when targeting route kinds that do not use HTTP/1:\n  - GRPCRoute, TCPRoute, TLSRoute, UDPRoute: targeting these route kinds\n    directly adds a Warning condition on the policy; the field is ignored.\n  - Gateway / ListenerSet / sectionName targets: this field is silently\n    ignored for any GRPCRoute, TCPRoute, TLSRoute, or UDPRoute destinations\n    beneath that target; no warning is emitted.\n  - gRPC-only external services (ExtProc, gRPC ExtAuth, ALS, OpenTelemetry\n    access log/metrics, tracing providers): rejected at admission on their\n    own BackendSettings via separate validation rules.",
+                            "properties": {
+                              "enableTrailers": {
+                                "description": "EnableTrailers defines if HTTP/1 trailers should be proxied by Envoy.",
+                                "type": "boolean"
+                              },
+                              "preserveHeaderCase": {
+                                "description": "PreserveHeaderCase defines if Envoy should preserve the letter case of headers.\nBy default, Envoy will lowercase all the headers.",
+                                "type": "boolean"
+                              }
+                            },
+                            "type": "object"
+                          },
                           "http2": {
                             "description": "HTTP2 provides HTTP/2 configuration for backend connections.",
                             "properties": {
@@ -4179,6 +4340,20 @@
                               },
                               "onInvalidMessage": {
                                 "description": "OnInvalidMessage determines if Envoy will terminate the connection or just the offending stream in the event of HTTP messaging error\nIt's recommended for L2 Envoy deployments to set this value to TerminateStream.\nhttps://www.envoyproxy.io/docs/envoy/latest/configuration/best_practices/level_two\nDefault: TerminateConnection",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "http3": {
+                            "description": "HTTP3 enables HTTP/3 for backend connections.\nHTTP/3 always runs over TLS, so the backend must be configured\nwith TLS through a BackendTLSPolicy or the Backend's spec.tls.\nHTTP/3 is only supported for the backends of a route, through\nBackendTrafficPolicy. It is rejected for the backends of other\nresources, such as the external services of a SecurityPolicy\nor EnvoyExtensionPolicy and the sinks of an EnvoyProxy.",
+                            "properties": {
+                              "mode": {
+                                "description": "Mode determines when HTTP/3 is used to reach the backend.\nDefaults to Auto, which only uses HTTP/3 for backends advertising it via alt-svc.",
+                                "enum": [
+                                  "Auto",
+                                  "Always"
+                                ],
                                 "type": "string"
                               }
                             },
@@ -4280,7 +4455,7 @@
                                     "type": "object"
                                   },
                                   "header": {
-                                    "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead",
+                                    "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead. This field will be removed in v1.11.",
                                     "properties": {
                                       "name": {
                                         "description": "Name of the header to hash.",
@@ -4435,6 +4610,10 @@
                                   "preferLocal": {
                                     "description": "PreferLocalZone configures zone-aware routing to prefer sending traffic to the local locality zone.",
                                     "properties": {
+                                      "failTrafficOnPanic": {
+                                        "description": "FailTrafficOnPanic rejects traffic instead of routing to all endpoints when the\ncluster is in panic mode. Panic mode is entered when the share of healthy endpoints\ndrops below HealthCheck.PanicThreshold, and by default Envoy then load balances\nacross every endpoint, healthy or not. Setting this to true makes Envoy fail the\nrequests instead, applying backpressure to clients and giving the backend room to\nrecover.\nDefaults to false.",
+                                        "type": "boolean"
+                                      },
                                       "force": {
                                         "description": "ForceLocalZone defines override configuration for forcing all traffic to stay within the local zone instead of the default behavior\nwhich maintains equal distribution among upstream endpoints while sending as much traffic as possible locally.",
                                         "properties": {
@@ -4791,6 +4970,11 @@
               ],
               "type": "object"
             },
+            "codeVerifierTTL": {
+              "description": "CodeVerifierTTL defines how long the PKCE code verifier generated during the OAuth2\nauthorization flow remains valid.\n\nThis duration determines the lifetime of the code verifier cookie, which is exchanged\nfor the access token when the provider redirects back to the callback endpoint.\n\nBoth this cookie and the CSRF cookie are only consumed on the callback endpoint, so an\nauthorization flow that is started but never completed leaves them behind until they\nexpire. Lowering this value along with csrfTokenTTL bounds how many such cookies a\nbrowser can accumulate. It must stay long enough for a user to complete the login,\nincluding any multi-factor prompt: once it elapses the browser drops the cookie and\nthe callback fails.\n\nIf omitted, Envoy Gateway defaults the code verifier expiration to 10 minutes.",
+              "pattern": "^([0-9]{1,5}(h|m|s|ms)){1,4}$",
+              "type": "string"
+            },
             "cookieConfig": {
               "description": "CookieConfigs allows setting the SameSite attribute for OIDC cookies.\nBy default, its unset.",
               "properties": {
@@ -4811,14 +4995,55 @@
               "type": "string"
             },
             "cookieNames": {
-              "description": "The optional cookie name overrides to be used for Bearer and IdToken cookies in the\n[Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).\nIf not specified, uses a randomly generated suffix",
+              "description": "CookieNames configures the names of the cookies that Envoy sets for the\n[Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).\n\nBy default, every cookie is named \"<Purpose>-<suffix>\", where the suffix is\nderived from the identity of this SecurityPolicy. Set \"suffix\" to pin that\nsuffix for all cookies at once, or set a per-cookie field to name a single\ncookie outright.",
               "properties": {
                 "accessToken": {
-                  "description": "The name of the cookie used to store the AccessToken in the\n[Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).\nIf not specified, defaults to \"AccessToken-(randomly generated uid)\"",
+                  "description": "The name of the cookie used to store the AccessToken in the\n[Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).\nIf not specified, defaults to \"AccessToken-<suffix>\", see the \"suffix\" field.",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "codeVerifier": {
+                  "description": "The name of the cookie used to store the PKCE code verifier.\nIf not specified, defaults to \"CodeVerifier-<suffix>\", see the \"suffix\" field.",
+                  "maxLength": 256,
+                  "minLength": 1,
                   "type": "string"
                 },
                 "idToken": {
-                  "description": "The name of the cookie used to store the IdToken in the\n[Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).\nIf not specified, defaults to \"IdToken-(randomly generated uid)\"",
+                  "description": "The name of the cookie used to store the IdToken in the\n[Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).\nIf not specified, defaults to \"IdToken-<suffix>\", see the \"suffix\" field.",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "oauthExpires": {
+                  "description": "The name of the cookie used to store the OAuth expires value.\nIf not specified, defaults to \"OauthExpires-<suffix>\", see the \"suffix\" field.",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "oauthHmac": {
+                  "description": "The name of the cookie used to store the OAuth HMAC value.\nIf not specified, defaults to \"OauthHMAC-<suffix>\", see the \"suffix\" field.",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "oauthNonce": {
+                  "description": "The name of the cookie used to store the OAuth nonce value.\nIf not specified, defaults to \"OauthNonce-<suffix>\", see the \"suffix\" field.",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "refreshToken": {
+                  "description": "The name of the cookie used to store the RefreshToken.\nIf not specified, defaults to \"RefreshToken-<suffix>\", see the \"suffix\" field.",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "suffix": {
+                  "description": "Suffix replaces the generated suffix in the default name of every OAuth2\ncookie, for example \"AccessToken-<suffix>\" and \"IdToken-<suffix>\".\n\nThe generated suffix is derived from the identity of the SecurityPolicy, so\nit changes when the policy is deleted and recreated, which logs users out.\nSet this field to keep the cookie names stable across the lifetime of the\npolicy, or to share a session between policies that authenticate the same\nusers against the same provider. Policies sharing a suffix must also agree\non the OIDC provider, the client, and the cookieDomain.\n\nIf not specified, the generated suffix is used.",
+                  "maxLength": 238,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9!#$%&'*+\\-.^_\\x60|~]+$",
                   "type": "string"
                 }
               },
@@ -4918,6 +5143,22 @@
               "description": "Skips OIDC authentication when the request contains a header that will be extracted by the JWT filter. Unless\nexplicitly stated otherwise in the extractFrom field, this will be the \"Authorization: Bearer ...\" header.\n\nThe passThroughAuthHeader option is typically used for non-browser clients that may not be able to handle OIDC\nredirects and wish to directly supply a token instead.\n\nIf not specified, defaults to false.",
               "type": "boolean"
             },
+            "postLogoutRedirect": {
+              "description": "PostLogoutRedirect configures the `post_logout_redirect_uri` parameter that EG sends to the\nOIDC Provider's end session endpoint when a user accesses the logout path.\n\nThis only applies when the OIDC Provider's end session endpoint is configured or discovered,\ni.e. when RP-Initiated Logout is in use. It is ignored otherwise.\n\nIf not specified, Envoy sends the root of the request's host, \"<scheme>://<host>/\".\nNote that many OIDC Providers require the post logout redirect URI to be pre-registered for\nthe client and reject the logout request otherwise. If the default value is not registered,\nset an explicit uri here, or set disabled to true to omit the parameter altogether.",
+              "properties": {
+                "disabled": {
+                  "description": "Disabled omits the `post_logout_redirect_uri` parameter from the logout request entirely.\nUse this when the OIDC Provider rejects unregistered post logout redirect URIs and you do\nnot need the user redirected back after the logout completes. In that case the user is left\non a page controlled by the provider.\n\nSetting this to false is equivalent to leaving disabled unset.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "URI is sent as the `post_logout_redirect_uri` parameter to the OIDC Provider's end session\nendpoint. The provider redirects the user to this URI after the logout completes, so it\nusually must be pre-registered for the client with the provider.\n\nThe URI may contain the Envoy \"%REQ(header)%\"\n[command operator](https://www.envoyproxy.io/docs/envoy/latest/configuration/observability/access_log/usage#command-operators)\nto build the URI from the request, for example\n\"%REQ(x-forwarded-proto)%://%REQ(:authority)%/loggedout\". Envoy Gateway accepts only that\noperator here, since it is the only one meaningful in a URI derived from the request, and\nrejects any other so that a typo surfaces on this policy instead of being rejected by Envoy\nas an invalid configuration. A literal percent is written as \"%%\".\n\nThe scheme must be http, https, or a \"%REQ(header)%\" command operator. The URI is\npercent-encoded automatically when the logout URL is built, so do not pre-encode it.",
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
             "provider": {
               "description": "The OIDC Provider configuration.",
               "properties": {
@@ -4926,7 +5167,7 @@
                   "type": "string"
                 },
                 "backendRef": {
-                  "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead.",
+                  "description": "BackendRef references a Kubernetes object that represents the\nbackend server to which the authorization request will be sent.\n\nDeprecated: Use BackendRefs instead. This field will be removed in v1.11.",
                   "properties": {
                     "group": {
                       "default": "",
@@ -5221,9 +5462,20 @@
                         "active": {
                           "description": "Active health check configuration",
                           "properties": {
+                            "disableConnectionReuse": {
+                              "description": "DisableConnectionReuse determines whether the active health check connection to a\nbackend host is closed after each health check probe. When set to true, Envoy opens a\nnew connection for each health check, which is useful for backends (such as\nhaproxy-style agent checks) that do not expect a reused connection.\nDefaults to false, which reuses the connection across probes.",
+                              "type": "boolean"
+                            },
                             "grpc": {
                               "description": "GRPC defines the configuration of the GRPC health checker.\nIt's optional, and can only be used if the specified type is GRPC.",
                               "properties": {
+                                "hostname": {
+                                  "description": "Hostname defines the value of the :authority header sent with active gRPC\nhealth checks. Authority selection uses this order: this field, the\nassociated Backend endpoint hostname if available, then the effective Route\nhostname. If none of them is set, Envoy falls back to the name of the\ncluster, which is not a valid authority and is rejected by some gRPC\nservers.",
+                                  "maxLength": 253,
+                                  "minLength": 1,
+                                  "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+                                  "type": "string"
+                                },
                                 "service": {
                                   "description": "Service to send in the health check request.\nIf this is not specified, then the health check request applies to the entire\nserver and not to a specific service.",
                                   "type": "string"
@@ -5359,6 +5611,16 @@
                                   "description": "Path defines the HTTP path that will be requested during health checking.",
                                   "maxLength": 1024,
                                   "minLength": 1,
+                                  "type": "string"
+                                },
+                                "protocol": {
+                                  "default": "Auto",
+                                  "description": "Protocol is the HTTP protocol that active health check requests are sent with.\n\nDefaults to Auto, which uses the same protocol as regular requests to the backend:\n\n  - HTTP2 for a backend configured for HTTP/2, through a `kubernetes.io/h2c`,\n    `gateway.envoyproxy.io/h2c` or `grpc` appProtocol, or as the backend of a\n    GRPCRoute.\n  - The protocol negotiated through ALPN for a TLS backend that negotiates it,\n    with HTTP1 as the fallback when nothing is negotiated.\n  - HTTP1 otherwise.\n\nSet HTTP1 or HTTP2 when the health check endpoint speaks a different protocol than\nthe application, for example a backend that serves HTTP/1.1 traffic but only\naccepts HTTP/2 health checks. An explicit protocol is always used as is.",
+                                  "enum": [
+                                    "Auto",
+                                    "HTTP1",
+                                    "HTTP2"
+                                  ],
                                   "type": "string"
                                 },
                                 "requestBody": {
@@ -5624,6 +5886,20 @@
                       },
                       "type": "object"
                     },
+                    "http1": {
+                      "description": "HTTP1 provides HTTP/1 configuration for backend connections.\nWhen both this field and the deprecated HTTP1 field on ClientTrafficPolicy are set,\nthis field takes precedence for backend (upstream) traffic.\n\nBehavior when targeting route kinds that do not use HTTP/1:\n  - GRPCRoute, TCPRoute, TLSRoute, UDPRoute: targeting these route kinds\n    directly adds a Warning condition on the policy; the field is ignored.\n  - Gateway / ListenerSet / sectionName targets: this field is silently\n    ignored for any GRPCRoute, TCPRoute, TLSRoute, or UDPRoute destinations\n    beneath that target; no warning is emitted.\n  - gRPC-only external services (ExtProc, gRPC ExtAuth, ALS, OpenTelemetry\n    access log/metrics, tracing providers): rejected at admission on their\n    own BackendSettings via separate validation rules.",
+                      "properties": {
+                        "enableTrailers": {
+                          "description": "EnableTrailers defines if HTTP/1 trailers should be proxied by Envoy.",
+                          "type": "boolean"
+                        },
+                        "preserveHeaderCase": {
+                          "description": "PreserveHeaderCase defines if Envoy should preserve the letter case of headers.\nBy default, Envoy will lowercase all the headers.",
+                          "type": "boolean"
+                        }
+                      },
+                      "type": "object"
+                    },
                     "http2": {
                       "description": "HTTP2 provides HTTP/2 configuration for backend connections.",
                       "properties": {
@@ -5702,6 +5978,20 @@
                         },
                         "onInvalidMessage": {
                           "description": "OnInvalidMessage determines if Envoy will terminate the connection or just the offending stream in the event of HTTP messaging error\nIt's recommended for L2 Envoy deployments to set this value to TerminateStream.\nhttps://www.envoyproxy.io/docs/envoy/latest/configuration/best_practices/level_two\nDefault: TerminateConnection",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "http3": {
+                      "description": "HTTP3 enables HTTP/3 for backend connections.\nHTTP/3 always runs over TLS, so the backend must be configured\nwith TLS through a BackendTLSPolicy or the Backend's spec.tls.\nHTTP/3 is only supported for the backends of a route, through\nBackendTrafficPolicy. It is rejected for the backends of other\nresources, such as the external services of a SecurityPolicy\nor EnvoyExtensionPolicy and the sinks of an EnvoyProxy.",
+                      "properties": {
+                        "mode": {
+                          "description": "Mode determines when HTTP/3 is used to reach the backend.\nDefaults to Auto, which only uses HTTP/3 for backends advertising it via alt-svc.",
+                          "enum": [
+                            "Auto",
+                            "Always"
+                          ],
                           "type": "string"
                         }
                       },
@@ -5803,7 +6093,7 @@
                               "type": "object"
                             },
                             "header": {
-                              "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead",
+                              "description": "Header configures the header hash policy when the consistent hash type is set to Header.\n\nDeprecated: use Headers instead. This field will be removed in v1.11.",
                               "properties": {
                                 "name": {
                                   "description": "Name of the header to hash.",
@@ -5958,6 +6248,10 @@
                             "preferLocal": {
                               "description": "PreferLocalZone configures zone-aware routing to prefer sending traffic to the local locality zone.",
                               "properties": {
+                                "failTrafficOnPanic": {
+                                  "description": "FailTrafficOnPanic rejects traffic instead of routing to all endpoints when the\ncluster is in panic mode. Panic mode is entered when the share of healthy endpoints\ndrops below HealthCheck.PanicThreshold, and by default Envoy then load balances\nacross every endpoint, healthy or not. Setting this to true makes Envoy fail the\nrequests instead, applying backpressure to clients and giving the backend room to\nrecover.\nDefaults to false.",
+                                  "type": "boolean"
+                                },
                                 "force": {
                                   "description": "ForceLocalZone defines override configuration for forcing all traffic to stay within the local zone instead of the default behavior\nwhich maintains equal distribution among upstream endpoints while sending as much traffic as possible locally.",
                                   "properties": {
@@ -6239,7 +6533,7 @@
           "type": "object"
         },
         "targetRef": {
-          "description": "TargetRef is the name of the resource this policy is being attached to.\nThis policy and the TargetRef MUST be in the same namespace for this\nPolicy to have effect\n\nDeprecated: use targetRefs/targetSelectors instead",
+          "description": "TargetRef is the name of the resource this policy is being attached to.\nThis policy and the TargetRef MUST be in the same namespace for this\nPolicy to have effect\n\nDeprecated: use targetRefs/targetSelectors instead. This field will be removed in v1.11.",
           "properties": {
             "group": {
               "description": "Group is the group of the target resource.",
