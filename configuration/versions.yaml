@@ -122,7 +122,7 @@ images:
   # renovate: datasource=docker depName=kometateam/kometa
   kometa: "v2.5.5"
   # renovate: datasource=docker depName=curlimages/curl
-  curl: "8.22.0"
+  curl: "8.23.0"
   # Chart 2.2.2 defaults to 2.2.0, which predates both freshness timestamps the homelab-iot rules read.
   # renovate: datasource=docker depName=djjudas21/ecowitt-exporter
   ecowitt-exporter: "2.4.0"
