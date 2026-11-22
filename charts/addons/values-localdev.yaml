@@ -37,7 +37,7 @@ global:
 
   # Images shared by the chart's own templates (PostSync smoke Jobs).
   images:
-    curl: "8.22.0"
+    curl: "8.23.0"
 
   # iSCSI target portal handed to the *-config child charts (grafana-config,
   # prometheus-config) through the parent Application's helm.valuesObject.
@@ -1014,7 +1014,7 @@ envoy-gateway:
 
   chart:
     repo: docker.io/envoyproxy
-    version: "v1.9.1"
+    version: "1.10.0"
 
   controller:
     replicas: 1
@@ -1763,7 +1763,7 @@ ecowitt-exporter:
     name: ecowitt-exporter
     repo: https://djjudas21.github.io/charts
     version: "2.2.2"
-  imageTag: "2.3.0"
+  imageTag: "2.4.0"
   scrapeInterval: 60s
   # Sensors that must always be reporting, comma-separated. Only these get
   # EcowittSensorMissing, the one rule that covers a probe already offline when

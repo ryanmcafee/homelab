@@ -249,7 +249,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://kiali.istio-system.svc.cluster.local:20001/healthz"
@@ -300,7 +300,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80/api/health"
@@ -351,7 +351,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/-/ready"
@@ -402,7 +402,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: curl
-          image: curlimages/curl:8.22.0
+          image: curlimages/curl:8.23.0
           env:
             - name: URL
               value: "http://clickhouse-logs.observability.svc.cluster.local:8123/ping"
@@ -699,7 +699,7 @@ spec:
       # Derived from configuration/ (ADR-010); the child values stay environment-free.
       valuesObject:
         images:
-          curl: "8.22.0"
+          curl: "8.23.0"
   destination:
     server: https://kubernetes.default.svc
     namespace: argo-rollouts
@@ -1204,7 +1204,7 @@ spec:
   source:
     repoURL: docker.io/envoyproxy
     chart: gateway-crds-helm
-    targetRevision: "v1.9.1"
+    targetRevision: "1.10.0"
     helm:
       releaseName: envoy-gateway-crds
       values: |
@@ -1237,7 +1237,7 @@ spec:
   source:
     repoURL: docker.io/envoyproxy
     chart: gateway-helm
-    targetRevision: "v1.9.1"
+    targetRevision: "1.10.0"
     helm:
       releaseName: envoy-gateway
       skipCrds: true
