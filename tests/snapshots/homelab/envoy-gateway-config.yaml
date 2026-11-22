@@ -380,6 +380,17 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+    - name: plex-direct
+      protocol: TLS
+      port: 443
+      hostname: "*.plex.direct"
+      tls:
+        mode: Passthrough
+      allowedRoutes:
+        namespaces:
+          from: All
+        kinds:
+          - kind: TLSRoute
 
 ---
 # Source: envoy-gateway-config/templates/gateway.yaml

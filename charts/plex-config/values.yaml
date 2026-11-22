@@ -48,7 +48,8 @@ kometa:
 # *.plex.direct TLS through to Plex, which serves its own plex.direct certificate.
 remoteAccess:
   enabled: false
-  gatewayName: envoy-external
+  gatewayNames:
+    - envoy-external
   gatewayNamespace: envoy-gateway-system
   sectionName: plex-direct
   hostname: "*.plex.direct"

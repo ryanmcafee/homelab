@@ -55,6 +55,14 @@ keys:
     description: Plex Media Server hostname
     const: "plex.{{.DOMAIN}}"
 
+  PLEX_LAN_CONNECTION:
+    description: >-
+      Extra Plex connection for LAN clients, https://<GATEWAY_INTERNAL_STATIC_IP, dots as dashes>.<server hash>.plex.direct:443;
+      empty advertises none
+    required: false
+    default: ""
+    pattern: "^$|^https://\\d{1,3}(?:-\\d{1,3}){3}\\.[0-9a-f]{32}\\.plex\\.direct:443$"
+
   SONARR_HOSTNAME:
     description: Sonarr hostname
     const: "sonarr.{{.DOMAIN}}"

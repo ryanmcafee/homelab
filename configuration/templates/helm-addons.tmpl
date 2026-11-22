@@ -1247,6 +1247,10 @@ envoy-gateway:
 {{- if $lb }}
           type: LoadBalancer
           staticIP: "{{ .Values.GATEWAY_INTERNAL_STATIC_IP.Value }}"
+        # Plex LAN connection: plex.direct SNI reaches Plex's own TLS (charts/plex-config).
+        tlsPassthrough:
+          - name: plex-direct
+            hostname: "*.plex.direct"
 {{- else }}
           type: ClusterIP
 {{- end }}

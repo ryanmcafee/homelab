@@ -2496,6 +2496,9 @@ spec:
             service:
               staticIP: 198.51.100.101
               type: LoadBalancer
+            tlsPassthrough:
+            - hostname: '*.plex.direct'
+              name: plex-direct
             tracing:
               enabled: true
               samplingRate: 10

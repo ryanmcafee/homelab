@@ -149,10 +149,12 @@ plex:
         memory: 8Gi
 {{- end }}
 
-  # Plex Remote Access on public 443 only: a TLSRoute behind the external Gateway's plex-direct listener.
+  # plex.direct TLSRoute: the external Gateway serves public 443, the internal one PLEX_LAN_CONNECTION.
   remoteAccess:
     enabled: {{ $lb }}
-    gatewayName: {{ .Values.GATEWAY_EXTERNAL.Value }}
+    gatewayNames:
+      - {{ .Values.GATEWAY_EXTERNAL.Value }}
+      - {{ .Values.GATEWAY_INTERNAL.Value }}
     gatewayNamespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
     sectionName: plex-direct
 
@@ -259,7 +261,7 @@ plex:
   # Environment variables
   extraEnv:
     TZ: {{ .Values.TIMEZONE.Value }}
-    ADVERTISE_IP: https://{{ .Values.PLEX_HOSTNAME.Value }}:443
+    ADVERTISE_IP: https://{{ .Values.PLEX_HOSTNAME.Value }}:443{{ with .Values.PLEX_LAN_CONNECTION.Value }},{{ . }}{{ end }}
     PLEX_UID: "{{ .Values.MEDIA_APP_UID.Value }}"
     PLEX_GID: "{{ .Values.MEDIA_APP_GID.Value }}"
     CHANGE_CONFIG_DIR_OWNERSHIP: "false"

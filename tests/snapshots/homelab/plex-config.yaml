@@ -218,6 +218,9 @@ spec:
     - name: envoy-external
       namespace: envoy-gateway-system
       sectionName: plex-direct
+    - name: envoy-internal
+      namespace: envoy-gateway-system
+      sectionName: plex-direct
   hostnames:
     - "*.plex.direct"
   rules:

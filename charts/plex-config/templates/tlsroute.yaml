@@ -8,9 +8,11 @@ metadata:
     app.kubernetes.io/part-of: plex
 spec:
   parentRefs:
-    - name: {{ .Values.remoteAccess.gatewayName }}
-      namespace: {{ .Values.remoteAccess.gatewayNamespace }}
-      sectionName: {{ .Values.remoteAccess.sectionName }}
+    {{- range .Values.remoteAccess.gatewayNames }}
+    - name: {{ . }}
+      namespace: {{ $.Values.remoteAccess.gatewayNamespace }}
+      sectionName: {{ $.Values.remoteAccess.sectionName }}
+    {{- end }}
   hostnames:
     - {{ .Values.remoteAccess.hostname | quote }}
   rules:
