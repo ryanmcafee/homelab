@@ -346,8 +346,9 @@ the chart does not read: that is the defect the gate exists to find.
 
 **Automerge gate.** On `renovate/*` branches the job sets the commit status
 `upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
-only when every `upgrade/*` check is `unchanged` (an Application listed in
-`tests/gitops/upgrade-automerge.yaml` may differ), revalidation passed and no Application
+only when every `upgrade/*` check is `unchanged` or `version-only` (the render differs
+only in same-major version strings such as image tags, `checksum/*` annotations or Secret
+values; an Application listed in `tests/gitops/upgrade-automerge.yaml` may differ freely), revalidation passed and no Application
 sets a helm value its chart does not declare, otherwise
 `failure` ("rendered manifests changed — human review required, automerge blocked").
 `renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`

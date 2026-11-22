@@ -25,6 +25,11 @@ const DefaultUpgradeMaxDiffLines = 400
 // automerge gate in .github/workflows/upgrade.yml keys on it.
 const UpgradeUnchanged = "unchanged"
 
+// UpgradeVersionOnly prefixes the detail of an upgrade check whose rendered
+// manifests differ only in same-major version strings, checksum annotations or
+// Secret values; the automerge gate accepts it like UpgradeUnchanged.
+const UpgradeVersionOnly = "version-only"
+
 // upgradeDroppedLabels are stamped by most charts with the chart and app
 // version. A bump rewrites them on every object, which would bury the change
 // that matters, so they are removed before diffing.
@@ -411,6 +416,9 @@ func finishJob(j *upgradeJob, item *UpgradeItem, maxLines int) Check {
 			UpgradeUnchanged, item.Change, strings.Join(upgradeDroppedLabels, ", ")))
 	}
 	detail := fmt.Sprintf("manifest diff: +%d -%d lines (%s)", added, deleted, item.Change)
+	if len(item.CRDs) == 0 && versionOnlyDiff(baseObjs, headObjs) {
+		detail = fmt.Sprintf("%s: %s; +%d -%d lines, %s", UpgradeVersionOnly, item.Change, added, deleted, versionOnlyScope)
+	}
 	if len(item.CRDs) > 0 {
 		detail += "; CRDs changed: " + strings.Join(item.CRDs, ", ")
 	}
@@ -844,7 +852,11 @@ func repoDiff(env string, baseFiles, headFiles map[string]string, baseFailed, he
 	if len(lines) == 0 {
 		return item, PassCheck(item.Check, start, UpgradeUnchanged+": level-0 render of this repository's charts is identical apart from upstream chart sources"+suffix)
 	}
-	c := PassCheck(item.Check, start, fmt.Sprintf("manifest diff: +%d -%d lines in this repository's charts (Application chart sources masked; see upgrade/%s/<app>)%s", added, deleted, env, suffix))
+	detail := fmt.Sprintf("manifest diff: +%d -%d lines in this repository's charts (Application chart sources masked; see upgrade/%s/<app>)%s", added, deleted, env, suffix)
+	if len(skipped) == 0 && versionOnlyDiff(baseObjs, headObjs) {
+		detail = fmt.Sprintf("%s: +%d -%d lines in this repository's charts, %s", UpgradeVersionOnly, added, deleted, versionOnlyScope)
+	}
+	c := PassCheck(item.Check, start, detail)
 	c.Findings = item.Diff
 	return item, c
 }
@@ -925,6 +937,99 @@ func dropVersionLabels(v any) {
 			dropVersionLabels(child)
 		}
 	}
+}
+
+const versionOnlyScope = "only same-major version strings, checksum annotations and Secret values differ"
+
+// versionToken matches a dotted version with three or four numeric parts, an
+// optional v prefix and an optional pre-release or build suffix.
+var versionToken = regexp.MustCompile(`v?(\d+)((?:\.\d+){2,3})(?:[-+][0-9A-Za-z][0-9A-Za-z._+-]*)?`)
+
+var checksumAnnotation = regexp.MustCompile(`(?m)^(\s*"?[\w./-]*checksum/[\w.-]+"?):\s.*$`)
+
+// versionOnlyDiff reports whether base and head are equal once versions are
+// reduced to their major, checksum annotations and Secret values are masked.
+func versionOnlyDiff(base, head map[string]string) bool {
+	if len(base) != len(head) {
+		return false
+	}
+	for id, b := range base {
+		h, ok := head[id]
+		if !ok || maskVersions(id, b) != maskVersions(id, h) {
+			return false
+		}
+	}
+	return true
+}
+
+func maskVersions(id, text string) string {
+	if isSecretID(id) {
+		text = redactSecretValues(text)
+	}
+	text = checksumAnnotation.ReplaceAllString(text, "$1: <checksum>")
+	var b strings.Builder
+	last := 0
+	for _, m := range versionToken.FindAllStringSubmatchIndex(text, -1) {
+		start, end := m[0], m[1]
+		parts := strings.Count(text[m[4]:m[5]], ".") + 1
+		if !isVersionBoundary(text, start, end) || (parts == 4 && !precededBy(text, start, ":@")) {
+			continue
+		}
+		b.WriteString(text[last:start])
+		if text[start] == 'v' {
+			b.WriteByte('v')
+		}
+		b.WriteString(text[m[2]:m[3]] + ".<version>")
+		last = end
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
+func isVersionBoundary(text string, start, end int) bool {
+	if start > 0 && isWordByte(text[start-1]) {
+		return false
+	}
+	if end < len(text) && (isWordByte(text[end]) || text[end] == '.' && end+1 < len(text) && text[end+1] >= '0' && text[end+1] <= '9') {
+		return false
+	}
+	return true
+}
+
+func precededBy(text string, start int, set string) bool {
+	return start > 0 && strings.IndexByte(set, text[start-1]) >= 0
+}
+
+func isWordByte(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '.'
+}
+
+func isSecretID(id string) bool {
+	if i := strings.LastIndex(id, ": "); i >= 0 {
+		id = id[i+2:]
+	}
+	return strings.HasPrefix(id, "Secret/")
+}
+
+// redactSecretValues keeps a Secret's keys but replaces every value, because
+// charts that generate passwords render new ones on every helm template.
+func redactSecretValues(text string) string {
+	var obj map[string]any
+	if err := yaml.Unmarshal([]byte(text), &obj); err != nil {
+		return text
+	}
+	for _, field := range []string{"data", "stringData"} {
+		if m, ok := obj[field].(map[string]any); ok {
+			for k := range m {
+				m[k] = "<redacted>"
+			}
+		}
+	}
+	out, err := marshalYAML(obj)
+	if err != nil {
+		return text
+	}
+	return out
 }
 
 // maskChartSources drops targetRevision and helm from every chart source of an
@@ -1345,6 +1450,9 @@ func renderUpgradeReport(out *UpgradeOutput, res *Result, diffLimit int) string 
 				result = "base render failed"
 			case !strings.HasPrefix(c.Detail, UpgradeUnchanged):
 				result = fmt.Sprintf("+%d −%d", it.Added, it.Deleted)
+				if strings.HasPrefix(c.Detail, UpgradeVersionOnly) {
+					result += " (version-only)"
+				}
 				if len(it.CRDs) > 0 {
 					result += fmt.Sprintf(", %d CRD(s)", len(it.CRDs))
 				}

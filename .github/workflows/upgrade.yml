@@ -16,7 +16,8 @@ name: Upgrade verification
 #               committed. The report is the sticky `upgrade-diff` comment. On
 #               renovate/* heads the job sets the `upgrade/automerge-gate`
 #               commit status: success only when no rendered manifest changed
-#               (outside the Applications in tests/gitops/upgrade-automerge.yaml),
+#               beyond same-major version strings, checksum annotations and
+#               Secret values (outside tests/gitops/upgrade-automerge.yaml),
 #               revalidation passed and no Application sets a helm value its
 #               chart does not declare. Renovate (platformAutomerge false)
 #               automerges only when every status is green.
@@ -219,8 +220,8 @@ jobs:
           } >> upgrade-report.md
           echo "pass=$pass" >> "$GITHUB_OUTPUT"
 
-      # success only when every upgrade/* check passed with an "unchanged"
-      # detail (upgrade/base aside; upgrade/<env>/<app> may differ for an
+      # success only when every upgrade/* check passed with an "unchanged" or
+      # "version-only" detail (upgrade/base aside; upgrade/<env>/<app> may differ for an
       # Application in tests/gitops/upgrade-automerge.yaml), revalidation passed
       # and no Application sets a key its chart does not declare. A manifest diff, a skipped
       # comparison, a failed render or a renamed key all block automerge.
@@ -236,7 +237,7 @@ jobs:
           if ! jq -e '(.checks | length) > 0' upgrade.json > /dev/null 2>&1; then
             description="upgrade verification did not complete - automerge blocked"
           elif ! jq -e --argjson allowed "$allowed" '[.checks[] | select(.name | startswith("upgrade/")) | select(.name != "upgrade/base")]
-                         | all(.status == "pass" and ((.detail | startswith("unchanged")) or ((.name | split("/")[2]) as $app | any($allowed[]; . == $app))))' upgrade.json > /dev/null; then
+                         | all(.status == "pass" and ((.detail | startswith("unchanged") or startswith("version-only")) or ((.name | split("/")[2]) as $app | any($allowed[]; . == $app))))' upgrade.json > /dev/null; then
             description="rendered manifests changed - human review required, automerge blocked"
           elif [ "$REVALIDATED" != "true" ]; then
             description="CRD revalidation failed - automerge blocked"
@@ -244,7 +245,7 @@ jobs:
             description="an Application sets a helm value the chart does not declare - automerge blocked"
           else
             state=success
-            description="no rendered manifest changes"
+            description="no rendered manifest changes beyond version strings"
           fi
           echo "state=$state" >> "$GITHUB_OUTPUT"
           echo "description=$description" >> "$GITHUB_OUTPUT"
