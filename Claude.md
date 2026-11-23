@@ -286,7 +286,7 @@ images:
   # bump it with every change under triage-agent/ so main publishes a new tag.
   triage-agent: "0.1.1"
   # renovate: datasource=docker depName=plexinc/pms-docker
-  plex: "1.43.5.11029-6bf8af3f0"
+  plex: "1.43.5.11079-b3b13e506"
   # renovate: datasource=docker depName=kometateam/kometa
   kometa: "v2.5.5"
   # renovate: datasource=docker depName=curlimages/curl
