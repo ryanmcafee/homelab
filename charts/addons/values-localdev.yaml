@@ -751,7 +751,7 @@ external-dns-unifi:
     version: "1.21.1"
 
   webhook:
-    version: "v0.8.2"
+    version: "v0.9.0"
 
   unifi:
     host: "https://127.0.0.1"
