@@ -1808,7 +1808,7 @@ spec:
             cpu: 500m
             memory: 1Gi
         storageClass: democratic-csi-iscsi
-        storageSize: 10Gi
+        storageSize: 50Gi
   destination:
     server: https://kubernetes.default.svc
     namespace: paperclip

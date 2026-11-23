@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-11-23 - paperclip-postgres data volume full (CrashLoopBackOff, exit 4)
+- **Issue**: `KubePodCrashLooping` for `paperclip/paperclip-postgres-1` (container `postgres`), the only instance of the CNPG Cluster `paperclip-postgres`: 26 restarts, last exit code 4, reason `Error` (not `OOMKilled`; peak working set ~2.3 GB of the 4Gi limit). Paperclip lost its database and `paperclip-0` restarted with `Error`
+- **Root Cause**: The 10Gi data PVC reached 99.8%. Usage sat at ~5.3 GB until the Paperclip 2026.1117.0 startup migrations finished on 2026-11-21 (after #631), then grew ~2.5 GB/day until Postgres could no longer write WAL or checkpoint files. The Cluster has no backup or WAL archiving, so the growth is table data. The `No space left on device` line was not confirmed: pod logs and events could not be read during triage
+- **Solution**: homelab `paperclip.database.storageSize` 10Gi -> 50Gi (`configuration/templates/helm-apps.tmpl`); CloudNativePG carries it to the PVC and democratic-csi-iscsi expands it online (see the 2026-09-25 expansion note)
+- **Prevention**: At ~2.5 GB/day 50Gi lasts about two weeks: find the growing tables (likely `heartbeat_runs`, already 2.7 GB on 2026-10-26) and bound them with app-side retention. If the pod still exits 4 after the resize, read its logs. Separately, `paperclip-data` is still 99.99% full after #634 and needs a manual cleanup of old dumps
+
 ### 2026-09-30 - `paperclip-bootstrap` Job re-created every ~70 min after the admin exists
 - **Issue**: `KubeJobFailed` for `paperclip/paperclip-bootstrap` kept coming back. Over 7 days the operator re-created the admin-seed Job about every 70 minutes (~80 pods, 47 containers terminated `Error`, none `Completed`), each run ending `BackoffLimitExceeded` and re-mounting the RWO data volume on the pinned node. The server itself stayed healthy
 - **Root Cause**: The Instance still carried `spec.auth.adminUser` (`helm-apps.tmpl` always passes `PAPERCLIP_ADMIN_EMAIL`, `instance.yaml` rendered `adminUser` whenever the e-mail was set). Operator 0.19.1 keeps reconciling the bootstrap Job for that spec and does not short-circuit on `status.bootstrap`, contrary to the assumption in the 2026-09-15 entry below; a re-run against the existing admin fails. The exact error line was not read (pod logs need kubectl)
