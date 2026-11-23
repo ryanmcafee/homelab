@@ -1196,7 +1196,10 @@ paperclip:
         cpu: "1"
         memory: 512Mi
 {{- else }}
-    storageSize: 10Gi
+    # 10Gi filled on 2026-11-23 (CrashLoopBackOff, exit 4): usage has grown ~2.5 GB/day since the
+    # 2026.1117.0 startup migrations finished on 2026-11-21. democratic-csi-iscsi expands online;
+    # 50Gi is about two weeks of headroom at that rate while the growth is bounded app-side.
+    storageSize: 50Gi
     # Steady load is 0.4-0.9 cores; a 1-core limit throttled Postgres and slowed the paperclip route
     # 1Gi was OOMKilled while Paperclip 2026.1117.0 ran its startup migrations.
     resources:
