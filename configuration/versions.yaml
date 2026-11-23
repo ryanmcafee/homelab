@@ -86,7 +86,7 @@ charts:
   # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
   oauth2-proxy: "10.7.4"
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
-  external-dns-webhook-unifi: "v0.8.2"
+  external-dns-webhook-unifi: "v0.9.0"
   # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller
   unifi-port-forward: "1.1.2"
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
