@@ -306,7 +306,7 @@ images:
   # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
   cloudnative-pg-postgresql: "17.11"
   # renovate: datasource=docker depName=clickhouse/clickhouse-server
-  clickhouse-server: "26.8.10.6"
+  clickhouse-server: "26.10.11.12"
   # One tag for all four LiteLLM images (litellm-gateway, litellm-backend, litellm-ui,
   # litellm-migrations): BerriAI publishes them alongside the chart, so this has to move
   # with charts.litellm above, whose appVersion is exactly this value.
