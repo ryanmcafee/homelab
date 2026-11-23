@@ -302,7 +302,7 @@ images:
   paperclip: "2026.1117.0"
   # Runtime of the paperclip agent health exporter (charts/paperclip files/paperclip-exporter.ts).
   # renovate: datasource=docker depName=oven/bun
-  bun: "1.4.2-alpine"
+  bun: "1.4.5-alpine"
   # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
   cloudnative-pg-postgresql: "17.11"
   # renovate: datasource=docker depName=clickhouse/clickhouse-server

@@ -2030,7 +2030,7 @@ spec:
               type: RuntimeDefault
           containers:
             - name: sweep
-              image: "oven/bun:1.4.2-alpine"
+              image: "oven/bun:1.4.5-alpine"
               imagePullPolicy: IfNotPresent
               command: ["bun", "/scripts/arr-import-sweep.ts"]
               env:

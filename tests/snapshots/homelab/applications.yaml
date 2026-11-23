@@ -1868,7 +1868,7 @@ spec:
           name: Admin
         agentPolicy:
           enabled: true
-          image: oven/bun:1.4.2-alpine
+          image: oven/bun:1.4.5-alpine
           maxConcurrentRuns: 1
         backup:
           appNative:
@@ -1879,7 +1879,7 @@ spec:
           image: ghcr.io/cloudnative-pg/postgresql:17.11
         exporter:
           enabled: true
-          image: oven/bun:1.4.2-alpine
+          image: oven/bun:1.4.5-alpine
         image:
           repository: ghcr.io/paperclipai/paperclip
           tag: 2026.1117.0
@@ -2300,7 +2300,7 @@ spec:
             runAsUser: 568
             runAsGroup: 100
           image:
-            tag: "1.4.2-alpine"
+            tag: "1.4.5-alpine"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2572,7 +2572,7 @@ spec:
             runAsUser: 568
             runAsGroup: 100
           image:
-            tag: "1.4.2-alpine"
+            tag: "1.4.5-alpine"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
