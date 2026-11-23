@@ -526,7 +526,7 @@ local-path-provisioner:
   chart:
     name: local-path-provisioner
     repo: https://charts.containeroo.ch
-    version: 0.0.37
+    version: 0.0.38
 
   # The class every STORAGE_CLASS_* key points at when STORAGE_PROVIDER is local-path.
   storageClass:
