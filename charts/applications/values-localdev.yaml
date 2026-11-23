@@ -30,7 +30,7 @@ global:
   # import sweeps it hands to the sonarr-config/radarr-config charts.
   images:
     curl: "8.23.0"
-    bun: "1.4.2-alpine"
+    bun: "1.4.5-alpine"
 
   # iSCSI target portal (IP:port) handed to the *-config child charts via
   # helm.valuesObject
@@ -1049,7 +1049,7 @@ paperclip:
     # is the paperclip-exporter item (docs/runbooks/paperclip-agents.md).
     exporter:
       enabled: true
-      image: "oven/bun:1.4.2-alpine"
+      image: "oven/bun:1.4.5-alpine"
 
   # PostSync smoke hook (charts/applications/templates/_smoke.tpl): the
   # operator's health path on the Instance Service (port 3100).
