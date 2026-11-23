@@ -1095,7 +1095,7 @@ oauth2-proxy:
   namespace: oauth2-proxy
 
   chart:
-    version: "10.7.0"
+    version: "10.7.4"
 
   # 1Password paths for secrets
   googleOAuthPath: vaults/homelab/items/google-oauth
