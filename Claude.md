@@ -214,7 +214,7 @@ charts:
   # renovate: datasource=helm depName=argo-rollouts registryUrl=https://argoproj.github.io/argo-helm
   argo-rollouts: "2.43.2"
   # renovate: datasource=helm depName=argo-events registryUrl=https://argoproj.github.io/argo-helm
-  argo-events: "2.4.27"
+  argo-events: "2.4.28"
   # renovate: datasource=helm depName=nats registryUrl=https://nats-io.github.io/k8s/helm/charts/
   nats: "2.15.0"
   # NACK ships the jetstream.nats.io CRDs (Stream, Consumer) that charts/nats-config
