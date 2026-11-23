@@ -268,7 +268,7 @@ charts:
   # renovate: datasource=helm depName=prometheus-blackbox-exporter registryUrl=https://prometheus-community.github.io/helm-charts
   prometheus-blackbox-exporter: "11.18.0"
   # renovate: datasource=helm depName=prometheus-json-exporter registryUrl=https://prometheus-community.github.io/helm-charts
-  prometheus-json-exporter: "0.20.1"
+  prometheus-json-exporter: "0.20.2"
   # renovate: datasource=helm depName=ecowitt-exporter registryUrl=https://djjudas21.github.io/charts
   ecowitt-exporter: "2.2.5"
   # renovate: datasource=helm depName=kiali-server registryUrl=https://kiali.org/helm-charts

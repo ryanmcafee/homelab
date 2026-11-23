@@ -1737,7 +1737,7 @@ github-pr-exporter:
   chart:
     name: prometheus-json-exporter
     repo: https://prometheus-community.github.io/helm-charts
-    version: "0.20.1"
+    version: "0.20.2"
   # Secret with field token (a read-only fine-grained PAT), created by the
   # prometheus-config chart from this 1Password item.
   secretName: github-pr-alerts
