@@ -1199,7 +1199,7 @@ argo-workflows:
   chart:
     name: argo-workflows
     repo: https://argoproj.github.io/argo-helm
-    version: "1.0.18"
+    version: "1.1.1"
 
   server:
     # `server` serves the UI and API with full controller privileges and no
