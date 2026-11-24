@@ -42,7 +42,7 @@ charts:
   # renovate: datasource=helm depName=plugin-barman-cloud registryUrl=https://cloudnative-pg.github.io/charts
   plugin-barman-cloud: "0.8.0"
   # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
-  argo-workflows: "1.0.18"
+  argo-workflows: "1.1.1"
   # renovate: datasource=helm depName=argo-rollouts registryUrl=https://argoproj.github.io/argo-helm
   argo-rollouts: "2.43.2"
   # renovate: datasource=helm depName=argo-events registryUrl=https://argoproj.github.io/argo-helm
