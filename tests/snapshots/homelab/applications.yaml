@@ -1190,7 +1190,7 @@ spec:
               enabled: true
           activeDeadlineSeconds: 1800
           image:
-            tag: "1.110.2"
+            tag: "1.110.3"
           resources:
             limits:
               cpu: "1"
@@ -1200,7 +1200,7 @@ spec:
               memory: 256Mi
         gateway:
           image:
-            tag: "1.110.2"
+            tag: "1.110.3"
           # LITELLM_SALT_KEY encrypts every provider credential the proxy
           # stores in the database and the chart has no value for it, so both
           # it and the provider keys arrive as whole-Secret envFrom. The
@@ -1260,7 +1260,7 @@ spec:
               memory: 1Gi
         backend:
           image:
-            tag: "1.110.2"
+            tag: "1.110.3"
           envSecrets:
             - litellm-salt-key
           extraEnv:
@@ -1288,7 +1288,7 @@ spec:
               memory: 512Mi
         ui:
           image:
-            tag: "1.110.2"
+            tag: "1.110.3"
           # The dashboard is a static bundle: it calls the backend from the
           # browser, so this is the routable host wave 14 publishes, not a
           # cluster Service. The chart's own Ingress serves the management API
