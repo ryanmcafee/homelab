@@ -1119,7 +1119,7 @@ litellm:
       repo: ghcr.io/berriai/litellm/chart
       version: "1.102.1"
     # All four component images ship on one tag (versions.yaml images.litellm).
-    imageTag: "1.110.2"
+    imageTag: "1.110.3"
     serviceMonitor:
       enabled: true
 
