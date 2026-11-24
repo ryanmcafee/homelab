@@ -244,7 +244,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
   renovate: "46.106.12"
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
-  nvidia-gpu-operator: "v26.3.3"
+  nvidia-gpu-operator: "v26.7.3"
   # renovate: datasource=helm depName=intel-device-plugins-gpu registryUrl=https://intel.github.io/helm-charts
   intel-device-plugins-gpu: "0.36.0"
   # renovate: datasource=helm depName=intel-device-plugins-operator registryUrl=https://intel.github.io/helm-charts

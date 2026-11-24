@@ -1129,7 +1129,7 @@ nvidia-gpu-operator:
   namespace: gpu-operator
 
   chart:
-    version: "v26.3.3"
+    version: "v26.7.3"
 
   # Note: Driver and toolkit are provided by Talos system extensions
   # (siderolabs/nonfree-kmod-nvidia and siderolabs/nvidia-container-toolkit)
