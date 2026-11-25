@@ -3683,6 +3683,8 @@ spec:
       values: |
         jetstream:
           enabled: true
+          # Legacy mode abandons a resource after ten failed retries; the control loop keeps requeueing it.
+          controlLoop: true
           nats:
             url: nats://nats.nats.svc.cluster.local:4222
         resources:
