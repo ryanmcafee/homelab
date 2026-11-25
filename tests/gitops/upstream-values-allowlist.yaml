@@ -155,6 +155,12 @@ allow:
     reason: >-
       Same TrueCharts common library workload spawner; see the flaresolverr
       entry.
+  - chart: nzbget
+    path: sevenZipImage
+    reason: >-
+      The TrueCharts common library looks up a container's imageSelector as a
+      root values key (lib/container/_imageSelector.tpl), so the install-7zip
+      init container's image key is named here and upstream cannot declare it.
   - chart: mosquitto
     path: service.main
     reason: >-
