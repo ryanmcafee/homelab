@@ -441,6 +441,7 @@ jobs:
         run: |
           task config:export:localdev
           task schemas:vendor
+          task localdev:argocd:images
           task test:snapshot -- --update
           task docs:check -- --fix
           task docs:embedme
@@ -457,14 +458,14 @@ jobs:
           # the route hosts) it can only report. A version bump moves none of
           # them, so a moved SVG on a renovate/* branch is a human change and
           # belongs in a human-authored commit - the warning below names it.
-          paths="tests/snapshots tests/schemas charts/addons/values-localdev.yaml charts/applications/values-localdev.yaml Claude.md readme.md docs"
+          paths="tests/snapshots tests/schemas charts/addons/values-localdev.yaml charts/applications/values-localdev.yaml localdev/argocd-images.json Claude.md readme.md docs"
           # shellcheck disable=SC2086
           if [ -z "$(git status --porcelain -- $paths)" ]; then
             echo "::notice::Snapshots, schemas, localdev values, embedded snippets and generated doc regions are already current."
             exit 0
           fi
           other="$(git status --porcelain | awk '{print $2}' | while read -r f; do
-            case "$f" in tests/snapshots/*|tests/schemas/*|charts/addons/values-localdev.yaml|charts/applications/values-localdev.yaml|Claude.md|readme.md|docs/*) ;; *) echo "$f" ;; esac
+            case "$f" in tests/snapshots/*|tests/schemas/*|charts/addons/values-localdev.yaml|charts/applications/values-localdev.yaml|localdev/argocd-images.json|Claude.md|readme.md|docs/*) ;; *) echo "$f" ;; esac
           done)"
           if [ -n "$other" ]; then
             echo "::warning::Regeneration also touched files outside its scope; they are not committed: ${other}"
