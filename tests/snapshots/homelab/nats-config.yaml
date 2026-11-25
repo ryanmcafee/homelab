@@ -117,8 +117,10 @@ spec:
   sources:
     - name: PF_EVENTS
       subjectTransforms:
-      - source: pf.*.identity.*.*.*.ev
-      - source: pf.*.control.*.*.*.ev
+      - dest: ""
+        source: pf.*.identity.*.*.*.ev
+      - dest: ""
+        source: pf.*.control.*.*.*.ev
   storage: file
   replicas: 3
   retention: limits

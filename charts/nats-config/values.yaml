@@ -96,9 +96,12 @@ streams:
     # identical label set and the whole /metrics scrape 500s (docs/event-backbone.md).
     sources:
       - name: PF_EVENTS
+        # Explicit empty dest: NACK writes it back, and an omitted one leaves nats-config OutOfSync.
         subjectTransforms:
           - source: pf.*.identity.*.*.*.ev
+            dest: ""
           - source: pf.*.control.*.*.*.ev
+            dest: ""
     retention: limits
     maxAge: 8760h
     discard: new
