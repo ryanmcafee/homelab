@@ -250,7 +250,8 @@ repository only, field `GIT_TOKEN`); the init container waits for the Secret.
   `persistence.size`: with the app defaults they filled the volume (bugs.md 2026-11-21).
   The server prunes dumps only after a successful new dump, which a full volume prevents, so
   the first init container, `disk-guard` (`diskGuard`, `files/paperclip-disk-guard.ts`), keeps
-  the newest `keepBackups` dumps on every start. Below `minFreePercent` free it also clears the
+  the newest `keepBackups` dumps on every start, across `backupDirs` (the operator's
+  `/paperclip/backups` and the app default `instances/default/data/backups` it replaced). Below `minFreePercent` free it also clears the
   tool caches in `cacheDirs` and logs the largest directories of `/paperclip`; below
   `requiredFreeMiB` it fails with that report (`kubectl -n paperclip logs paperclip-0 -c disk-guard`).
 

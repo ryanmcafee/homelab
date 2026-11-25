@@ -193,8 +193,11 @@ diskGuard:
   enabled: true
   dataVolume: paperclip-data
   dataMountPath: /paperclip
-  # The operator's PAPERCLIP_DB_BACKUP_DIR.
-  backupDir: /paperclip/backups
+  # The operator's PAPERCLIP_DB_BACKUP_DIR, then the app default it replaced, whose
+  # dumps the server no longer prunes.
+  backupDirs:
+    - /paperclip/backups
+    - /paperclip/instances/default/data/backups
   keepBackups: 3
   minFreePercent: 10
   requiredFreeMiB: 512
