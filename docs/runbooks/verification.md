@@ -345,21 +345,18 @@ since declared cannot sit there forever. An allowlist entry is never the place f
 the chart does not read: that is the defect the gate exists to find.
 
 **Automerge gate.** On `renovate/*` branches the job sets the commit status
-`upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
-only when every `upgrade/*` check is `unchanged` or `version-only` (the render differs
-only in same-major version strings such as image tags, `checksum/*` annotations or Secret
-values; an Application listed in `tests/gitops/upgrade-automerge.yaml` may differ freely), revalidation passed and no Application
-sets a helm value its chart does not declare, otherwise
-`failure` ("rendered manifests changed — human review required, automerge blocked").
+`upgrade/automerge-gate` on the head SHA: `success` when no `upgrade/*` check failed
+(every upstream chart renders at head), revalidation passed and no Application sets a
+helm value its chart does not declare, otherwise `failure` with the reason. A manifest
+diff never blocks: it is posted as the `upgrade-diff` comment for review.
 `renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
 (`kindest/node`, majors, infrastructure tools and ksops stay manual; TrueCharts and Plex
 majors also automerge, since TrueCharts ships app releases as chart majors) and patch bumps
 elsewhere, always with `platformAutomerge: false`: Renovate merges itself, and only when
 every status on the head commit is green. GitHub native auto-merge is never used because
 the `main` ruleset requires no status checks, so it would merge before CI ran. In practice
-a bump whose upstream render changes anything (an image tag, a CRD) waits for a human who
-reads the `upgrade-diff` comment, except for those listed Applications (Plex and the TrueCharts apps), whose bumps merge
-and ArgoCD syncs them once every other check is green. Each `versions.yaml` bump is its
+a bump that renders, revalidates and passes the Kind loop merges and ArgoCD syncs it;
+the `upgrade-diff` comment stays on the merged PR as the record of what changed. Each `versions.yaml` bump is its
 own PR (only the `Monitoring stack`, `Envoy Gateway`, `ArgoCD`, `TrueCharts applications`
 and `Plex` groups combine), so one failing release never holds back the rest.
 
@@ -378,7 +375,8 @@ schemas, localdev values, embedded snippets and doc regions`, authored by `homel
 the "no auto-commit" stance of the `snapshot` job for this bot only, and it answers that
 stance's three reasons: an App-token push triggers the other workflows (a `GITHUB_TOKEN`
 push does not), `gitIgnoredAuthors` keeps Renovate managing and rebasing the branch, and
-the automerge gate blocks any bump whose render changed. A loop guard skips a head commit
+every render change is shown in the `upgrade-diff` comment and must pass the Kind loop
+before Renovate merges it. A loop guard skips a head commit
 that is already the bot's. Human PRs are never committed to.
 
 The bot commits every generated path except `.github/homelab.svg`. Every SVG literal
