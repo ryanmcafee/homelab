@@ -475,7 +475,7 @@ nzbget:
   chart:
     name: nzbget
     repo: oci://oci.trueforge.org/truecharts/nzbget
-    version: 29.4.2
+    version: 32.0.0
 
   workload:
     main:
