@@ -21,13 +21,12 @@ import (
 const DefaultUpgradeMaxDiffLines = 400
 
 // UpgradeUnchanged is the prefix of the detail of every upgrade check whose
-// rendered manifests are identical at the base ref and the working tree. The
-// automerge gate in .github/workflows/upgrade.yml keys on it.
+// rendered manifests are identical at the base ref and the working tree.
 const UpgradeUnchanged = "unchanged"
 
 // UpgradeVersionOnly prefixes the detail of an upgrade check whose rendered
 // manifests differ only in same-major version strings, checksum annotations or
-// Secret values; the automerge gate accepts it like UpgradeUnchanged.
+// Secret values.
 const UpgradeVersionOnly = "version-only"
 
 // upgradeDroppedLabels are stamped by most charts with the chart and app

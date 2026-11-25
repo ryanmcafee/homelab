@@ -369,7 +369,7 @@ Each decision should include:
 - A PreToolUse hook that blocks edits -> level 0 takes seconds; blocking every edit is noise, feedback after the edit is enough
 
 **Consequences:**
-- Renovate PRs that change rendered manifests still need a human; the gate says so in its status description
+- Renovate PRs that change rendered manifests still need a human; the gate says so in its status description (superseded 2026-11-24: the manifest diff is informational and no longer blocks the gate; render, CRD revalidation and undeclared values still do)
 - The regeneration bot, the automerge path and the drill's issue reporting need GitHub-side setup (App + secrets; repository labels are created on first use)
 - Production still has no object store, so production databases are not backed up until one exists; the drill proves the mechanism, not a production backup
 - Every agent edit under `charts/` or `configuration/` costs one level-0 run (`HOMELAB_VERIFY_HOOK=off` disables it); PR bodies must carry a current claim
