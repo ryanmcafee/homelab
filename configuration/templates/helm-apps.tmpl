@@ -304,10 +304,10 @@ sonarr:
             resources:
               requests:
                 cpu: 75m
-                memory: {{ if $localdev }}512Mi{{ else }}896Mi{{ end }}
+                memory: {{ if $localdev }}512Mi{{ else }}1Gi{{ end }}
               limits:
                 cpu: 1000m
-                memory: {{ if $localdev }}1Gi{{ else }}1536Mi{{ end }}
+                memory: {{ if $localdev }}1Gi{{ else }}2560Mi{{ end }}
           exportarr:
             resources:
               requests:

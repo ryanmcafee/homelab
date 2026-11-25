@@ -75,7 +75,7 @@ global:
     defaultApps:
       - sonarr
     # ResourceQuota of the preview namespace. Sized for every allowedApp at
-    # once (their limits sum to ~6 CPU / ~9.3Gi) plus the smoke Jobs. The two
+    # once (their limits sum to ~6 CPU / ~10.3Gi) plus the smoke Jobs. The two
     # zero storage entries make "a preview claims no volume" an admission-time
     # guarantee, not only a template convention.
     quota:

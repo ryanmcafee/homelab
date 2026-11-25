@@ -2627,10 +2627,10 @@ spec:
                   resources:
                     limits:
                       cpu: 1000m
-                      memory: 1536Mi
+                      memory: 2560Mi
                     requests:
                       cpu: 75m
-                      memory: 896Mi
+                      memory: 1Gi
         persistence:
           config:
             accessModes:
