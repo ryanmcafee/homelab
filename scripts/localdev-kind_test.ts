@@ -1,5 +1,7 @@
 #!/usr/bin/env -S bun test
 import { test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Unit tests for the pure logic in localdev-kind.ts.
@@ -47,6 +49,14 @@ import {
   resolveCacheDir,
   UsageError,
 } from "./localdev-kind.ts";
+import {
+  ARGOCD_IMAGES_FILE,
+  type ArgocdImages,
+  imageHost,
+} from "./argocd-images.ts";
+import { VERSIONS_YAML, chartVersionFromVersions } from "./localdev-argocd.ts";
+
+const REPO_ROOT = join(import.meta.dir, "..");
 
 // ----------------------------------------------------------------------------
 // hosts.toml
@@ -107,18 +117,34 @@ test("registryUpstreams: every cached upstream, unique names and hosts", () => {
   }
 });
 
+test(`${ARGOCD_IMAGES_FILE}: rendered from the pinned argo-cd chart`, () => {
+  const record: ArgocdImages = JSON.parse(
+    readFileSync(join(REPO_ROOT, ARGOCD_IMAGES_FILE), "utf8"),
+  );
+  const pinned = chartVersionFromVersions(
+    readFileSync(join(REPO_ROOT, VERSIONS_YAML), "utf8"),
+    "argocd",
+  );
+  assertEquals(
+    record.version,
+    pinned,
+    `${ARGOCD_IMAGES_FILE} records argo-cd ${record.version} but ${VERSIONS_YAML} pins ${pinned}; run task localdev:argocd:images (or task renovate:regen)`,
+  );
+  assert(record.images.length > 0, `${ARGOCD_IMAGES_FILE} lists no images`);
+});
+
 test("registryUpstreams: covers every registry the argo-cd chart pulls from", () => {
   // The ArgoCD bootstrap runs before any Application exists, so an uncached
-  // pull here fails the whole level-2 job rather than one Application. Hosts
-  // from `helm show values argo-cd` at configuration/versions.yaml charts.argocd.
-  const argocdImageHosts = [
-    "quay.io", // argoproj/argocd: controller, server, repo-server, applicationset
-    "ghcr.io", // oliver006/redis_exporter, dexidp/dex
-    "ecr-public.aws.com", // docker/library/redis
-  ];
+  // pull here fails the whole level-2 job rather than one Application.
+  const { images }: ArgocdImages = JSON.parse(
+    readFileSync(join(REPO_ROOT, ARGOCD_IMAGES_FILE), "utf8"),
+  );
   const cached = new Set(registryUpstreams.map((u) => u.host));
-  for (const host of argocdImageHosts) {
-    assert(cached.has(host), `${host} has no pull-through cache`);
+  for (const image of images) {
+    assert(
+      cached.has(imageHost(image)),
+      `${image} (${ARGOCD_IMAGES_FILE}) pulls from ${imageHost(image)}, which has no pull-through cache in registryUpstreams`,
+    );
   }
 });
 

@@ -56,6 +56,7 @@ export const RENOVATE_CONFIG_PATH = ".github/renovate.json5";
 export const GENERATED_PATHS = [
   "charts/addons/values-localdev.yaml",
   "charts/applications/values-localdev.yaml",
+  "localdev/argocd-images.json",
   "tests/schemas/",
   "tests/snapshots/",
   "readme.md",
@@ -83,6 +84,10 @@ export const BOT_UNCOMMITTED_PATHS: Record<string, string> = {
 export const REGEN_STEPS: { desc: string; cmd: string[] }[] = [
   { desc: "localdev values", cmd: ["task", "config:export:localdev"] },
   { desc: "vendored CRD schemas", cmd: ["task", "schemas:vendor"] },
+  {
+    desc: "localdev ArgoCD images",
+    cmd: ["task", "localdev:argocd:images"],
+  },
   {
     desc: "golden snapshots",
     cmd: ["task", "test:snapshot", "--", "--update"],
