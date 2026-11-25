@@ -29,7 +29,10 @@ describe("parseConfig", () => {
   test("applies defaults for every optional setting", () => {
     expect(parseConfig({ PAPERCLIP_HOME: "/paperclip" })).toEqual({
       home: "/paperclip",
-      backupDir: "/paperclip/backups",
+      backupDirs: [
+        "/paperclip/backups",
+        "/paperclip/instances/default/data/backups",
+      ],
       backupPrefix: "paperclip",
       keepBackups: 3,
       minFreePercent: 10,
@@ -42,7 +45,7 @@ describe("parseConfig", () => {
   test("reads every setting from the environment", () => {
     const config = parseConfig({
       PAPERCLIP_HOME: "/data",
-      PAPERCLIP_DB_BACKUP_DIR: "/data/dumps",
+      DISK_GUARD_BACKUP_DIRS: "/data/dumps, /data/old ",
       DISK_GUARD_KEEP_BACKUPS: "1",
       DISK_GUARD_MIN_FREE_PERCENT: "15",
       DISK_GUARD_REQUIRED_FREE_MIB: "1024",
@@ -51,7 +54,7 @@ describe("parseConfig", () => {
     });
     expect(config).toMatchObject({
       home: "/data",
-      backupDir: "/data/dumps",
+      backupDirs: ["/data/dumps", "/data/old"],
       keepBackups: 1,
       minFreePercent: 15,
       requiredFreeBytes: 1024 * 1024 * 1024,
@@ -79,7 +82,7 @@ describe("parseConfig", () => {
 });
 
 describe("expiredBackups", () => {
-  const dump = (name: string, mtimeMs: number) => ({ name, mtimeMs });
+  const dump = (path: string, mtimeMs: number) => ({ path, mtimeMs });
 
   test("keeps the newest dumps and returns the rest oldest last", () => {
     const entries = [
@@ -106,26 +109,29 @@ describe("expiredBackups", () => {
 });
 
 describe("pruneBackups", () => {
-  test("deletes dumps beyond the keep count and reports their size", () => {
-    const dir = tempHome();
-    writeSized(join(dir, "paperclip-a.sql.gz"), 10, 1_000);
-    writeSized(join(dir, "paperclip-b.sql.gz"), 20, 2_000);
-    writeSized(join(dir, "paperclip-c.sql.gz"), 30, 3_000);
-    writeSized(join(dir, "unrelated.sql.gz"), 40, 500);
+  test("keeps the newest dumps across every directory and reports what it deleted", () => {
+    const current = tempHome();
+    const legacy = tempHome();
+    writeSized(join(legacy, "paperclip-a.sql.gz"), 10, 1_000);
+    writeSized(join(legacy, "paperclip-b.sql.gz"), 20, 2_000);
+    writeSized(join(current, "paperclip-c.sql.gz"), 30, 3_000);
+    writeSized(join(legacy, "unrelated.sql.gz"), 40, 500);
 
-    expect(pruneBackups(dir, "paperclip", 1)).toEqual({
-      removed: ["paperclip-b.sql.gz", "paperclip-a.sql.gz"],
+    expect(pruneBackups([current, legacy], "paperclip", 1)).toEqual({
+      removed: [
+        join(legacy, "paperclip-b.sql.gz"),
+        join(legacy, "paperclip-a.sql.gz"),
+      ],
       bytes: 30,
     });
-    expect(existsSync(join(dir, "paperclip-c.sql.gz"))).toBe(true);
-    expect(existsSync(join(dir, "unrelated.sql.gz"))).toBe(true);
+    expect(existsSync(join(current, "paperclip-c.sql.gz"))).toBe(true);
+    expect(existsSync(join(legacy, "unrelated.sql.gz"))).toBe(true);
   });
 
-  test("is a no-op when the backup directory does not exist", () => {
-    expect(pruneBackups(join(tempHome(), "missing"), "paperclip", 1)).toEqual({
-      removed: [],
-      bytes: 0,
-    });
+  test("skips directories that do not exist", () => {
+    expect(pruneBackups([join(tempHome(), "missing")], "paperclip", 1)).toEqual(
+      { removed: [], bytes: 0 },
+    );
   });
 });
 

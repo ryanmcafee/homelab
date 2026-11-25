@@ -4,8 +4,9 @@
  * First init container of the Paperclip Instance (charts/paperclip templates/disk-guard.yaml):
  * keeps the data volume (HOME) from filling up and says why when it is full.
  *
- *   1. delete app-native database dumps beyond the newest DISK_GUARD_KEEP_BACKUPS;
- *      the server prunes only after a successful dump, which a full volume prevents
+ *   1. delete app-native database dumps beyond the newest DISK_GUARD_KEEP_BACKUPS across
+ *      DISK_GUARD_BACKUP_DIRS; the server prunes only its current directory and only
+ *      after a successful dump, which a full volume prevents
  *   2. below DISK_GUARD_MIN_FREE_PERCENT free: remove the regenerable tool caches in
  *      DISK_GUARD_CACHE_DIRS and log the largest directories of HOME
  *   3. below DISK_GUARD_REQUIRED_FREE_MIB free: exit 1 with that report, so the pod
@@ -15,7 +16,8 @@
  *
  * Environment:
  *   PAPERCLIP_HOME                data volume mount, e.g. /paperclip (required)
- *   PAPERCLIP_DB_BACKUP_DIR       app-native dump directory (default $PAPERCLIP_HOME/backups)
+ *   DISK_GUARD_BACKUP_DIRS        comma-separated dump directories, current and former
+ *                                 (default $PAPERCLIP_HOME/backups and the instance data/backups)
  *   DISK_GUARD_KEEP_BACKUPS       newest dumps kept, at least 1 (default 3)
  *   DISK_GUARD_MIN_FREE_PERCENT   free share below which caches are cleared (default 10)
  *   DISK_GUARD_REQUIRED_FREE_MIB  free space below which the container fails (default 512)
@@ -31,11 +33,11 @@ import {
   statSync,
   unlinkSync,
 } from "node:fs";
-import { isAbsolute, join, normalize } from "node:path";
+import { basename, isAbsolute, join, normalize } from "node:path";
 
 export interface Config {
   home: string;
-  backupDir: string;
+  backupDirs: string[];
   backupPrefix: string;
   keepBackups: number;
   minFreePercent: number;
@@ -90,22 +92,29 @@ function relativeCacheDir(dir: string): string {
   return normalized;
 }
 
+const list = (value: string): string[] =>
+  value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item !== "");
+
 export function parseConfig(env: Record<string, string | undefined>): Config {
   const home = env.PAPERCLIP_HOME ?? "";
   if (!home) throw new Error("PAPERCLIP_HOME is required");
   return {
     home,
-    backupDir: env.PAPERCLIP_DB_BACKUP_DIR || join(home, "backups"),
+    backupDirs: env.DISK_GUARD_BACKUP_DIRS
+      ? list(env.DISK_GUARD_BACKUP_DIRS)
+      : [
+          join(home, "backups"),
+          join(home, "instances", "default", "data", "backups"),
+        ],
     backupPrefix: "paperclip",
     keepBackups: numberSetting(env, "DISK_GUARD_KEEP_BACKUPS", 3, 1),
     minFreePercent: numberSetting(env, "DISK_GUARD_MIN_FREE_PERCENT", 10, 0),
     requiredFreeBytes:
       numberSetting(env, "DISK_GUARD_REQUIRED_FREE_MIB", 512, 0) * MIB,
-    cacheDirs: (env.DISK_GUARD_CACHE_DIRS ?? "")
-      .split(",")
-      .map((dir) => dir.trim())
-      .filter((dir) => dir !== "")
-      .map(relativeCacheDir),
+    cacheDirs: list(env.DISK_GUARD_CACHE_DIRS ?? "").map(relativeCacheDir),
     reportSeconds: numberSetting(env, "DISK_GUARD_REPORT_SECONDS", 60, 0),
   };
 }
@@ -123,36 +132,42 @@ export function formatBytes(bytes: number): string {
 }
 
 export function expiredBackups(
-  entries: { name: string; mtimeMs: number }[],
+  entries: { path: string; mtimeMs: number }[],
   prefix: string,
   keep: number,
 ): string[] {
+  const isDump = (name: string) =>
+    name.startsWith(`${prefix}-`) &&
+    (name.endsWith(".sql") || name.endsWith(".sql.gz"));
   return entries
-    .filter(
-      ({ name }) =>
-        name.startsWith(`${prefix}-`) &&
-        (name.endsWith(".sql") || name.endsWith(".sql.gz")),
-    )
+    .filter(({ path }) => isDump(basename(path)))
     .toSorted((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(keep)
-    .map(({ name }) => name);
+    .map(({ path }) => path);
 }
 
 export function pruneBackups(
-  dir: string,
+  dirs: string[],
   prefix: string,
   keep: number,
 ): Removal {
-  if (!existsSync(dir)) return { removed: [], bytes: 0 };
-  const entries = readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile())
-    .map(({ name }) => ({ name, ...statSync(join(dir, name)) }));
-  const sizes = new Map(entries.map(({ name, size }) => [name, size]));
+  const entries = dirs
+    .filter((dir) => existsSync(dir))
+    .flatMap((dir) =>
+      readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map(({ name }) => {
+          const path = join(dir, name);
+          const { size, mtimeMs } = statSync(path);
+          return { path, size, mtimeMs };
+        }),
+    );
+  const sizes = new Map(entries.map(({ path, size }) => [path, size]));
   const removed = expiredBackups(entries, prefix, keep);
-  for (const name of removed) unlinkSync(join(dir, name));
+  for (const path of removed) unlinkSync(path);
   return {
     removed,
-    bytes: removed.reduce((sum, name) => sum + (sizes.get(name) ?? 0), 0),
+    bytes: removed.reduce((sum, path) => sum + (sizes.get(path) ?? 0), 0),
   };
 }
 
@@ -228,7 +243,7 @@ function main() {
   );
 
   const dumps = pruneBackups(
-    config.backupDir,
+    config.backupDirs,
     config.backupPrefix,
     config.keepBackups,
   );
