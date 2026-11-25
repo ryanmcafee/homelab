@@ -12,8 +12,8 @@ initContainers:
     env:
       - name: PAPERCLIP_HOME
         value: {{ $g.dataMountPath | quote }}
-      - name: PAPERCLIP_DB_BACKUP_DIR
-        value: {{ $g.backupDir | quote }}
+      - name: DISK_GUARD_BACKUP_DIRS
+        value: {{ join "," $g.backupDirs | quote }}
       - name: DISK_GUARD_KEEP_BACKUPS
         value: {{ $g.keepBackups | quote }}
       - name: DISK_GUARD_MIN_FREE_PERCENT
