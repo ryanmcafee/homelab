@@ -2084,7 +2084,17 @@ spec:
             - |
               set -eu
               q() { psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -tAc "$1"; }
-              if [ "$(q "select to_regclass('public.heartbeat_runs') is not null")" != t ]; then
+              attempt=1
+              until pg_isready -q -d "$DATABASE_URL"; do
+                if [ "$attempt" -ge 30 ]; then
+                  echo "database not accepting connections after 5 minutes" >&2
+                  exit 1
+                fi
+                attempt=$((attempt + 1))
+                sleep 10
+              done
+              table=$(q "select to_regclass('public.heartbeat_runs') is not null")
+              if [ "$table" != t ]; then
                 echo "public.heartbeat_runs does not exist: Paperclip has not run its migrations against $(q 'select current_database()')" >&2
                 exit 1
               fi
