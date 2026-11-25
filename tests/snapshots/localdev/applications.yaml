@@ -1419,6 +1419,8 @@ spec:
                   args:
                   - -o
                   - WriteLog=rotate
+                  - -o
+                  - SevenZipCmd=/opt/7zip/7za
                   resources:
                     limits:
                       cpu: 1000m
@@ -1426,6 +1428,15 @@ spec:
                     requests:
                       cpu: 100m
                       memory: 1Gi
+              initContainers:
+                install-7zip:
+                  command:
+                  - cp
+                  - /usr/local/bin/7za
+                  - /opt/7zip/7za
+                  enabled: true
+                  imageSelector: sevenZipImage
+                  type: init
               nodeSelector:
                 kubernetes.io/arch: null
         persistence:
@@ -1441,6 +1452,15 @@ spec:
             path: /mnt/storage/downloads
             server: truenas.example.com
             type: emptyDir
+          sevenzip:
+            enabled: true
+            targetSelector:
+              main:
+                install-7zip:
+                  mountPath: /opt/7zip
+                main:
+                  mountPath: /opt/7zip
+            type: emptyDir
         route:
           main:
             annotations:
@@ -1455,6 +1475,10 @@ spec:
               namespace: envoy-gateway-system
               sectionName: https
         TZ: "America/New_York"
+        sevenZipImage:
+          pullPolicy: IfNotPresent
+          repository: crazymax/7zip
+          tag: 17.06@sha256:53c1307530bce2f58d8ddd4933e2e6280568119050018a54bbe8586108078f1b
         securityContext:
           container:
             runAsGroup: 100

@@ -291,6 +291,9 @@ images:
   kometa: "v2.5.5"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.23.0"
+  # Static 7za copied into NZBGet: the containerforge nzbget image ships no 7-Zip binary.
+  # renovate: datasource=docker depName=crazymax/7zip
+  sevenzip: "17.06@sha256:53c1307530bce2f58d8ddd4933e2e6280568119050018a54bbe8586108078f1b"
   # Chart 2.2.2 defaults to 2.2.0, which predates both freshness timestamps the homelab-iot rules read.
   # renovate: datasource=docker depName=djjudas21/ecowitt-exporter
   ecowitt-exporter: "2.4.0"
