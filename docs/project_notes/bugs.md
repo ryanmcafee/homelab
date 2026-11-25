@@ -308,6 +308,11 @@ These are documented errors with known solutions:
 - **Solution**: `helm-apps.tmpl` renders `workload.main.podSpec.nodeSelector.kubernetes.io/arch: null` under the Kind sizing branch (helm deletes the key on merge); homelab output is unchanged
 - **Prevention**: `task localdev:up` on an arm64 machine is the check; CI runners are amd64 and never hit it
 
+### 2026-11-25 - NZBGet 32.0.0 rejects null architecture selector in Kind
+- **Issue**: ArgoCD cannot render NZBGet on Kind after the 32.0.0 chart upgrade; its schema requires `workload.main.podSpec.nodeSelector.kubernetes.io/arch` to be a string.
+- **Solution**: Set the localdev architecture selector to `""`. The TrueCharts common pod template skips empty selector values, so the rendered Deployment has no architecture pin and schedules on amd64 or arm64.
+- **Verification**: Rendered the NZBGet 32.0.0 child chart with the parent Application's exact localdev values and confirmed no Deployment node selector; `task verify:text` passed.
+
 ### 2026-09-13 - Kind's bundled local-path-provisioner collided with the chart-managed one
 - **Issue**: the `local-path-provisioner` addon Application failed to sync in Kind: `Deployment.apps "local-path-provisioner" is invalid: spec.selector ... field is immutable`
 - **Root Cause**: every Kind cluster ships rancher local-path-provisioner in `local-path-storage` with the same Deployment name as the containeroo chart, and the selector differs

@@ -1438,7 +1438,7 @@ spec:
                   imageSelector: sevenZipImage
                   type: init
               nodeSelector:
-                kubernetes.io/arch: null
+                kubernetes.io/arch: ""
         persistence:
           config:
             accessModes:
