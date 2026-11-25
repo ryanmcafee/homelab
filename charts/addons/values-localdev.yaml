@@ -1269,7 +1269,7 @@ argo-workflows:
     store:
       name: argo-workflows-logs
       bucket: argo-workflows-logs
-      image: "versity/versitygw:v1.11.0"
+      image: "versity/versitygw:v1.8.0"
       # Block storage: the POSIX backend keeps object metadata in xattrs.
       storageClass: local-path
       storageSize: 20Gi
@@ -1631,7 +1631,7 @@ logging:
           memory: 256Mi
     # charts/clickhouse values (the parent passes them through valuesObject).
     server:
-      image: "clickhouse/clickhouse-server:26.11.1.2942"
+      image: "clickhouse/clickhouse-server:26.10.11.12"
       # Block storage like the PostgreSQL clusters: ClickHouse fsyncs and
       # renames parts constantly, which NFS serves badly.
       storageClass: local-path
