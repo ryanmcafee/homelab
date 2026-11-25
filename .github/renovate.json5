@@ -210,7 +210,7 @@
     // the upgrade gate: upgrade.yml sets the upgrade/automerge-gate commit
     // status to failure when an upstream chart does not render, a custom
     // resource no longer validates or a helm value is undeclared, and Renovate merges only when every status
-    // is green. 0.x versions, majors (rule below), infrastructure tools,
+    // is green. 0.x minors count as non-major here. Majors (rule below), infrastructure tools,
     // kindest/node (tracks the Kubernetes version) and ksops stay manual.
     {
       matchFileNames: [
@@ -224,7 +224,6 @@
         'minor',
         'patch',
       ],
-      matchCurrentVersion: '!/^v?0\\./',
       matchPackageNames: [
         '!kindest/node',
       ],

@@ -349,7 +349,7 @@ the chart does not read: that is the defect the gate exists to find.
 (every upstream chart renders at head), revalidation passed and no Application sets a
 helm value its chart does not declare, otherwise `failure` with the reason. A manifest
 diff never blocks: it is posted as the `upgrade-diff` comment for review.
-`renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
+`renovate.json5` automerges non-major chart and image bumps in `versions.yaml`, 0.x minors included
 (`kindest/node`, majors, infrastructure tools and ksops stay manual; TrueCharts and Plex
 majors also automerge, since TrueCharts ships app releases as chart majors) and patch bumps
 elsewhere, always with `platformAutomerge: false`: Renovate merges itself, and only when
