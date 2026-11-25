@@ -281,13 +281,20 @@ Stream sizing is **operator-supplied**:
 | Key | Default | Meaning |
 |---|---|---|
 | `NATS_SERVER_REPLICAS` | `3` | NATS server pods. `1` runs JetStream non-clustered |
-| `NATS_STREAM_REPLICAS` | `1` | JetStream replicas per stream |
+| `NATS_STREAM_REPLICAS` | `3` | JetStream replicas per stream. Kind sets `1` |
 
-`NATS_STREAM_REPLICAS` defaults to `1` and the contract keeps the value a placeholder on
-purpose. A hard-coded `3` means a stranger forking this repository onto a single-node Talos
-box cannot create **any** stream — the server refuses with `replicas > 1 not supported in
-non-clustered mode (10074)`. That is the fork-ability contract failing at stream one.
-`NATS_SERVER_REPLICAS` must be at least `NATS_STREAM_REPLICAS`.
+The contract keeps `NATS_STREAM_REPLICAS` a placeholder on purpose. A hard-coded `3`
+means a stranger forking this repository onto a single-node Talos box cannot create **any**
+stream — the server refuses with `replicas > 1 not supported in non-clustered mode (10074)`.
+That is the fork-ability contract failing at stream one. `NATS_SERVER_REPLICAS` must be at
+least `NATS_STREAM_REPLICAS`; the addons chart refuses to render otherwise.
+
+The default is `3` because an R1 stream lives on one server: when that pod moves (a node drain,
+a Talos upgrade) the stream answers `stream is offline (10118)` until it returns. Three
+replicas keep a quorum through one lost server, and the `nats` StatefulSet spreads its pods
+across nodes so one drain removes at most one replica. NACK runs in control-loop mode, which
+requeues a resource that failed while a stream was offline; legacy mode gave up after ten
+retries and left the Stream `Ready=False` until the controller restarted.
 
 `maxBytes` is the second operator-supplied number and is **required on every stream**.
 JetStream applies `discard` only when a stream reaches `max_bytes`, `max_msgs` or

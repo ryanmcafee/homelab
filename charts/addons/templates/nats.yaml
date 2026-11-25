@@ -1,4 +1,7 @@
 {{- if .Values.nats.enabled }}
+{{- if gt (int .Values.nats.jetstream.streamReplicas) (int .Values.nats.replicas) }}
+{{- fail (printf "nats.jetstream.streamReplicas %v exceeds nats.replicas %v; JetStream cannot place more stream replicas than there are servers, so every stream stays offline (set NATS_STREAM_REPLICAS at or below NATS_SERVER_REPLICAS)" .Values.nats.jetstream.streamReplicas .Values.nats.replicas) }}
+{{- end }}
 {{- $accounts := include "addons.natsAccountsMerge" . }}
 {{- $boxPrincipals := compact (splitList "," (default "" .Values.nats.natsBoxPrincipals)) }}
 {{- $nkeys := fromYaml (include "addons.natsPrincipalNkeys" .) }}
@@ -104,6 +107,12 @@ spec:
                 podMetricsEndpoints:
                   - port: prom-metrics
                     interval: {{ .Values.nats.monitoring.scrapeInterval }}
+        # Spread servers across nodes so one drain takes at most one replica of each stream.
+        podTemplate:
+          topologySpreadConstraints:
+            kubernetes.io/hostname:
+              maxSkew: 1
+              whenUnsatisfiable: DoNotSchedule
         container:
           resources:
             {{- toYaml .Values.nats.resources | nindent 12 }}

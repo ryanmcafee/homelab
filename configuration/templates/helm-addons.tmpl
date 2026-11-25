@@ -1722,7 +1722,8 @@ nats:
     max_streams: 16
     max_consumers: 64
 {{- else }}
-    max_store: << 15GB >>
+    # Three replicas of the 6 GiB stream set reserve 18 GiB, inside the 20Gi per-server file store.
+    max_store: {{ if eq .Values.NATS_STREAM_REPLICAS.Value "1" }}<< 15GB >>{{ else }}<< 18GB >>{{ end }}
     max_streams: 32
     max_consumers: 256
 {{- end }}
