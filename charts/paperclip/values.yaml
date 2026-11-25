@@ -183,6 +183,35 @@ probes:
 # "auth.baseUrlMode=explicit requires auth.publicBaseUrl" check.
 extraEnv: []
 
+# First chart init container (templates/disk-guard.yaml, files/paperclip-disk-guard.ts).
+# The server prunes its database dumps only after a successful new dump, so a full
+# volume never recovers on its own and every later init step fails with
+# misleading write errors. On each start this keeps the newest keepBackups dumps,
+# clears cacheDirs (relative to the mount) and logs the largest directories when
+# less than minFreePercent is free, and fails with that report below requiredFreeMiB.
+diskGuard:
+  enabled: true
+  dataVolume: paperclip-data
+  dataMountPath: /paperclip
+  # The operator's PAPERCLIP_DB_BACKUP_DIR.
+  backupDir: /paperclip/backups
+  keepBackups: 3
+  minFreePercent: 10
+  requiredFreeMiB: 512
+  # Regenerable caches of the agents' tools (mise, go-build, npm, bun).
+  cacheDirs:
+    - .cache
+    - .npm/_cacache
+    - .bun/install/cache
+  reportSeconds: 60
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
 # Removes database.connectionString, which the operator's onboard step writes into
 # the instance config.json on the data volume that agent runs can read
 # (templates/config-scrub.yaml, files/paperclip-config-scrub.ts). The server takes

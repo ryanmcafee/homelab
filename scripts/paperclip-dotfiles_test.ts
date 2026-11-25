@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  diskFullHint,
   gitAuthArgs,
   linkClaudeDir,
   mcpCommands,
@@ -276,5 +277,17 @@ describe("linkClaudeDir", () => {
     const result = linkClaudeDir(src, dest, "20260926");
     expect(readlinkSync(join(dest, "CLAUDE.md"))).toBe(join(src, "CLAUDE.md"));
     expect(result.backedUp).toEqual([]);
+  });
+});
+
+describe("diskFullHint", () => {
+  test("names the full data volume when almost nothing is free", () => {
+    expect(diskFullHint("/paperclip", 4096)).toBe(
+      "/paperclip has only 4096 bytes free: the error above is the full data volume; free space on it or raise persistence.size",
+    );
+  });
+
+  test("stays silent when the volume has room", () => {
+    expect(diskFullHint("/paperclip", 1024 ** 3)).toBeNull();
   });
 });

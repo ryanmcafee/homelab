@@ -37,6 +37,9 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   {{- $initParts := list }}
+  {{- if .Values.diskGuard.enabled }}
+  {{- $initParts = append $initParts (include "paperclip.diskGuard" . | fromYaml) }}
+  {{- end }}
   {{- if .Values.configScrub.enabled }}
   {{- $initParts = append $initParts (include "paperclip.configScrub" . | fromYaml) }}
   {{- end }}

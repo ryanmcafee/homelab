@@ -1,0 +1,58 @@
+{{- /* Bounds the data volume before the other init steps write to it; see files/paperclip-disk-guard.ts. */}}
+{{- define "paperclip.diskGuard.script" }}{{ .Files.Get "files/paperclip-disk-guard.ts" }}{{ end }}
+{{- define "paperclip.diskGuard" }}
+{{- $g := .Values.diskGuard }}
+{{- $name := printf "%s-disk-guard" .Values.name }}
+podAnnotations:
+  checksum/disk-guard: {{ include "paperclip.diskGuard.script" . | sha256sum }}
+initContainers:
+  - name: disk-guard
+    image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+    command: ["node", "/opt/disk-guard/paperclip-disk-guard.ts"]
+    env:
+      - name: PAPERCLIP_HOME
+        value: {{ $g.dataMountPath | quote }}
+      - name: PAPERCLIP_DB_BACKUP_DIR
+        value: {{ $g.backupDir | quote }}
+      - name: DISK_GUARD_KEEP_BACKUPS
+        value: {{ $g.keepBackups | quote }}
+      - name: DISK_GUARD_MIN_FREE_PERCENT
+        value: {{ $g.minFreePercent | quote }}
+      - name: DISK_GUARD_REQUIRED_FREE_MIB
+        value: {{ $g.requiredFreeMiB | quote }}
+      - name: DISK_GUARD_CACHE_DIRS
+        value: {{ join "," $g.cacheDirs | quote }}
+      - name: DISK_GUARD_REPORT_SECONDS
+        value: {{ $g.reportSeconds | quote }}
+    resources:
+      {{- toYaml $g.resources | nindent 6 }}
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      capabilities:
+        drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
+    volumeMounts:
+      - name: {{ $g.dataVolume }}
+        mountPath: {{ $g.dataMountPath }}
+      - name: {{ $name }}
+        mountPath: /opt/disk-guard
+        readOnly: true
+extraVolumes:
+  - name: {{ $name }}
+    configMap:
+      name: {{ $name }}
+{{- end }}
+{{- if .Values.diskGuard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-disk-guard" .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ printf "%s-disk-guard" .Values.name }}
+data:
+  paperclip-disk-guard.ts: |-
+    {{- include "paperclip.diskGuard.script" . | nindent 4 }}
+{{- end }}
