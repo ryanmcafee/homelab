@@ -1573,7 +1573,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: nzbget
-    targetRevision: 29.4.2
+    targetRevision: 32.0.0
     helm:
       releaseName: nzbget
       values: |
