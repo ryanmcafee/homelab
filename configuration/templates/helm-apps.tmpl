@@ -609,10 +609,10 @@ nzbget:
       podSpec:
 {{- if $localdev }}
         # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
-        # key when helm merges values, so the pod schedules on any node.
+        # Chart 32.0.0 requires a string; the common pod template skips empty
+        # selectors, so Kind can schedule this pod on either architecture.
         nodeSelector:
-          kubernetes.io/arch: null
+          kubernetes.io/arch: ""
 {{- end }}
         initContainers:
           install-7zip:

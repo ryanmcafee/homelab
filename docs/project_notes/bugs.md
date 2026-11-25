@@ -308,6 +308,11 @@ These are documented errors with known solutions:
 - **Solution**: `helm-apps.tmpl` renders `workload.main.podSpec.nodeSelector.kubernetes.io/arch: null` under the Kind sizing branch (helm deletes the key on merge); homelab output is unchanged
 - **Prevention**: `task localdev:up` on an arm64 machine is the check; CI runners are amd64 and never hit it
 
+### 2026-11-25 - NZBGet 32.0.0 rejects null architecture selector in Kind
+- **Issue**: ArgoCD cannot render NZBGet on Kind after the 32.0.0 chart upgrade; its schema requires `workload.main.podSpec.nodeSelector.kubernetes.io/arch` to be a string.
+- **Solution**: Set the localdev architecture selector to `""`. The TrueCharts common pod template skips empty selector values, so the rendered Deployment has no architecture pin and schedules on amd64 or arm64.
+- **Verification**: Rendered the NZBGet 32.0.0 child chart with the parent Application's exact localdev values and confirmed no Deployment node selector; `task verify:text` passed.
+
 ### 2026-09-13 - Kind's bundled local-path-provisioner collided with the chart-managed one
 - **Issue**: the `local-path-provisioner` addon Application failed to sync in Kind: `Deployment.apps "local-path-provisioner" is invalid: spec.selector ... field is immutable`
 - **Root Cause**: every Kind cluster ships rancher local-path-provisioner in `local-path-storage` with the same Deployment name as the containeroo chart, and the selector differs
@@ -606,3 +611,9 @@ These are documented errors with known solutions:
 - **Solution**: Init container `disk-guard` (`charts/paperclip/files/paperclip-disk-guard.ts`) runs before the others: keeps the newest 3 dumps across the current and the former dump directory, clears tool caches below 10% free, logs the largest directories and fails with a disk-full message below 512 MiB. `dotfiles` names the full volume when it fails on one. The db-indexes Job waits for `pg_isready` and fails on a connection error instead of misreporting it
 - **Prevention**: Moving an app's output directory orphans what the old one holds; prune or move the old files in the same change. An app that prunes only after writing more cannot recover from a full volume, so bound such directories from outside it. Query the app's own log lines before guessing at a disk consumer
 - **Follow-up**: #709 merged before the commit that prunes the former directory, so its disk-guard pruned nothing (the dumps were removed by hand). No dump succeeded after 2026-11-07: the 04:47 dump that day never finished and the server skipped every later one as "still running" until a restart, then ENOSPC (2026-11-21/22), then ECONNRESET (2026-11-23/24): after `paperclip-postgres-1` restarted at 2026-11-23 09:01 the server's connection pool kept failing (~1,780 ECONNRESET an hour) until paperclip-0 restarted. Confirm a dump completes about a day after each server start
+
+### 2026-11-25 - NZBGet chart schema failure escaped level 0
+- **Issue**: Chart 32.0.0 rejected the localdev `kubernetes.io/arch: null` value, but level 0 passed and Kind level 2 waited 40 minutes for an Application that could not render.
+- **Cause**: Level 0 rendered the parent Applications chart without rendering the NZBGet child chart against its `values.schema.json`.
+- **Fix**: MCAA-2320 / PR #721 replaces null with an empty string and adds `upstream/localdev/nzbget-schema`, which renders the pinned child chart with the values emitted by the parent Application.
+- **Verification**: The regression test fails the original null value; level 0 passes with 314 passed, 0 failed, 1 skipped.
