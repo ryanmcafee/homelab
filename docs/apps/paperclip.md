@@ -248,6 +248,11 @@ repository only, field `GIT_TOKEN`); the init container waits for the Secret.
   kept 3 days in homelab and 1 day on Kind (`retentionDays`). The dumps share `paperclip-data`
   with workspaces and tool caches, so retention × dump size (several GB each) must stay well under
   `persistence.size`: with the app defaults they filled the volume (bugs.md 2026-11-21).
+  The server prunes dumps only after a successful new dump, which a full volume prevents, so
+  the first init container, `disk-guard` (`diskGuard`, `files/paperclip-disk-guard.ts`), keeps
+  the newest `keepBackups` dumps on every start. Below `minFreePercent` free it also clears the
+  tool caches in `cacheDirs` and logs the largest directories of `/paperclip`; below
+  `requiredFreeMiB` it fails with that report (`kubectl -n paperclip logs paperclip-0 -c disk-guard`).
 
 ## Verify
 

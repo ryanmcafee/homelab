@@ -41,6 +41,7 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statfsSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -420,9 +421,24 @@ async function main() {
   }
 }
 
+const FULL_VOLUME_BYTES = 64 * 1024 * 1024;
+
+export function diskFullHint(home: string, freeBytes: number): string | null {
+  if (freeBytes >= FULL_VOLUME_BYTES) return null;
+  return `${home} has only ${freeBytes} bytes free: the error above is the full data volume; free space on it or raise persistence.size`;
+}
+
+function freeBytes(path: string): number {
+  const stats = statfsSync(path);
+  return stats.bavail * stats.bsize;
+}
+
 if (import.meta.main) {
   main().catch((err) => {
     log.error(err instanceof Error ? err.message : String(err));
+    const home = process.env.HOME ?? "";
+    const hint = home && diskFullHint(home, freeBytes(home));
+    if (hint) log.error(hint);
     process.exit(1);
   });
 }
