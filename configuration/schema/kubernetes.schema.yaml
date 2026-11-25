@@ -70,9 +70,9 @@ keys:
     default: "3"
 
   NATS_STREAM_REPLICAS:
-    description: JetStream replicas per stream. Stream sizing is operator-supplied, not contract (contracts/events/subjects.v1.yaml replicas_defaults); 1 is the homelab default because a non-clustered server refuses more with "replicas > 1 not supported in non-clustered mode (10074)".
+    description: JetStream replicas per stream. Stream sizing is operator-supplied, not contract (contracts/events/subjects.v1.yaml replicas_defaults). 3 keeps every stream online while one server pod moves; a single-server bus must set 1, because a non-clustered server refuses more with "replicas > 1 not supported in non-clustered mode (10074)".
     required: true
-    default: "1"
+    default: "3"
 
   NATS_TENANT:
     description: Tenant token the bus account is named for; the account is TENANT_<token>, upper-cased with "-" mapped to "_" (ADR-043 D12). "local" is the reserved homelab tenant.

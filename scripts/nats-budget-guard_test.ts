@@ -302,6 +302,21 @@ test("the account budget scales with stream replicas, as each peer holds one rep
   assertStringIncludes(rendered.output, "accountMaxStoreBytes: 4294967296");
 });
 
+test("stream replicas above the server count are refused, as no stream could be placed", () => {
+  assertRejected(
+    renderAddons(
+      "--set",
+      "nats.enabled=true",
+      "--set",
+      "nats.replicas=1",
+      "--set",
+      "nats.jetstream.streamReplicas=3",
+    ),
+    "nats.jetstream.streamReplicas 3 exceeds nats.replicas 1",
+    "R3 streams on one server",
+  );
+});
+
 test("a max_store the server would not parse is refused, not read as zero", () => {
   // nats-server's parser drops an unknown suffix without an error, so the limit silently vanishes.
   for (const bad of ["<< 2XB >>", "<< 1.5GB >>", "lots"]) {

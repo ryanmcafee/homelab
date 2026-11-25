@@ -3802,6 +3802,12 @@ spec:
                 podMetricsEndpoints:
                   - port: prom-metrics
                     interval: 30s
+        # Spread servers across nodes so one drain takes at most one replica of each stream.
+        podTemplate:
+          topologySpreadConstraints:
+            kubernetes.io/hostname:
+              maxSkew: 1
+              whenUnsatisfiable: DoNotSchedule
         container:
           resources:
             limits:

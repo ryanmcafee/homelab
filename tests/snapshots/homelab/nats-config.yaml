@@ -90,7 +90,7 @@ spec:
   subjects:
     - pf.*.*.*.*.*.ev
   storage: file
-  replicas: 1
+  replicas: 3
   retention: limits
   maxAge: 168h
   maxBytes: 2147483648
@@ -120,7 +120,7 @@ spec:
       - source: pf.*.identity.*.*.*.ev
       - source: pf.*.control.*.*.*.ev
   storage: file
-  replicas: 1
+  replicas: 3
   retention: limits
   maxAge: 8760h
   maxBytes: 3221225472
@@ -146,7 +146,7 @@ spec:
   subjects:
     - pf.*.*.*.*.*.wq
   storage: file
-  replicas: 1
+  replicas: 3
   retention: workqueue
   maxAge: 24h
   maxBytes: 268435456
@@ -172,7 +172,7 @@ spec:
   subjects:
     - pf.*.*.*.*.*.dl
   storage: file
-  replicas: 1
+  replicas: 3
   retention: limits
   maxAge: 720h
   maxBytes: 805306368
