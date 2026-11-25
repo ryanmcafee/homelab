@@ -1585,6 +1585,9 @@ spec:
             podSpec:
               containers:
                 main:
+                  args:
+                  - -o
+                  - WriteLog=rotate
                   resources:
                     limits:
                       cpu: 4000m
