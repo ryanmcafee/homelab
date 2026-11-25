@@ -169,7 +169,8 @@ buckets:
   maxAdjacentRatioAboveOneSecond: 2.5
   fifteenSecondBoundary: >-
     Added because the NATS ack deadline sits at 30s, so every kind=pubsub handler in
-    trouble lands in the 10-to-30 bucket and nowhere else. Across that gap a handler
+    trouble that does not extend its deadline lands in the 10-to-30 bucket (an
+    extending handler can reach +Inf; see errorClassification.bus.extendedHandlers). Across that gap a handler
     whose true p99 is 11s reports 20s; with this boundary it reports 12.5s. A 9-second
     error bar is not something to put in a page annotation, and without the boundary no
     latency threshold anywhere in the 10-30s band is expressible.
@@ -199,9 +200,11 @@ labels:
       cardinality: constant-per-process
       source: PLATFORM_SERVICE
       rule: >-
-        The component's stable identifier -- the same token that forms the final
-        segment of the component path in the CloudEvents `source` attribute
-        (contracts/events/envelope.v1.schema.json). One name for a service on the bus
+        The component's stable identifier -- the same identifier the component uses as
+        the final segment of the component path in the CloudEvents `source` attribute
+        (contracts/events/envelope.v1.schema.json). That segment's envelope pattern is
+        wider (it admits dots and has no length limit), so a component picks a name valid
+        under THIS pattern and uses it in both places. One name for a service on the bus
         and in the metrics, or correlating an event storm with a latency spike becomes
         a lookup table somebody maintains by hand.
 
@@ -241,6 +244,11 @@ labels:
         comes from the authenticated principal, never from a request header or a
         caller-supplied field, and a service configured multi-tenant with no tenancy
         resolver MUST fail to start rather than emit `local` over everybody's traffic.
+      busSource: >-
+        For kind=pubsub and kind=request_reply the authenticated value is the tenant
+        token of the subject the message was DELIVERED on, which NATS account and
+        subject permissions enforce. The envelope `tenant` attribute is set by the
+        publisher -- a caller-supplied field -- and MUST NOT be the label's source.
 
     - name: kind
       enum: [http, pubsub, request_reply, stream]
@@ -580,10 +588,45 @@ errorClassification:
     - { match: "429 from a configured per-principal quota", outcome: error, code: quota, why: "the policy working as designed; visible as an error, excluded from the availability SLI so one noisy tenant cannot burn everybody's budget" }
     - { match: "4xx other than 429", outcome: success, why: "a validation rejection is correct behaviour; paging on it makes a misbehaving client an outage" }
     - { match: "client disconnected before the response", outcome: success, why: "not the service's failure; its truncated duration is still recorded, and this is stated rather than silently assumed" }
+  # The bus has two terminal acts, chosen by transport, not by `kind`: kind=request_reply
+  # covers both `rq` (core NATS, a reply) and `wq` (JetStream, an ack). The route label
+  # carries the subject pattern's suffix, so the two stay separable without a new kind.
   bus:
-    - { match: "handler acked", outcome: success }
-    - { match: "handler naked or terminated", outcome: error }
-    - { match: "handler exceeded the ack deadline", outcome: error, code: timeout }
+    precedence: >-
+      Rows are evaluated top to bottom and the FIRST match wins. The deadline row is
+      first in each table so a handler that overruns and then acks, or overruns and then
+      replies, is a timeout and never a success.
+    jetstream:
+      appliesTo: kind=pubsub, and kind=request_reply on a `wq` subject
+      rows:
+        - { match: "handler's terminal act came after its effective ack deadline", outcome: error, code: timeout, why: "the broker has already scheduled a redelivery, so the late ack did not deliver the promise; the effective deadline is ack_wait from delivery, restarted by each in-progress (+WPI) signal the handler sent" }
+        - { match: "handler acked", outcome: success }
+        - { match: "handler dead-lettered then terminated a message it rejected as invalid", outcome: success, why: "a payload that fails its registered schema or validation is the bus 4xx: the producer's fault, answered correctly; counting it as an error lets a bad producer burn the consumer's budget, the same shape the quota split closes. PF_DLQ depth keeps it visible" }
+        - { match: "handler naked, or terminated for any other reason", outcome: error, code: internal-or-unavailable, why: "includes the dead-letter on max_deliver exhaustion: that attempt failed like the ones before it" }
+    coreReply:
+      appliesTo: kind=request_reply on an `rq` subject (at-most-once, no ack, no nak, no term)
+      rows:
+        - { match: "responder abandoned the request without publishing a reply", outcome: error, code: timeout-or-internal, why: "`timeout` when a deadline the responder enforces was the cause, `internal` otherwise; the requester sees a timeout either way" }
+        - { match: "replied with the result", outcome: success }
+        - { match: "replied with a quota denial or overload shedding", outcome: error, code: quota-or-throttled, why: "classified exactly as the two 429 rows under http, so the availability SLI's quota exclusion holds on the bus too" }
+        - { match: "replied with a rejection of an invalid request", outcome: success, why: "the same as a 4xx other than 429" }
+        - { match: "replied with a service failure", outcome: error, code: internal-or-unavailable }
+    invalidRejectionChoice: >-
+      A deliberate dead-letter of an invalid message is outcome="success", not a new
+      `code="rejected"` error excluded from the SLI like quota. The second option spends
+      the last value under the code ceiling and adds a second exclusion every availability
+      SLI has to remember on both sides -- the reserved-value trap observation.excludedRule
+      already rejects. `principle` decides it: a bad request answered correctly is the
+      service working.
+    noTerminalAct: >-
+      A handler that crashes before any terminal act records nothing for that attempt:
+      the finally path did not run. The broker redelivers after ack_wait and that attempt
+      is observed. The lost attempt shows as consumer redeliveries, not in this family.
+    extendedHandlers: >-
+      A handler that extends with in-progress signals is classified by its terminal act
+      against its effective deadline, and its duration is still delivery to terminal act.
+      It can exceed 30s and land in +Inf. That is the truthful value: an SLO latency
+      threshold is a boundary of at most 30s, so the attempt counts as slow, not missing.
   redeliveries: >-
     Every path on the bus is at-least-once (ADR-026). A message delivered three times
     and acked on the third is THREE observations: two errors and one success. The

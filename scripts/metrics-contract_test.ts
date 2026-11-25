@@ -58,6 +58,18 @@ interface LabelSpec {
   singleTenantValue?: string;
   sliExclusionRule?: string;
   tailRule?: string;
+  busSource?: string;
+}
+
+interface ClassificationRow {
+  match: string;
+  outcome: string;
+  code?: string;
+}
+
+interface BusTable {
+  appliesTo: string;
+  rows: ClassificationRow[];
 }
 
 interface MetricsContract {
@@ -98,7 +110,12 @@ interface MetricsContract {
     breachLegalMoves?: string;
   };
   errorClassification: {
-    http: { match: string; outcome: string; code?: string }[];
+    http: ClassificationRow[];
+    bus: {
+      precedence: string;
+      jetstream: BusTable;
+      coreReply: BusTable;
+    };
   };
   exposition: {
     path: string;
@@ -530,6 +547,61 @@ test("C4: the error taxonomy separates overload shedding from quota denial", () 
   for (const row of from429) {
     assertEquals(row.outcome, "error", "both flavours of 429 are still errors");
   }
+});
+
+test("B1: the bus classifies both terminal acts, deadline first, first match wins", () => {
+  const { precedence, jetstream, coreReply } = contract.errorClassification.bus;
+  assert(
+    /first match wins/i.test(precedence),
+    "overlapping bus rows need a stated precedence or two services classify the same late ack differently",
+  );
+  // `rq` has no ack: without its own table every responder invents a classification.
+  assert(jetstream.appliesTo.includes("`wq`"), "jetstream rows must cover wq");
+  assert(coreReply.appliesTo.includes("`rq`"), "reply rows must cover rq");
+  for (const [name, table] of [
+    ["jetstream", jetstream],
+    ["coreReply", coreReply],
+  ] as const) {
+    const first = table.rows[0];
+    assert(
+      first !== undefined &&
+        first.outcome === "error" &&
+        first.code?.startsWith("timeout") === true,
+      `${name}: the deadline row must come first, or an overrun that then acks reads as success`,
+    );
+  }
+});
+
+test("B1: a rejection of an invalid bus message is the 4xx row, not an error", () => {
+  const { jetstream, coreReply } = contract.errorClassification.bus;
+  const invalid = [...jetstream.rows, ...coreReply.rows].filter((row) =>
+    /invalid/.test(row.match),
+  );
+  assertEquals(invalid.length, 2, "one invalid-rejection row per transport");
+  for (const row of invalid) {
+    assertEquals(
+      row.outcome,
+      "success",
+      `"${row.match}" as an error lets a bad producer burn the consumer's budget`,
+    );
+  }
+  const quota = coreReply.rows.find((row) => row.match.includes("quota"));
+  assert(
+    quota?.outcome === "error" && quota.code?.includes("quota") === true,
+    "a quota denial on rq must carry code=quota so the SLI exclusion applies on the bus",
+  );
+});
+
+test("N1: the bus tenant label comes from the delivered subject, not the envelope", () => {
+  const source = labelByName.get("tenant")?.busSource ?? "";
+  assert(
+    /DELIVERED on/.test(source),
+    "busSource must name the delivered subject",
+  );
+  assert(
+    /MUST NOT be the label's source/.test(source),
+    "busSource must forbid the caller-supplied envelope attribute",
+  );
 });
 
 test("the quota exclusion is on BOTH sides of every error ratio, not the numerator alone", () => {
