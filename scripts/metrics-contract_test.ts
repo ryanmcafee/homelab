@@ -558,16 +558,17 @@ test("B1: the bus classifies both terminal acts, deadline first, first match win
   // `rq` has no ack: without its own table every responder invents a classification.
   assert(jetstream.appliesTo.includes("`wq`"), "jetstream rows must cover wq");
   assert(coreReply.appliesTo.includes("`rq`"), "reply rows must cover rq");
-  for (const [name, table] of [
-    ["jetstream", jetstream],
-    ["coreReply", coreReply],
+  for (const [name, table, lateAct] of [
+    ["jetstream", jetstream, /terminal act came after/],
+    ["coreReply", coreReply, /deadline .*then replied/],
   ] as const) {
     const first = table.rows[0];
     assert(
       first !== undefined &&
         first.outcome === "error" &&
-        first.code?.startsWith("timeout") === true,
-      `${name}: the deadline row must come first, or an overrun that then acks reads as success`,
+        first.code === "timeout" &&
+        lateAct.test(first.match),
+      `${name}: the first row must classify an act after the deadline as timeout, or an overrun that then acks or replies reads as success`,
     );
   }
 });

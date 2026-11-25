@@ -606,7 +606,8 @@ errorClassification:
     coreReply:
       appliesTo: kind=request_reply on an `rq` subject (at-most-once, no ack, no nak, no term)
       rows:
-        - { match: "responder abandoned the request without publishing a reply", outcome: error, code: timeout-or-internal, why: "`timeout` when a deadline the responder enforces was the cause, `internal` otherwise; the requester sees a timeout either way" }
+        - { match: "responder passed a deadline it enforces, whether it then replied or abandoned the request", outcome: error, code: timeout, why: "on an at-most-once path a reply published after the requester's deadline was never received, so it cannot count as a success" }
+        - { match: "responder abandoned the request without publishing a reply, before any deadline", outcome: error, code: internal, why: "the requester sees a timeout, but the cause was the responder's failure, not a deadline" }
         - { match: "replied with the result", outcome: success }
         - { match: "replied with a quota denial or overload shedding", outcome: error, code: quota-or-throttled, why: "classified exactly as the two 429 rows under http, so the availability SLI's quota exclusion holds on the bus too" }
         - { match: "replied with a rejection of an invalid request", outcome: success, why: "the same as a 4xx other than 429" }
