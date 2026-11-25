@@ -21,7 +21,7 @@ helm = "4.3.0"
 kind = "0.33.0"           # versions.yaml tools.kind
 talosctl = "1.14.6"
 tilt = "0.37.9"
-argocd = "3.5.3"          # versions.yaml tools.argocd
+argocd = "3.6.3"          # versions.yaml tools.argocd
 argo = "latest"           # Argo Workflows CLI
 
 # Configuration Management (Python via pipx); ansible-lint.yml and the
