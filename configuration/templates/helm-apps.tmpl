@@ -614,10 +614,18 @@ nzbget:
         nodeSelector:
           kubernetes.io/arch: null
 {{- end }}
+        initContainers:
+          install-7zip:
+            enabled: true
+            type: init
+            imageSelector: sevenZipImage
+            command:
+              - cp
+              - /usr/local/bin/7za
+              - /opt/7zip/7za
         containers:
           main:
-            # NOTE: nzbget v26 made `MainDir` and `ScriptDir` REQUIRED and
-            # renamed the bundled 7-zip from /usr/bin/7za to /usr/bin/7z.
+            # NOTE: nzbget v26 made `MainDir` and `ScriptDir` REQUIRED.
             # nzbget v26 rejects the dotted `-o Section.Key=value` CLI
             # override syntax, so we cannot pass these as args from the chart.
             # The PVC at /config/nzbget.conf is hand-fixed (lines 11/71/1533).
@@ -625,6 +633,8 @@ nzbget:
             args:
               - -o
               - WriteLog=rotate
+              - -o
+              - SevenZipCmd=/opt/7zip/7za
             resources:
               # Bumped from 256Mi/1Gi → 512Mi/2Gi → 1Gi/4Gi as nzbget v26 kept
               # OOMing on smaller limits. At 1Gi: dead in 7s during startup.
@@ -661,6 +671,21 @@ nzbget:
       type: emptyDir
 {{- end }}
       mountPath: /downloads
+
+    sevenzip:
+      enabled: true
+      type: emptyDir
+      targetSelector:
+        main:
+          main:
+            mountPath: /opt/7zip
+          install-7zip:
+            mountPath: /opt/7zip
+
+  sevenZipImage:
+    repository: crazymax/7zip
+    tag: "{{ index .Versions.Images "sevenzip" }}"
+    pullPolicy: IfNotPresent
 
   # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
   route:

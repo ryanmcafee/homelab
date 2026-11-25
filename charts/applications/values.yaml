@@ -560,15 +560,13 @@ nzbget:
       podSpec:
         containers:
           main:
-            # NOTE: nzbget v26 made `MainDir` and `ScriptDir` REQUIRED and
-            # renamed the bundled 7-zip from /usr/bin/7za to /usr/bin/7z. The
-            # PVC at /config/nzbget.conf has been hand-fixed (lines 11/71/1533)
-            # to set MainDir=/downloads, ScriptDir=/config/scripts, and
-            # SevenZipCmd=/usr/bin/7z. nzbget v26 rejects the dotted
-            # `-o Section.Key=value` CLI override syntax, so we cannot pass
-            # these as args from the chart. If the PVC is ever lost, restore
-            # the same three values via `kubectl exec sed -i ...` after the
-            # pod first crashes.
+            # NOTE: nzbget v26 made `MainDir` and `ScriptDir` REQUIRED. The
+            # PVC at /config/nzbget.conf has been hand-fixed to set
+            # MainDir=/downloads and ScriptDir=/config/scripts. nzbget v26
+            # rejects the dotted `-o Section.Key=value` CLI override syntax,
+            # so we cannot pass these as args from the chart. If the PVC is
+            # ever lost, restore both values via `kubectl exec sed -i ...`
+            # after the pod first crashes.
             resources:
               # Bumped from 256Mi/1Gi → 512Mi/2Gi → 1Gi/4Gi as nzbget v26 keeps
               # OOMing on the previous limit. At 1Gi: dead in 7s during startup.

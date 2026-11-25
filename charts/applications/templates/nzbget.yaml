@@ -84,6 +84,11 @@ spec:
         TZ: {{ .Values.nzbget.TZ | quote }}
         {{- end }}
 
+        {{- if .Values.nzbget.sevenZipImage }}
+        sevenZipImage:
+          {{- toYaml .Values.nzbget.sevenZipImage | nindent 10 }}
+        {{- end }}
+
         {{- if .Values.nzbget.securityContext }}
         securityContext:
           {{- toYaml .Values.nzbget.securityContext | nindent 10 }}
