@@ -523,6 +523,30 @@ zpool list storage
 
 **Duration**: 1-2 weeks (resilver after each drive replacement)
 
+### Procedure: Grow a Static iSCSI Config Volume
+
+The `*-config` charts declare static PersistentVolumes (`volumes[].size` in
+`charts/<app>-config/values-homelab.yaml`) on zvols `storage/k8s/csi-<app>-config-homelab`.
+Raising `size` alone changes only the PV's declared capacity: the PVC then already fits, the
+resizer never calls the driver, and the zvol and its ext4 filesystem keep their old size.
+
+```bash
+# 1. On TrueNAS: grow the zvol (UI: Datasets -> zvol -> Edit -> Size)
+zfs set volsize=10G storage/k8s/csi-<app>-config-homelab
+
+# 2. In git: raise volumes[].size and the sizeBytes in scripts/truenas-iscsi-migrate.ts,
+#    task test:snapshot -- --update, merge
+
+# 3. Restage the volume on another node: democratic-csi runs resize2fs on every NodeStageVolume
+#    (ArgoCD self-heal reverts a scale to 0, so move the pod instead)
+kubectl cordon <node>
+kubectl -n media delete pod -l app.kubernetes.io/name=<app>
+kubectl uncordon <node>   # once the new pod runs elsewhere
+
+# 4. Verify the filesystem size
+kubectl -n media exec deploy/<app> -- df -h /config
+```
+
 ---
 
 ## Performance Tuning
