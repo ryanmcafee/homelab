@@ -63,7 +63,7 @@ importSweep:
   image:
     repository: oven/bun
     # Overridden by the parent Application from configuration/versions.yaml images.bun.
-    tag: "1.4.2-alpine"
+    tag: "1.4.5-alpine"
     pullPolicy: IfNotPresent
   resources:
     requests:

@@ -5,7 +5,7 @@
 # for the architecture that will run them. viaductoss/ksops publishes
 # linux/amd64 and linux/arm64, which is exactly the set this image is built for.
 # renovate: datasource=docker depName=viaductoss/ksops
-FROM viaductoss/ksops:v4.4.0 AS ksops
+FROM viaductoss/ksops:v4.5.1 AS ksops
 
 # Build stage — compile homelab CLI
 #
@@ -14,7 +14,7 @@ FROM viaductoss/ksops:v4.4.0 AS ksops
 # alternative (letting this stage run as the target platform) would put the
 # whole Go build under QEMU for every non-native architecture, which is minutes
 # of emulation per platform for no benefit.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -28,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -o /homelab ./cmd/homelab
 
 # Runtime stage — minimal image for CMP sidecar
-FROM alpine:3.23
+FROM alpine:3.24
 
 # Install helm
 RUN apk add --no-cache helm
