@@ -15,7 +15,7 @@ ttlSecondsAfterFinished: 3600
 # Container image
 image:
   repository: curlimages/curl
-  tag: "8.19.0"
+  tag: "8.23.0"
   pullPolicy: IfNotPresent
 
 # Resource limits

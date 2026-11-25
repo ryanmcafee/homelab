@@ -24,7 +24,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: duckdns-updater
-              image: "curlimages/curl:8.19.0"
+              image: "curlimages/curl:8.23.0"
               imagePullPolicy: IfNotPresent
               command:
                 - /bin/sh
