@@ -937,6 +937,32 @@ tasks:
             && cp "$root"/tests/alerts/*.test.yaml . \
             && if [ -d "$root/tests/alerts/$env" ]; then cp "$root/tests/alerts/$env"/*.test.yaml .; fi \
             && "$promtool" test rules ./*.test.yaml )
+          # tests/alerts/<env>/routes.yaml: amtool checks each case reaches exactly its receivers.
+          routes="$root/tests/alerts/$env/routes.yaml"
+          [ -f "$routes" ] || continue
+          helm template addons charts/addons -f "$values" \
+            | yq -r 'select(.kind=="Application" and .metadata.name=="kube-prometheus-stack") | .spec.source.helm.values' \
+            | yq '.alertmanager.config' > "$out/$env-alertmanager.yaml"
+          cases="$(yq 'length' "$routes")"
+          if [ "$cases" -eq 0 ]; then
+            echo "$routes has no routing cases" >&2
+            exit 1
+          fi
+          failed=0
+          for i in $(seq 0 $((cases - 1))); do
+            name="$(yq -r ".[$i].name" "$routes")"
+            want="$(yq -r ".[$i].receivers | join(\",\")" "$routes")"
+            mapfile -t labels < <(yq -r ".[$i].labels | to_entries | .[] | .key + \"=\" + .value" "$routes")
+            if amtool config routes test --config.file="$out/$env-alertmanager.yaml" \
+              --verify.receivers="$want" "${labels[@]}" > /dev/null; then
+              echo "ok   $env route: $name"
+            else
+              got="$(amtool config routes test --config.file="$out/$env-alertmanager.yaml" "${labels[@]}")"
+              echo "::error::$env route \"$name\": want $want, got $got" >&2
+              failed=1
+            fi
+          done
+          [ "$failed" -eq 0 ]
         done
 
   test:e2e:

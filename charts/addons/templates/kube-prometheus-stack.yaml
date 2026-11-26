@@ -274,9 +274,11 @@ spec:
                 {{- if $triageOn }}
                 # Every other alert also goes to the triage agent
                 # (docs/runbooks/triage-agent.md); continue keeps the routes below.
+                # Alerts about the agent itself go to a human only.
                 - receiver: triage-agent
                   matchers:
                     - alertname !~ "TriageAgent.+"
+                    - service != "triage-agent"
                   continue: true
                 {{- end }}
                 {{- if and $notify.enabled $githubPR.enabled }}

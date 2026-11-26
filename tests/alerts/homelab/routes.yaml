@@ -1,0 +1,22 @@
+# amtool routing cases for the Alertmanager config the homelab addons render
+# (docs/runbooks/alerting.md). `task test:alerts` runs
+# `amtool config routes test --verify.receivers` once per case, so each one
+# names every receiver the labels must reach and nothing else.
+- name: Watchdog reaches no one
+  labels: {alertname: Watchdog, severity: none}
+  receivers: ["null"]
+- name: the triage agent's own alerts do not page the triage agent
+  labels: {alertname: TriageAgentDown, severity: critical, namespace: triage-agent}
+  receivers: [pushover-critical]
+- name: a burning service is triaged and paged
+  labels: {alertname: PlatformRequestErrorBudgetBurningFast, severity: critical, service: issues-api, environment: prod, tenant: local, kind: http}
+  receivers: [triage-agent, pushover-critical]
+- name: a slow burn is triaged and warned
+  labels: {alertname: PlatformRequestErrorBudgetBurningSlow, severity: warning, service: issues-api, environment: prod, tenant: local, kind: http}
+  receivers: [triage-agent, pushover-warning]
+- name: the triage agent's own RED burn pages a human, not the triage agent
+  labels: {alertname: PlatformRequestErrorBudgetBurningFast, severity: critical, service: triage-agent, environment: prod, tenant: local, kind: http}
+  receivers: [pushover-critical]
+- name: the triage agent's own absence alert pages a human, not the triage agent
+  labels: {alertname: PlatformServiceMetricsAbsent, severity: critical, service: triage-agent, environment: prod}
+  receivers: [pushover-critical]

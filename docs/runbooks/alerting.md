@@ -6,7 +6,7 @@ The Pushover credentials live in one 1Password item; nothing secret is committed
 
 | Severity | Receiver | Pushover priority | Why |
 |---|---|---|---|
-| every alert but `Watchdog`, `InfoInhibitor` | `triage-agent` (webhook, `continue: true`) | — | a triage workflow that opens a fix PR ([triage-agent.md](triage-agent.md)) |
+| every alert but `Watchdog`, `InfoInhibitor`, `TriageAgent*` and any with `service="triage-agent"` | `triage-agent` (webhook, `continue: true`) | — | a triage workflow that opens a fix PR ([triage-agent.md](triage-agent.md)) |
 | `GitHubPullRequestNeedsReview` | `pushover-github-pr` | 0 (normal), one digest, never resolved | pull requests wait for you ([below](#github-pull-requests-that-need-review)) |
 | `critical` | `pushover-critical` | 1 (high) while firing, 0 when resolved | wakes you up |
 | `warning` | `pushover-warning` | -1 (low, no sound) | look during the day |
@@ -107,8 +107,12 @@ prove the result before pushing:
 
 ```bash
 task chart:template:addons | yq -r 'select(.kind=="Application" and .metadata.name=="kube-prometheus-stack") | .spec.source.helm.values' | yq -r '.alertmanager.config' > /tmp/am.yaml
-amtool check-config /tmp/am.yaml        # go install github.com/prometheus/alertmanager/cmd/amtool@latest
+amtool check-config /tmp/am.yaml        # amtool is pinned in mise.toml
 ```
+
+`task test:alerts` also runs every case in `tests/alerts/homelab/routes.yaml` through
+`amtool config routes test --verify.receivers` against the homelab render, so a routing change
+that sends an alert to the wrong receivers fails PR CI. Add a case when you add a route.
 
 Alertmanager's own `{{ }}` templating inside that file is written as ``{{`{{ ... }}`}}`` so Helm
 leaves it alone; the snapshot in `tests/snapshots/homelab/addons.yaml` shows the final text.
