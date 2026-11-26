@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { groupAlerts, parseApiAlerts, parseWebhook } from "../../src/alerts.ts";
+import {
+  groupAlerts,
+  groupKey,
+  parseApiAlerts,
+  parseWebhook,
+} from "../../src/alerts.ts";
 
 const webhookAlert = (overrides: Record<string, unknown> = {}) => ({
   status: "firing",
@@ -135,5 +140,54 @@ describe("groupAlerts", () => {
       new Set(),
     );
     expect(groups[0]?.alerts.length).toBe(1);
+  });
+
+  const burning = (fingerprint: string, service: string) => ({
+    fingerprint,
+    name: "PlatformRequestErrorBudgetBurningFast",
+    labels: {
+      alertname: "PlatformRequestErrorBudgetBurningFast",
+      service,
+      environment: "prod",
+      tenant: "homelab",
+      kind: "http",
+    },
+    annotations: {},
+    startsAt: "2026-09-25T10:00:00Z",
+  });
+
+  test("splits namespace-less alerts of one name by service", () => {
+    const groups = groupAlerts(
+      [burning("1", "a"), burning("2", "b"), burning("3", "a")],
+      new Set(),
+    );
+    expect(groups.map((g) => [g.key, g.alerts.length])).toEqual([
+      ["PlatformRequestErrorBudgetBurningFast/_cluster/a", 2],
+      ["PlatformRequestErrorBudgetBurningFast/_cluster/b", 1],
+    ]);
+  });
+
+  test("splits services that share a namespace", () => {
+    const inPaperclip = (fingerprint: string, service: string) => {
+      const a = burning(fingerprint, service);
+      return { ...a, labels: { ...a.labels, namespace: "paperclip" } };
+    };
+    const groups = groupAlerts(
+      [inPaperclip("1", "a"), inPaperclip("2", "b")],
+      new Set(),
+    );
+    expect(groups.map((g) => g.key)).toEqual([
+      "PlatformRequestErrorBudgetBurningFast/paperclip/a",
+      "PlatformRequestErrorBudgetBurningFast/paperclip/b",
+    ]);
+  });
+
+  test("keeps the key of alerts without a service label", () => {
+    expect(groupKey(alert("KubePodCrashLooping", "1", "plex"))).toBe(
+      "KubePodCrashLooping/plex",
+    );
+    expect(groupKey(alert("HomelabNodeNotReady", "2"))).toBe(
+      "HomelabNodeNotReady/_cluster",
+    );
   });
 });

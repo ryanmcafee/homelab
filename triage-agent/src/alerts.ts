@@ -112,7 +112,9 @@ export function parseApiAlerts(body: unknown): Alert[] {
 }
 
 export function groupKey(alert: Alert): string {
-  return `${alert.name}/${alert.labels.namespace ?? CLUSTER_SCOPE}`;
+  const { namespace, service } = alert.labels;
+  const scope = `${alert.name}/${namespace ?? CLUSTER_SCOPE}`;
+  return service ? `${scope}/${service}` : scope;
 }
 
 export function groupAlerts(
