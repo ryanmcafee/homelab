@@ -108,7 +108,8 @@ cp terragrunt/environments/homelab/hardware.hcl.example terragrunt/environments/
 
 Its empty `gpu_devices` and `hba_devices` maps pass nothing through, the same as having no
 file. The `talos-cluster` plan stops if `GPU_VENDOR` names a vendor with no `gpu_devices`
-entry, so set `GPU_VENDOR: none` on a host without a GPU to pass through.
+entry, so `homelab.yaml.example` starts at `GPU_VENDOR: none`; set a vendor only after adding
+its device here.
 To pass a device through, read its values on the Proxmox host: `lspci -nnk` gives the PCI
 address, vendor:device ID and subsystem ID, and `/sys/bus/pci/devices/<pci_id>/iommu_group`
 gives the IOMMU group.

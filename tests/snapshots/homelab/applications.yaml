@@ -2026,8 +2026,6 @@ spec:
           PLEX_GID: "100"
           PLEX_UID: "568"
           TZ: America/New_York
-        nodeSelector:
-          intel.feature.node.kubernetes.io/gpu: "true"
         pms:
           claimSecret:
             key: plex-claim-token
@@ -2036,11 +2034,9 @@ spec:
           resources:
             limits:
               cpu: 4000m
-              gpu.intel.com/xe: 1
               memory: 8Gi
             requests:
               cpu: 4000m
-              gpu.intel.com/xe: 1
               memory: 8Gi
           storageClassName: democratic-csi-iscsi
         extraVolumes:

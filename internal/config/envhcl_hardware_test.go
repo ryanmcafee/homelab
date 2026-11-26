@@ -7,6 +7,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"gopkg.in/yaml.v3"
 )
 
 // A PCI address or IOMMU group in env.hcl describes one machine, so every passthrough local reads hardware.hcl.
@@ -68,6 +69,24 @@ func TestHomelabEnvHCLWithoutHardwareFilePassesNothingThrough(t *testing.T) {
 		if !empty[name] {
 			t.Errorf("env.hcl: locals.hardware fallback must set %s = {} so a fork without hardware.hcl plans", name)
 		}
+	}
+}
+
+// The talos-cluster plan stops on a GPU vendor with no device, and a fresh fork has no hardware.hcl.
+func TestHomelabExampleSelectsNoGPUVendor(t *testing.T) {
+	path := filepath.Join(findProjectRootForTest(t), "configuration", "environments", "homelab.yaml.example")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	var example struct {
+		GPUVendor string `yaml:"GPU_VENDOR"`
+	}
+	if err := yaml.Unmarshal(source, &example); err != nil {
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+	if example.GPUVendor != "none" {
+		t.Fatalf("%s: GPU_VENDOR is %q, want \"none\" so a fork without hardware.hcl plans", path, example.GPUVendor)
 	}
 }
 
