@@ -146,7 +146,7 @@ between two boundaries is interpolated and the error bar is the width of the buc
 | Objective | SLI | Target |
 |---|---|---|
 | Availability | 1 - error ratio over `kind="http"`, excluding `code="quota"` from **numerator and denominator** | 99.5% over 30d |
-| Latency | fraction of successful requests under `le="0.25"` | 99% over 30d |
+| Latency | fraction of successful `kind="http"` requests under `le="0.25"` | 99% over 30d |
 
 Use `platform:request_error:ratio5m` from section 4 as the availability SLI -- it already carries
 the quota selector on both sides. The latency SLI below needs no quota selector: it pins
@@ -358,9 +358,11 @@ Emitting it now costs a fork one constant label and costs the commercial surface
 6. Classify `outcome` by the table in the contract file -- 5xx and 429 are errors, other 4xx are
    not. Split 429 into `code="throttled"` (you shed load) and `code="quota"` (the caller hit a
    configured limit).
-7. Stop the clock at response headers for a streaming route and label it `kind="stream"`. Never
-   record a long-lived response's full lifetime here -- it lands in `+Inf` and breaches the
-   service's latency objective forever.
+7. Label a route `kind="stream"` when the client or a future event ends its response, and stop
+   its clock at establishment: headers written for SSE, the 101 for a websocket, the start of the
+   hold for a long-poll or watch. A finite chunked response is still `kind="http"`. Never record a
+   long-lived response's full lifetime here -- it lands in `+Inf` and breaches the service's
+   latency objective forever. Section 9 records why.
 8. Emit `platform_build_info` and keep every build-identity string on it.
 9. Label the workload `platform.mcafeeconsulting.com/metrics: red-v1` and ship a ServiceMonitor
    that selects it.
@@ -368,3 +370,42 @@ Emitting it now costs a fork one constant label and costs the commercial surface
 Steps 2-8 are what the shared SDK helper will do on the service's behalf once it exists; until
 then they are review obligations, and the contract says so rather than implying a gate that is
 not running.
+
+## 9. Streaming responses and the latency objective (MCAA-2508)
+
+**Context.** `platform_request_duration_seconds` is observed once per attempt. For a response
+the client or a future event ends -- SSE, websocket, long-poll, watch -- the end-of-response time
+is the stream's lifetime, not service latency. Pooled with `kind="http"`, every healthy stream
+lands in `+Inf`, the 250ms objective reads as breached, and `PlatformRequestLatencyBudgetBurningFast`
+pages on healthy traffic. No stream producer exists yet; the rule has to exist before the first
+one ships.
+
+**Options.**
+
+1. *Observe time-to-first-byte for every response.* Rejected: it changes what `kind="http"`
+   measures for every existing producer (a slow finite export would read as fast), which is a
+   breaking change to the family's meaning.
+2. *Exclude streams from the family and keep only availability.* Rejected: exclusion at the
+   source loses the establishment error ratio, and a second exclusion rule next to the probe
+   exclusion is one more thing each producer gets wrong silently.
+3. *Observe establishment under the reserved `kind="stream"` value, and have the latency SLO
+   select `kind="http"` positively.* Chosen.
+
+**Decision.** Option 3, written into `metrics.v1.yaml` as `observation.stream`,
+`observation.streamClassification` and `labels.required[kind].latencyCoverage`:
+
+- What ends the response decides the kind. Service-ended work is `kind="http"`, chunked or not;
+  client- or event-ended responses are `kind="stream"`.
+- A stream's clock stops at establishment. For a long-poll or watch that is the start of the
+  hold, not the header flush, because a long-poll holds its headers until data arrives.
+- The http latency objective covers `kind="http"` only, by the positive matcher. `kind!="stream"`
+  is rejected because it also admits bus handler durations up to the 30s ack deadline.
+
+**Consequences.** The `platform-red-v1` rules already satisfy this: the recording rules keep
+`kind` in their `by` clause and both windows of `PlatformRequestLatencyBudgetBurningFast` select
+`kind="http"`. No new selector is needed; that matcher is now a contract obligation, and the SRE
+owns a promtool fixture proving a `kind="stream"` series in `+Inf` does not page. A stream route
+gets an establishment objective on its own `kind="stream"` row, or none, chosen by the SLO owner
+when it ships. Mid-flight stream failure stays the stated hole in `observation.streamLimitation`.
+The long-poll clarification changes what a `kind="stream"` series measures, which is free only
+because no producer emits that value today (the triage agent emits `kind="http"` only).

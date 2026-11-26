@@ -59,6 +59,7 @@ interface LabelSpec {
   sliExclusionRule?: string;
   tailRule?: string;
   busSource?: string;
+  latencyCoverage?: string;
 }
 
 interface ClassificationRow {
@@ -497,6 +498,46 @@ test("C2: kind carries a stream value and bounds what it observes", () => {
       "platform_stream_duration_seconds",
     ),
     "the mid-flight-failure hole must name the additive family that closes it",
+  );
+});
+
+test("C2: a long-poll's clock stops when the hold begins, not when headers flush", () => {
+  const stream = contract.metrics[0].observation?.stream ?? "";
+  // A long-poll server holds its headers until data arrives, so "headers written" alone
+  // measures the hold and puts every healthy long-poll in +Inf.
+  assert(
+    /hold begins, whether or not headers have been flushed/i.test(stream),
+    "observation.stream must stop a long-poll or watch clock when the hold begins",
+  );
+});
+
+test("C2: what ends a response decides its kind, not how it is framed", () => {
+  const classification =
+    contract.metrics[0].observation?.streamClassification ?? "";
+  assert(
+    /chunked/i.test(classification) && classification.includes("kind=http"),
+    "a finite chunked or incrementally flushed response must be classified kind=http",
+  );
+  assert(
+    /client disconnects/i.test(classification) &&
+      classification.includes("kind=stream"),
+    "a response ended by the client or a future event must be classified kind=stream",
+  );
+});
+
+test("C2: the latency objective covers kind=http by a positive matcher", () => {
+  const coverage = labelByName.get("kind")?.latencyCoverage ?? "";
+  assert(
+    coverage.includes('MUST carry the positive matcher kind="http"'),
+    'kind.latencyCoverage must require kind="http" on every latency SLI and alert',
+  );
+  assert(
+    coverage.includes('not kind!="stream"'),
+    "kind.latencyCoverage must reject the negative matcher, which admits pubsub durations",
+  );
+  assert(
+    /never pooled with kind=http/i.test(coverage),
+    "stream establishment times must never share the http latency objective",
   );
 });
 
