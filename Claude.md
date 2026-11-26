@@ -242,7 +242,7 @@ charts:
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/flaresolverr
   flaresolverr: "16.18.2"
   # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
-  renovate: "46.106.12"
+  renovate: "46.455.4"
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
   nvidia-gpu-operator: "v26.7.3"
   # renovate: datasource=helm depName=intel-device-plugins-gpu registryUrl=https://intel.github.io/helm-charts
