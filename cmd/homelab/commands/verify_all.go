@@ -194,11 +194,12 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 			// through the same Runner, so the fake in tests covers them too.
 			if level >= levelDryRun {
 				cluster := verify.ClusterOptions{
-					Runner:      runner,
-					RepoRoot:    repoRoot,
-					RenderDir:   dir,
-					KubeContext: kubeContext,
-					E2EDir:      e2eDir,
+					Runner:         runner,
+					RepoRoot:       repoRoot,
+					RenderDir:      dir,
+					KubeContext:    kubeContext,
+					E2EDir:         e2eDir,
+					ChainsawOutput: cmd.ErrOrStderr(),
 				}
 				result.Add(verify.DryRun(ctx, cluster)...)
 				if level >= levelLive {

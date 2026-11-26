@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -29,6 +31,9 @@ type ClusterOptions struct {
 	// E2EDir holds the chainsaw tests and .chainsaw.yaml. A relative path is
 	// resolved against RepoRoot.
 	E2EDir string
+	// ChainsawOutput receives the chainsaw output of failed tests, including
+	// their catch blocks; nil discards it.
+	ChainsawOutput io.Writer
 }
 
 // maxFindings caps the stderr lines copied into a failing check's findings.
@@ -444,14 +449,51 @@ func Chainsaw(ctx context.Context, opts ClusterOptions) []Check {
 	}
 
 	checks := make([]Check, 0, len(report.Tests))
+	failed := map[string]bool{}
 	for _, test := range report.Tests {
-		checks = append(checks, chainsawTestCheck(test))
+		check := chainsawTestCheck(test)
+		if check.Status == StatusFail {
+			failed[test.Name] = true
+		}
+		checks = append(checks, check)
 	}
+	writeFailedTestOutput(opts.ChainsawOutput, stdout, report.Tests, failed)
 	if measured := measuredLines(stdout, stderr); len(measured) > 0 {
 		checks = append(checks, Check{Name: "e2e/measured", Status: StatusPass, Detail: fmt.Sprintf("%d MEASURED line(s) from chainsaw output", len(measured)), Findings: measured})
 	}
 	sort.SliceStable(checks, func(i, j int) bool { return checks[i].Name < checks[j].Name })
 	return checks
+}
+
+// chainsawLineTest captures the test column of a chainsaw operation line.
+var chainsawLineTest = regexp.MustCompile(`^\s*\|\s*[0-9:]+\s*\|\s*([^|]+?)\s*\|`)
+
+// writeFailedTestOutput copies the stdout lines of failed tests to w. An
+// indented line without its own header belongs to the last header above it.
+func writeFailedTestOutput(w io.Writer, stdout []byte, tests []chainsawTest, failed map[string]bool) {
+	if w == nil || len(failed) == 0 {
+		return
+	}
+	var names []string
+	for _, test := range tests {
+		if failed[test.Name] {
+			names = append(names, test.Name)
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "=== chainsaw output of failed test(s): %s\n", strings.Join(names, ", "))
+	current := ""
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if m := chainsawLineTest.FindStringSubmatch(line); m != nil {
+			current = m[1]
+		} else if !strings.HasPrefix(line, " ") {
+			current = ""
+		}
+		if failed[current] {
+			b.WriteString(line + "\n")
+		}
+	}
+	_, _ = io.WriteString(w, b.String())
 }
 
 // measuredLines returns every output line that starts with "MEASURED ", uncapped.
