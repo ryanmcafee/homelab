@@ -574,8 +574,8 @@ kube-prometheus-stack:
   # Prometheus configuration
   prometheus:
     # Retention and storage
-    retention: 30d
-    retentionSize: 50GB
+    retention: 35d
+    retentionSize: 80GB
 
     # Storage configuration
     storageClass: democratic-csi-nfs

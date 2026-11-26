@@ -1,0 +1,72 @@
+# promtool unit tests for the platform-red-v1-budget group in
+# charts/addons/templates/kube-prometheus-stack.yaml (docs/runbooks/platform-red-slo.md).
+#
+# Kept apart from platform-red-slo.test.yaml because a 30d window needs a
+# month of input, and evaluating every rendered group each minute for a month
+# is slow; one evaluation an hour is enough for hourly rates.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1h
+
+tests:
+  # Day 0-1 at 50% errors, then 15 days at 0.75% and 15 days at 0%, at a
+  # constant 400 requests per 15m. Only the last 30 days count: 0.375% errors,
+  # 75% of the 0.5% budget spent, 25% remaining. Reading the first day would
+  # put the ratio above 1.9% and the budget far below zero.
+  - interval: 15m
+    name: 30d budget remaining excludes data older than the window
+    input_series:
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="success",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+300x96 29197+397x1439 600880+400x1439'
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="error",code="internal",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+300x96 28803+3x1439 33120+0x1439'
+      # Quota denials are outside the SLI on both sides and must not move it.
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="error",code="quota",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+1000x2976'
+    promql_expr_test:
+      - expr: platform:request_error:ratio_rate30d
+        eval_time: 31d
+        exp_samples:
+          - labels: 'platform:request_error:ratio_rate30d{service="issues-api",environment="prod",tenant="local",kind="http"}'
+            value: 3.75e-3
+      - expr: platform:request_error:budget_remaining30d
+        eval_time: 31d
+        exp_samples:
+          - labels: 'platform:request_error:budget_remaining30d{service="issues-api",environment="prod",tenant="local",kind="http"}'
+            value: 0.25
+
+  # Size-based retention deleted a block while the oldest sample is 20 days
+  # old: the 30d window is truncated and must say so. A second Prometheus
+  # whose size retention ran but still holds 32 days is fine, and so is one
+  # that only ever deleted by time.
+  - interval: 1h
+    name: size retention inside the 30d window warns
+    input_series:
+      - series: 'prometheus_tsdb_lowest_timestamp_seconds{job="kube-prometheus-stack-prometheus",namespace="monitoring",pod="prometheus-a-0"}'
+        values: '-1728000+3600x1200'
+      - series: 'prometheus_tsdb_size_retentions_total{job="kube-prometheus-stack-prometheus",namespace="monitoring",pod="prometheus-a-0"}'
+        values: '0x969 1+0x231'
+      - series: 'prometheus_tsdb_lowest_timestamp_seconds{job="kube-prometheus-stack-prometheus",namespace="monitoring",pod="prometheus-b-0"}'
+        values: '777600x1200'
+      - series: 'prometheus_tsdb_size_retentions_total{job="kube-prometheus-stack-prometheus",namespace="monitoring",pod="prometheus-b-0"}'
+        values: '0x969 1+0x231'
+      - series: 'prometheus_tsdb_lowest_timestamp_seconds{job="kube-prometheus-stack-prometheus",namespace="monitoring",pod="prometheus-c-0"}'
+        values: '-1728000+3600x1200'
+      - series: 'prometheus_tsdb_size_retentions_total{job="kube-prometheus-stack-prometheus",namespace="monitoring",pod="prometheus-c-0"}'
+        values: '0x1200'
+    alert_rule_test:
+      - eval_time: 39d
+        alertname: PrometheusRetentionTruncatesSLOWindow
+        exp_alerts: []
+      - eval_time: 41d
+        alertname: PrometheusRetentionTruncatesSLOWindow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: kube-prometheus-stack-prometheus
+              namespace: monitoring
+              pod: prometheus-a-0
+            exp_annotations:
+              summary: 'Size-based retention is evicting data inside the 30d SLO window'
+              description: 'Prometheus prometheus-a-0 deleted blocks for retentionSize and now holds 20d 0h 0m 0s of data, so every 30d error budget reads a truncated window. Runbook: docs/runbooks/platform-red-slo.md.'

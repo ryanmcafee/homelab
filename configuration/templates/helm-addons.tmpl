@@ -965,8 +965,9 @@ kube-prometheus-stack:
         cpu: 500m
         memory: 512Mi
 {{- else }}
-    retention: 30d
-    retentionSize: 50GB
+    # 35d holds the full 30d SLO window plus whole-block deletion slack
+    retention: 35d
+    retentionSize: 80GB
     storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
     storageSize: 100Gi
 

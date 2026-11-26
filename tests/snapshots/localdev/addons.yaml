@@ -2871,6 +2871,26 @@ spec:
                     expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="error",code!="quota"}[1d])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{code!="quota"}[1d]))'
                   - record: platform:request_error:ratio_rate3d
                     expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="error",code!="quota"}[3d])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{code!="quota"}[3d]))'
+              # The 30d budget sums hourly rates per label set instead of
+              # scanning 30d of per-route counters on every evaluation.
+              - name: platform-red-v1-budget
+                rules:
+                  - record: platform:request:rate1h
+                    expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{code!="quota"}[1h]))'
+                  - record: platform:request_error:rate1h
+                    expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="error",code!="quota"}[1h]))'
+                  - record: platform:request_error:ratio_rate30d
+                    expr: 'sum_over_time(platform:request_error:rate1h[30d]) / sum_over_time(platform:request:rate1h[30d])'
+                  - record: platform:request_error:budget_remaining30d
+                    expr: '1 - platform:request_error:ratio_rate30d{kind="http"} / 0.005'
+                  - alert: PrometheusRetentionTruncatesSLOWindow
+                    expr: '(time() - prometheus_tsdb_lowest_timestamp_seconds < 30 * 86400) and (increase(prometheus_tsdb_size_retentions_total[1d]) > 0)'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Size-based retention is evicting data inside the 30d SLO window'
+                      description: 'Prometheus {{ $labels.pod }} deleted blocks for retentionSize and now holds {{ $value | humanizeDuration }} of data, so every 30d error budget reads a truncated window. Runbook: docs/runbooks/platform-red-slo.md.'
               - name: platform-red-v1-slo
                 rules:
                   - alert: PlatformRequestErrorBudgetBurningFast
