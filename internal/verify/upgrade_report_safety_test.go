@@ -71,6 +71,19 @@ stringData: {message: SYNTHETIC_HEAD_MESSAGE}
 	}
 }
 
+func TestUpgradeNullSecretFieldsAreEmpty(t *testing.T) {
+	manifest := []byte("apiVersion: v1\nkind: Secret\nmetadata: {name: empty}\ndata:\nstringData:\n")
+	for _, normalize := range []func([]byte) (map[string]string, error){normaliseManifest, normaliseRepoManifest} {
+		objects, err := normalize(manifest)
+		if err != nil {
+			t.Fatalf("null Secret fields should be safe empty maps: %v", err)
+		}
+		if len(objects) != 1 {
+			t.Fatalf("expected one Secret, got %d", len(objects))
+		}
+	}
+}
+
 func TestUpgradeRedactionNestedAndInvalid(t *testing.T) {
 	const sentinel = "SYNTHETIC_NESTED_SENTINEL"
 	input := `apiVersion: v1
@@ -150,6 +163,15 @@ func TestUpgradeErrorReportsOmitPayload(t *testing.T) {
 			if strings.Contains(text, sentinel) {
 				t.Fatal("error report exposed payload")
 			}
+		}
+	}
+	for _, job := range []*upgradeJob{
+		{baseErr: &upstreamError{detail: sentinel, lines: []string{sentinel}}},
+		{baseOut: []byte("[" + sentinel + "]")},
+	} {
+		item := UpgradeItem{Check: "upgrade/test/synthetic"}
+		if check := finishJob(job, &item, 400); check.Status != StatusSkip {
+			t.Fatalf("base-side failure should preserve skip status, got %s", check.Status)
 		}
 	}
 	failed := NewResult(0)

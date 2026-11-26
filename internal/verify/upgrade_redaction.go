@@ -17,6 +17,10 @@ func redactUpgradeSecrets(value any, secretItem bool, path string, originals map
 		if secret {
 			for _, field := range []string{"data", "stringData"} {
 				if raw, exists := v[field]; exists {
+					if raw == nil {
+						v[field] = map[string]any{}
+						continue
+					}
 					m, ok := raw.(map[string]any)
 					if !ok {
 						return fmt.Errorf("unsupported Secret field; %s", upgradeContentOmitted)

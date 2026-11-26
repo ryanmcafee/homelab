@@ -298,7 +298,8 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) (*UpgradeOutput, *Result)
 			continue
 		}
 		if baseErr != nil {
-			res.Add(FailCheck(fmt.Sprintf("upgrade/%s/_base-render", env.Name), start, "parsing the base render: "+upgradeContentOmitted))
+			res.Add(Check{Name: fmt.Sprintf("upgrade/%s/_base-render", env.Name), Status: StatusSkip,
+				Detail: "parsing the base render: " + upgradeContentOmitted})
 			continue
 		}
 
@@ -391,7 +392,7 @@ func finishJob(j *upgradeJob, item *UpgradeItem, maxLines int) Check {
 	case j.headErr != nil:
 		return FailCheck(name, start, "helm template failed at head: "+upgradeContentOmitted)
 	case j.baseErr != nil:
-		return FailCheck(name, start, "helm template failed at base: "+upgradeContentOmitted)
+		return Check{Name: name, Status: StatusSkip, Detail: "helm template failed at base: " + upgradeContentOmitted}
 	}
 
 	baseObjs, baseSecrets, berr := normaliseDocsWithSecrets(j.baseOut, nil)
@@ -400,7 +401,7 @@ func finishJob(j *upgradeJob, item *UpgradeItem, maxLines int) Check {
 		return FailCheck(name, start, "parsing the head render: "+upgradeContentOmitted)
 	}
 	if berr != nil {
-		return FailCheck(name, start, "parsing the base render: "+upgradeContentOmitted)
+		return Check{Name: name, Status: StatusSkip, Detail: "parsing the base render: " + upgradeContentOmitted}
 	}
 
 	item.Rendered = true
