@@ -1386,6 +1386,7 @@ test("every level_2 conformance id states whether it is measured", () => {
     [
       "consumer_create_name_only_reach",
       "nack_account_on_stream_move",
+      "rotation_and_revocation_drill",
       "rq_reply_needs_no_inbox_grant",
     ],
     "every former open question must cite the level-2 run that answered it",
@@ -1416,15 +1417,19 @@ test("every level_2 conformance id states whether it is measured", () => {
       `level_2 id ${id} cites suite ${measured?.suite}, whose probes.sh does not exercise it`,
     );
   }
-  const nackMove = promoted.find(
-    (entry) => entry.id === "nack_account_on_stream_move",
-  );
-  assert(
-    /^docker\.io\/natsio\/jetstream-controller@sha256:[0-9a-f]{64}$/.test(
-      nackMove?.measured?.controller ?? "",
-    ),
-    `nack_account_on_stream_move cites ${JSON.stringify(nackMove?.measured?.controller)}, not a rendered jetstream-controller digest`,
-  );
+  for (const nackId of [
+    "nack_account_on_stream_move",
+    "rotation_and_revocation_drill",
+  ]) {
+    const controller = promoted.find((entry) => entry.id === nackId)?.measured
+      ?.controller;
+    assert(
+      /^docker\.io\/natsio\/jetstream-controller@sha256:[0-9a-f]{64}$/.test(
+        controller ?? "",
+      ),
+      `${nackId} cites ${JSON.stringify(controller)}, not a rendered jetstream-controller digest`,
+    );
+  }
   assert(
     declaration.conformance.level_2.length >
       declaration.conformance.level_0.length / 2,

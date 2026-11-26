@@ -440,9 +440,9 @@ conformance:
         messages INSIDE ONE ACCOUNT. Cross-tenant refusal alone does not test this.
     - id: consumer_create_name_only_reach
       measured:
-        image: docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4
+        image: docker.io/library/nats@sha256:558394a23dd3c36f2d3a64b51865fd09908010e80a542cea5e75c2af543ed62a
         suite: tests/e2e/nats-auth
-        run: https://github.com/ryanmcafee/homelab/actions/runs/36802082830
+        run: https://github.com/ryanmcafee/homelab/actions/runs/45906860070
       asserts: >-
         No workload principal can create a consumer (ADR-043 D6b, `bound_puller`). The nameless
         `$JS.API.CONSUMER.CREATE.<stream>` form, legacy `DURABLE.CREATE` and the fully-filtered
@@ -452,21 +452,21 @@ conformance:
         reachable from a workload credential; only `stream_controller` creates consumers.
     - id: nack_account_on_stream_move
       measured:
-        image: docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4
-        controller: docker.io/natsio/jetstream-controller@sha256:58862daca582c990dcc7d3ca4449d2d9b194dc24e3359a9c3ca6a3320cddc77d
+        image: docker.io/library/nats@sha256:558394a23dd3c36f2d3a64b51865fd09908010e80a542cea5e75c2af543ed62a
+        controller: docker.io/natsio/jetstream-controller@sha256:08ec7c293041635a4e3d308b14a95ef702548da5d09f079325a08e74904f527d
         suite: tests/e2e/nats-auth
-        run: https://github.com/ryanmcafee/homelab/actions/runs/36857580994
+        run: https://github.com/ryanmcafee/homelab/actions/runs/45906860070
       asserts: >-
-        A control-loop NACK (chart 0.35.0) re-creates the stream in the new account when
-        `spec.account` moves and leaves the old copy in place for at least 60s; nothing migrates
-        or deletes it. Deleting the `Stream` hangs on its finalizer because nack's grants refuse
-        `$JS.API.STREAM.DELETE` (`lifecycle_refused`). Legacy NACK without `--crd-connect`
-        ignores `spec.account`, and nack's declared key cannot run NACK at all (MCAA-1194).
+        A control-loop NACK re-creates the stream in the new account when `spec.account` moves
+        and leaves the old copy in place for at least 60s; nothing migrates or deletes it.
+        Deleting the `Stream` hangs on its finalizer because nack's grants refuse
+        `$JS.API.STREAM.DELETE` (`lifecycle_refused`). nack's declared key cannot run NACK at
+        all (MCAA-1194). The cluster's own control-loop NACK places nothing on the shared bus.
     - id: rq_reply_needs_no_inbox_grant
       measured:
-        image: docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4
+        image: docker.io/library/nats@sha256:558394a23dd3c36f2d3a64b51865fd09908010e80a542cea5e75c2af543ed62a
         suite: tests/e2e/nats-auth
-        run: https://github.com/ryanmcafee/homelab/actions/runs/36810662328
+        run: https://github.com/ryanmcafee/homelab/actions/runs/45906860070
       asserts: >-
         The key is the responder user's `permissions.allow_responses`, measured at `{max: 1,
         expires: 5s}`. Without it the reply is refused. With it the reply reaches the
@@ -479,12 +479,21 @@ conformance:
         by `nats-headless` and reachable on the pod IP either way) and 7777 (the exporter, which
         republishes the same cross-account metadata).
     - id: rotation_and_revocation_drill
+      measured:
+        image: docker.io/library/nats@sha256:558394a23dd3c36f2d3a64b51865fd09908010e80a542cea5e75c2af543ed62a
+        controller: docker.io/natsio/jetstream-controller@sha256:08ec7c293041635a4e3d308b14a95ef702548da5d09f079325a08e74904f527d
+        suite: tests/e2e/nats-auth
+        run: https://github.com/ryanmcafee/homelab/actions/runs/45906860070
       asserts: >-
-        Staged new-key publication, Secret delivery, server config reload, client and NACK
-        reconnect, old-key removal, and refusal of both new AND already-established old sessions
-        within a stated bound -- plus rollback and a `$SYS` recovery path that works while the
-        identity service is down. External Secrets and 1Password synchronise material; they do
-        not supply this protocol.
+        One key per principal, so rotation is a bounded maintenance interruption, not a staged
+        overlap. A re-rendered config applied by reload (no restart) puts the new key set in
+        force within 180s wall clock: the new key connects and the old key is refused. An
+        already-established session on the removed key is cut, and a session on an unchanged
+        key survives. A control-loop NACK reconciles on its rotated key, delivered by Secret,
+        without a restart. Rollback restores the old key the same way. A `$SYS` break-glass key
+        rendered by reload alone, with no Secret and no identity service in the path, kicks a
+        tenant session that the tenant's own key cannot. External Secrets and 1Password
+        synchronise material; they do not supply this protocol.
     - id: cold_start_no_maintainer_account
       asserts: >-
         Cold start on fresh synthetic credentials with no maintainer account, no identity service
