@@ -523,6 +523,12 @@ test("C2: what ends a response decides its kind, not how it is framed", () => {
       classification.includes("kind=stream"),
     "a response ended by the client or a future event must be classified kind=stream",
   );
+  assert(
+    /request\/reply bridge[^.]*is service-ended\s+and kind=http/i.test(
+      classification,
+    ),
+    "a request/reply bridge awaits work it started; classified kind=stream, its clock stops at the hold and hides the caller's latency",
+  );
 });
 
 test("C2: the latency objective covers kind=http by a positive matcher", () => {
@@ -538,6 +544,34 @@ test("C2: the latency objective covers kind=http by a positive matcher", () => {
   assert(
     /never pooled with kind=http/i.test(coverage),
     "stream establishment times must never share the http latency objective",
+  );
+});
+
+test('C2: every SLI and canary selector in the document pins kind="http"', () => {
+  // The prose rule alone passed with the latency SLI rewritten to kind!="stream" and a
+  // canary p99 with no kind matcher, which pools 30s pubsub handlers into the rollout gate.
+  const sliExpressions = [...doc.matchAll(/```promql\n([\s\S]*?)```/g)]
+    .map((m) => m[1])
+    .filter((expr) => expr.includes('le="0.25"'));
+  const queries = [
+    ...sliExpressions,
+    ...canaryMetrics.map((m) => m.body.slice(m.body.indexOf("query:"))),
+  ];
+  let selectorsChecked = 0;
+  for (const raw of queries) {
+    for (const matchers of selectorMatchers(
+      raw.replace(/\{\{[^{}]*\}\}/g, "ARG"),
+    )) {
+      selectorsChecked++;
+      assert(
+        matchers.includes('kind="http"'),
+        `selector {${matchers.join(",")}} does not pin kind="http"; it pools stream establishment or bus handler durations into the http objective`,
+      );
+    }
+  }
+  assert(
+    sliExpressions.length >= 1 && selectorsChecked >= 12,
+    `only ${selectorsChecked} selectors in ${sliExpressions.length} SLI expressions were reached; the latency SLI and all three canary metrics must be inspected`,
   );
 });
 

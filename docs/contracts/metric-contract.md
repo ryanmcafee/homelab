@@ -255,12 +255,12 @@ spec:
           address: http://prometheus-operated.monitoring.svc.cluster.local:9090
           query: |
             scalar(sum(rate(platform_request_duration_seconds_count{
-              job="{{args.canary-job}}",service="{{args.service}}",outcome="error",code!="quota"}[5m])))
+              job="{{args.canary-job}}",service="{{args.service}}",kind="http",outcome="error",code!="quota"}[5m])))
             /
             scalar(sum(rate(platform_request_duration_seconds_count{
-              job="{{args.canary-job}}",service="{{args.service}}",code!="quota"}[5m])))
+              job="{{args.canary-job}}",service="{{args.service}}",kind="http",code!="quota"}[5m])))
             + 0 * scalar(sum(increase(platform_request_duration_seconds_count{
-              job="{{args.canary-job}}",service="{{args.service}}",code!="quota"}[5m])) > 50)
+              job="{{args.canary-job}}",service="{{args.service}}",kind="http",code!="quota"}[5m])) > 50)
     - name: error-ratio-vs-stable
       initialDelay: 5m
       interval: 1m
@@ -274,16 +274,16 @@ spec:
           address: http://prometheus-operated.monitoring.svc.cluster.local:9090
           query: |
             scalar(sum(rate(platform_request_duration_seconds_count{
-              job="{{args.canary-job}}",service="{{args.service}}",outcome="error",code!="quota"}[5m])))
+              job="{{args.canary-job}}",service="{{args.service}}",kind="http",outcome="error",code!="quota"}[5m])))
             / scalar(sum(rate(platform_request_duration_seconds_count{
-              job="{{args.canary-job}}",service="{{args.service}}",code!="quota"}[5m])))
+              job="{{args.canary-job}}",service="{{args.service}}",kind="http",code!="quota"}[5m])))
             -
             scalar(sum(rate(platform_request_duration_seconds_count{
-              job="{{args.stable-job}}",service="{{args.service}}",outcome="error",code!="quota"}[5m])))
+              job="{{args.stable-job}}",service="{{args.service}}",kind="http",outcome="error",code!="quota"}[5m])))
             / scalar(sum(rate(platform_request_duration_seconds_count{
-              job="{{args.stable-job}}",service="{{args.service}}",code!="quota"}[5m])))
+              job="{{args.stable-job}}",service="{{args.service}}",kind="http",code!="quota"}[5m])))
             + 0 * scalar(sum(increase(platform_request_duration_seconds_count{
-              job="{{args.canary-job}}",service="{{args.service}}",code!="quota"}[5m])) > 50)
+              job="{{args.canary-job}}",service="{{args.service}}",kind="http",code!="quota"}[5m])) > 50)
     - name: p99-latency
       initialDelay: 5m
       interval: 1m
@@ -298,10 +298,10 @@ spec:
           query: |
             scalar(histogram_quantile(0.99, sum by (le) (
               rate(platform_request_duration_seconds_bucket{
-                job="{{args.canary-job}}",service="{{args.service}}",outcome="success"}[5m])
+                job="{{args.canary-job}}",service="{{args.service}}",kind="http",outcome="success"}[5m])
             )))
             + 0 * scalar(sum(increase(platform_request_duration_seconds_count{
-              job="{{args.canary-job}}",service="{{args.service}}",outcome="success"}[5m])) > 50)
+              job="{{args.canary-job}}",service="{{args.service}}",kind="http",outcome="success"}[5m])) > 50)
 ```
 
 `error-ratio-vs-stable` is the metric most worth having. A service with a pre-existing 3% error
@@ -309,9 +309,11 @@ rate is undeployable against an absolute `result > 0.01` and fine against
 `canary - stable > 0.01`: a canary is a comparison, and the absolute threshold is a statement
 about the service that belongs in the SLO.
 
-**The canary gates on the same definition the SLO uses.** The error metrics carry
-`code!="quota"` on both sides exactly as the availability SLI does, and `p99-latency` pins
-`outcome="success"` exactly as the latency SLI does. A canary measuring a different quantity than
+**The canary gates on the same definition the SLO uses.** Every selector pins `kind="http"`
+exactly as both SLIs do, the error metrics carry `code!="quota"` on both sides exactly as the
+availability SLI does, and `p99-latency` pins `outcome="success"` exactly as the latency SLI does.
+Without `kind="http"` a service that also consumes the bus pools `kind="pubsub"` handler
+durations, up to the 30s ack deadline, into its p99 and aborts a healthy rollout. A canary measuring a different quantity than
 the objective it protects fails in both directions: without the quota selector a tenant retrying
 into its limit aborts a healthy rollout, and without `outcome="success"` a canary returning fast
 500s reports an *improved* p99 while it burns the budget.
@@ -395,7 +397,8 @@ one ships.
 `observation.streamClassification` and `labels.required[kind].latencyCoverage`:
 
 - What ends the response decides the kind. Service-ended work is `kind="http"`, chunked or not;
-  client- or event-ended responses are `kind="stream"`.
+  client- or event-ended responses are `kind="stream"`. Waiting on a reply to work the request
+  itself started, such as an HTTP-to-NATS request/reply bridge, is service-ended: `kind="http"`.
 - A stream's clock stops at establishment. For a long-poll or watch that is the start of the
   hold, not the header flush, because a long-poll holds its headers until data arrives.
 - The http latency objective covers `kind="http"` only, by the positive matcher. `kind!="stream"`
@@ -403,8 +406,10 @@ one ships.
 
 **Consequences.** The `platform-red-v1` rules already satisfy this: the recording rules keep
 `kind` in their `by` clause and both windows of `PlatformRequestLatencyBudgetBurningFast` select
-`kind="http"`. No new selector is needed; that matcher is now a contract obligation, and the SRE
-owns a promtool fixture proving a `kind="stream"` series in `+Inf` does not page. A stream route
+`kind="http"`, so they need no new selector; that matcher is now a contract obligation. The
+section 6 canary did not carry it and now pins `kind="http"` on every selector. A promtool fixture
+proving a `kind="stream"` series in `+Inf` does not page is still owed by the SRE; until it lands,
+`scripts/metrics-contract_test.ts` pins the matcher in this document only. A stream route
 gets an establishment objective on its own `kind="stream"` row, or none, chosen by the SLO owner
 when it ships. Mid-flight stream failure stays the stated hole in `observation.streamLimitation`.
 The long-poll clarification changes what a `kind="stream"` series measures, which is free only

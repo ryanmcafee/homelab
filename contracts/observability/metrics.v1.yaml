@@ -86,7 +86,9 @@ metrics:
         written for SSE and other streamed bodies, the 101 written for a websocket
         upgrade, and for a long-poll or watch the moment the hold begins, whether or not
         headers have been flushed. A long-poll server holds its headers until data
-        arrives, so "headers written" alone would measure the hold. `outcome` reports
+        arrives, so "headers written" alone would measure the hold. A long-poll answered
+        without holding, because data was already pending, is established when it
+        responds. Closing a stream never records a second observation. `outcome` reports
         whether establishment succeeded. A service MUST NOT record a long-lived response's open
         lifetime into this family: one such observation lands in +Inf and permanently
         breaches any latency objective for the service, and it drags the p99 of every
@@ -106,7 +108,9 @@ metrics:
         chunked or flushed incrementally: a large export is latency the caller waits
         for, and the latency SLI is right to count it. A response that ends when the
         client disconnects, a subscribed event arrives or a hold timeout expires is
-        kind=stream. `kind` is fixed per route, so a route that can stream is declared
+        kind=stream. Waiting on a reply to work this request itself started (an
+        HTTP-to-NATS request/reply bridge, a job it enqueued and awaits) is service-ended
+        and kind=http: that wait is the caller's latency, not a hold. `kind` is fixed per route, so a route that can stream is declared
         kind=stream, or its streaming form is a separate route.
       pubsub: >-
         From the moment the message is delivered to the handler, to the moment the
