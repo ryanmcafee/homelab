@@ -360,6 +360,80 @@ phase_move_moved() {
   done
 }
 
+DRILL=${DRILL:-$SEEDS/drill}
+DRILL_ROTATED=verify
+DRILL_CONTROL=dlq-reporter
+
+# Holds one session on the key about to rotate and one on a key that stays, across later phases.
+phase_drill_hold() {
+  id=rotation_and_revocation_drill
+  mkdir -p "$DRILL"
+  for principal in $DRILL_ROTATED $DRILL_CONTROL; do
+    setsid sh -c 'echo $$ >"$1.pid"; exec nats --server "$2" --nkey "$3" --inbox-prefix "_INBOX.$4" sub "_INBOX.$4.drill"' \
+      _ "$DRILL/$principal" "$NATS_URL" "$SEEDS/$principal.nk" "$principal" >"$DRILL/$principal.out" 2>&1 </dev/null &
+  done
+  sleep 2
+  for principal in $DRILL_ROTATED $DRILL_CONTROL; do
+    succeeded $id "$principal holds an established session on its current key" \
+      "Subscribing on _INBOX.$principal.drill" "$(cat "$DRILL/$principal.out")"
+  done
+}
+
+# Polls until the new key connects and the old is refused, within 180s of DRILL_APPLIED_AT (pod epoch).
+phase_drill_await() {
+  id=rotation_and_revocation_drill
+  : "${DRILL_ACCEPT:?}" "${DRILL_REFUSE:?}" "${DRILL_APPLIED_AT:?}"
+  while :; do
+    accepted=$(nats --server "$NATS_URL" --nkey "$SEEDS/$DRILL_ACCEPT.nk" --timeout 3s rtt 2>&1)
+    refused=$(nats --server "$NATS_URL" --nkey "$SEEDS/$DRILL_REFUSE.nk" --timeout 3s rtt 2>&1)
+    elapsed=$(($(date +%s) - DRILL_APPLIED_AT))
+    # Whole-second stamps hide up to 1s, so only a delta under 180 proves real time under 180s.
+    [ "$elapsed" -lt 180 ] || break
+    if measured_rtt "$accepted"; then
+      case $refused in
+      *"Authorization Violation"*)
+        pass $id "$DRILL_ACCEPT's key connects and $DRILL_REFUSE's key is refused at connect within 180s"
+        measured $id "the reloaded key set was confirmed in force under $((elapsed + 1))s (wall clock) after the ConfigMap apply started"
+        return
+        ;;
+      esac
+    fi
+    sleep 2
+  done
+  fail $id "$DRILL_ACCEPT's key connects and $DRILL_REFUSE's key is refused within 180s" "at least ${elapsed}s elapsed
+$accepted
+$refused"
+}
+
+# Reads both held sessions once the reload is in force; the control separates revocation from a reload drop.
+phase_drill_sessions() {
+  id=rotation_and_revocation_drill
+  sleep 2
+  if kill -0 "$(cat "$DRILL/$DRILL_CONTROL.pid")" 2>/dev/null; then
+    pass $id "$DRILL_CONTROL's held session outlived the exec that started it"
+  else
+    fail $id "$DRILL_CONTROL's held session outlived the exec that started it" "$(cat "$DRILL/$DRILL_CONTROL.out")"
+    return
+  fi
+  case $(cat "$DRILL/$DRILL_CONTROL.out") in
+  *Disconnected*) fail $id "$DRILL_CONTROL's established session survives a reload that keeps its key" \
+    "$(cat "$DRILL/$DRILL_CONTROL.out")" ;;
+  *) pass $id "$DRILL_CONTROL's established session survives a reload that keeps its key" ;;
+  esac
+  rotated=$(cat "$DRILL/$DRILL_ROTATED.out")
+  case $rotated in
+  *Disconnected*) measured $id "$DRILL_ROTATED's established session on the removed key was cut: $(printf '%s\n' "$rotated" | grep -m1 Disconnected)" ;;
+  *) measured $id "$DRILL_ROTATED's established session on the removed key survived the reload" ;;
+  esac
+}
+
+phase_drill_release() {
+  for pid in "$DRILL"/*.pid; do
+    [ -f "$pid" ] && kill "$(cat "$pid")" 2>/dev/null
+  done
+  rm -rf "$DRILL"
+}
+
 for phase in "$@"; do
   "phase_$phase"
 done

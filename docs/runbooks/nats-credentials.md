@@ -203,10 +203,12 @@ Do not invent overlap support, and do not enable anonymous access to cover the g
 6. Prove the new key connects and the old key is refused **on a fresh connection**.
 7. Keep the retired seed file until step 6 passes, then destroy it.
 
-**Unmeasured, and not claimed here:** whether an already-established session is cut or allowed to
-continue when its key is removed. That is the declaration's level-2
-`rotation_and_revocation_drill`, and it needs a running server. Plan the interruption as though
-established sessions survive until they reconnect, and measure it in that drill.
+**Measured on Kind** (level-2 `rotation_and_revocation_drill`,
+[run 45770012001](https://github.com/ryanmcafee/homelab/actions/runs/45770012001/job/139741976377)):
+the config reload cuts a session already established under the removed key
+(`Disconnected due to: EOF`, and `connz` no longer lists it). Sessions on unchanged keys survive.
+The drill asserts the reloaded key set is in force within 180s of wall-clock time from the
+ConfigMap apply; each run's measured figure is in its `e2e/measured` check.
 
 If ESO is slow or a restart fails mid-rotation, the correct state is the interruption continuing
 with the new public key in place. Reverting the public key to restore availability puts a
@@ -234,10 +236,9 @@ the bus anonymous. Neither is a revocation step.
 3. Accept the interruption: that principal's clients are refused until step 4 completes.
    Revocation takes precedence over availability; do not restore the old key to shorten it.
 4. Update the 1Password item's `nats.nk` field to the new seed and restart the consumers.
-5. Cut sessions established under the compromised key. Whether a config reload closes them is
-   unmeasured (section 5), so do not assume it. Until the level-2 drill proves a narrower verb,
-   restart the NATS server through ArgoCD so every client must reconnect and authenticate
-   against the new map. This interrupts every principal briefly.
+5. Cut sessions established under the compromised key. The config reload from step 2 does this
+   (measured, section 5); confirm it in step 6. If `connz` still lists the compromised key,
+   restart the NATS server through ArgoCD so every client must reconnect.
 6. Prove all three: the new key connects, the compromised key is refused on a fresh connection,
    and `$SYS` `connz` lists no connection authenticated with the compromised public key.
 7. **Never roll back to the compromised key.** An External Secrets update is delivery, not
