@@ -11,7 +11,7 @@ you merge the pull request (ADR-036).
 | Image | `Dockerfile.triage-agent`, published by `.github/workflows/triage-agent-image.yml` as `ghcr.io/<owner>/homelab-triage-agent:<images.triage-agent>` |
 | Chart | `charts/triage-agent`: intake Deployment, WorkflowTemplate `triage-fix`, ServiceAccounts, workspace and cache PVCs, ConfigMaps, OnePasswordItems |
 | Application | `charts/addons/templates/triage-agent.yaml`, wave 13; without a secret store or Argo Workflows, the intake alone in dry run (`workflow.enabled: false`) |
-| Alertmanager route + alerts | `charts/addons/templates/kube-prometheus-stack.yaml`: receiver `triage-agent`, `continue: true` (not for `TriageAgent*` or `service="triage-agent"`, so its own RED alerts page a human); rule group `homelab-triage-agent` |
+| Alertmanager route + alerts | `charts/addons/templates/kube-prometheus-stack.yaml`: receiver `triage-agent`, `continue: true` (not for `TriageAgent*`, `service="triage-agent"` or alerts in its own namespace, so alerts about the agent page a human); rule group `homelab-triage-agent` |
 | ArgoCD account | `charts/bootstrap/values-homelab.yaml`: `accounts.triage-agent: apiKey`, role `get` + `sync` on applications |
 
 ## Flow

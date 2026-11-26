@@ -8,6 +8,12 @@
 - name: the triage agent's own alerts do not page the triage agent
   labels: {alertname: TriageAgentDown, severity: critical, namespace: triage-agent}
   receivers: [pushover-critical]
+- name: a crash loop in the triage agent's namespace pages a human, not the triage agent
+  labels: {alertname: KubePodCrashLooping, severity: warning, namespace: triage-agent}
+  receivers: [pushover-warning]
+- name: an alert with no service label is triaged and warned
+  labels: {alertname: KubePodCrashLooping, severity: warning, namespace: monitoring}
+  receivers: [triage-agent, pushover-warning]
 - name: a burning service is triaged and paged
   labels: {alertname: PlatformRequestErrorBudgetBurningFast, severity: critical, service: issues-api, environment: prod, tenant: local, kind: http}
   receivers: [triage-agent, pushover-critical]

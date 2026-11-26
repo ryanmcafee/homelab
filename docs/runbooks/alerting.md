@@ -6,7 +6,7 @@ The Pushover credentials live in one 1Password item; nothing secret is committed
 
 | Severity | Receiver | Pushover priority | Why |
 |---|---|---|---|
-| every alert but `Watchdog`, `InfoInhibitor`, `TriageAgent*` and any with `service="triage-agent"` | `triage-agent` (webhook, `continue: true`) | — | a triage workflow that opens a fix PR ([triage-agent.md](triage-agent.md)) |
+| every alert but `Watchdog`, `InfoInhibitor`, `TriageAgent*` and any with `service="triage-agent"` or the triage agent's namespace | `triage-agent` (webhook, `continue: true`) | — | a triage workflow that opens a fix PR ([triage-agent.md](triage-agent.md)) |
 | `GitHubPullRequestNeedsReview` | `pushover-github-pr` | 0 (normal), one digest, never resolved | pull requests wait for you ([below](#github-pull-requests-that-need-review)) |
 | `critical` | `pushover-critical` | 1 (high) while firing, 0 when resolved | wakes you up |
 | `warning` | `pushover-warning` | -1 (low, no sound) | look during the day |
