@@ -90,6 +90,35 @@ tests:
               summary: 'issues-api is burning its 250ms latency budget fast'
               description: '20% of successful kind=http requests to issues-api took longer than 250ms over both the long and the short window; the objective is 99% under 250ms over 30d. Runbook: docs/runbooks/platform-red-slo.md.'
 
+  # Contract C2: a long-lived stream is slow by design, so only kind="http" may reach the latency SLO.
+  - interval: 1m
+    name: slow kind=stream successes do not page the http latency objective
+    input_series:
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="success",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+600x80'
+      - series: 'platform_request_duration_seconds_bucket{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="success",le="0.25",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+600x80'
+      - series: 'platform_request_duration_seconds_bucket{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="success",le="+Inf",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+600x80'
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="stream",route="GET /api/issues/:id/events",outcome="success",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+60x80'
+      - series: 'platform_request_duration_seconds_bucket{service="issues-api",environment="prod",tenant="local",kind="stream",route="GET /api/issues/:id/events",outcome="success",le="0.25",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+0x80'
+      - series: 'platform_request_duration_seconds_bucket{service="issues-api",environment="prod",tenant="local",kind="stream",route="GET /api/issues/:id/events",outcome="success",le="+Inf",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+60x80'
+    promql_expr_test:
+      - expr: platform:request_latency:violation_ratio_rate1h
+        eval_time: 65m
+        exp_samples:
+          - labels: 'platform:request_latency:violation_ratio_rate1h{service="issues-api",environment="prod",tenant="local",kind="http"}'
+            value: 0
+          - labels: 'platform:request_latency:violation_ratio_rate1h{service="issues-api",environment="prod",tenant="local",kind="stream"}'
+            value: 1
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: PlatformRequestLatencyBudgetBurningFast
+        exp_alerts: []
+
   # A service that stops exposing produces no error ratio, so every burn-rate
   # alert goes quiet; platform_build_info is the inventory that makes it loud.
   - interval: 1m
