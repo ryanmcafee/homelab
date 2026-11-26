@@ -775,7 +775,7 @@ func describeChange(base, head *ChartSource) string {
 	}
 	var parts []string
 	if base.RepoURL != head.RepoURL {
-		parts = append(parts, fmt.Sprintf("repoURL %s → %s", base.RepoURL, head.RepoURL))
+		parts = append(parts, "repoURL changed")
 	}
 	if base.Chart != head.Chart {
 		parts = append(parts, fmt.Sprintf("chart %s → %s", base.Chart, head.Chart))

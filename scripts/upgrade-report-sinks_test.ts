@@ -145,3 +145,24 @@ test("summary, sticky comment and artifact sinks use only report outputs", () =>
     "values.json",
   ]);
 });
+
+test("uploaded values JSON omits chart pull diagnostics", () => {
+  const projection = workflow.match(
+    / {10}# Pull diagnostics[\s\S]*? {10}mv values\.safe\.json values\.json/,
+  )?.[0];
+  expect(projection).toBeDefined();
+  const dir = mkdtempSync(join(tmpdir(), "upgrade-values-sinks-"));
+  try {
+    writeFileSync(join(dir, "values.json"), JSON.stringify({
+      pass: false,
+      inspected: { sources: 0, charts: 0 },
+      findings: [], unusedAllowEntries: [],
+      pullErrors: [{ key: "synthetic", error: sentinel }],
+    }));
+    const run = spawnSync("bash", ["-c", projection ?? ""], { cwd: dir, encoding: "utf8" });
+    expect(run.status).toBe(0);
+    expect(readFileSync(join(dir, "values.json"), "utf8")).not.toContain(sentinel);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
