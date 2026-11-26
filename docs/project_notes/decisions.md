@@ -1866,3 +1866,32 @@ Each decision should include:
 - **Workflows that rely on the shared PVC change.** Today runs share `/paperclip` (project workspace clones, Claude config and memory). In a sandbox pod the workspace is file-synced in and out by the plugin. Whether that sync carries what agents rely on, and whether the ACP-based `claude_local` path works under a sandbox lease, is unproven and is the first thing the implementation spike measures
 - **Egress becomes explicit.** Each environment needs the Paperclip API, the model provider and the GitHub broker in its allow-list. A missing entry fails a run loudly, not silently, which is the acceptable direction
 - **Reversible.** The boundary is an execution-environment setting per agent. Pointing agents back at the `local` environment restores today's behaviour without a data migration, though it also restores the exposure, so the rotated credentials would need rotating again
+### ADR-056: Upgrade report sinks are a trust boundary; Secret payloads never cross it (2026-11-26); refines ADR-014 (item 19)
+
+
+**Context:**
+- ADR-014 item 19 makes `homelab verify upgrade` diff normalised upstream renders and publish the diff to the sticky `upgrade-diff` PR comment, the job summary and the `upgrade-report` artifact (`upgrade-report.md`, `upgrade.json`). It sets no rule for sensitive objects
+- `internal/verify/upgrade.go` masks `Secret.data`/`stringData` only inside `versionOnlyDiff` (classification). `objectDiff` runs on unmasked text, so `UpgradeItem.Diff` and `Check.Findings` carry Secret payload lines into every sink. PR #742 published two rendered Secrets this way; #511 (MCAA-652, open since 2026-09-29, conflicting) was an earlier fix that never merged
+- Helm/parser diagnostics (`headErr.lines`, `failedRenders` findings, YAML parse errors) can quote rendered manifests and reach the same sinks
+- `redactSecretValues` returns the input unchanged when it cannot parse it (fails open)
+
+**Decision:**
+- The boundary is the normalise step (`normaliseDocs`), shared by `finishJob` and `repoDiff`. A Secret payload is removed there, before `objectDiff`, `versionOnlyDiff`, `UpgradeItem`, `Check` or any sink sees it. Sinks get no redaction duty and no second copy of the logic (shared bones)
+- A Secret is any mapping at any depth whose `kind` is `Secret`, plus every item of a `SecretList`; the `kubectl.kubernetes.io/last-applied-configuration` annotation is dropped from every object
+- Keys stay and values go: each `data`/`stringData` key keeps its name; its value becomes `<redacted>`. The per-object diff for a Secret reports keys added, removed and changed. "Changed" comes from comparing base and head values in memory. No hash, length, prefix or other fingerprint is published
+- Fail closed: a document that cannot be parsed or classified, or a mapping shape the walker does not support, never reaches a sink as text. The check fails with fixed text that names only the object ID and the reason. Helm and parser diagnostics are replaced by fixed text plus object/chart IDs
+- Delivery guarantee: the contract binds `Result`/JSON and the markdown report, so the comment, summary and both artifacts are covered by construction. `revalidate.json` and CRD revalidation findings publish only allowlisted fields
+- Contract test (test-first): synthetic sentinel values in `data` and `stringData`, in a `SecretList`, in a last-applied annotation and in a forced helm error, covering added, deleted and changed objects. Assert the sentinels are absent from `UpgradeReport` output and from the JSON `Result`, and that key names and change counts are present. A workflow-level test asserts the same for the files the workflow publishes
+- The automerge gate keeps its ADR-014 inputs (render, revalidation, declared values). It does not close just because a Secret is present or changed: a redacted value change gives a human nothing to review in the PR either
+
+**Alternatives Considered:**
+- Redact at each sink (markdown, JSON, workflow) -> three copies drift; a fourth sink (job log, a future dashboard) inherits nothing. Rejected (shared bones, blast radius)
+- Delete `data`/`stringData` entirely (#511's walker) -> safe, but drops key names, so a removed key a workload mounts is invisible. Rejected in favour of keys plus change state
+- Publish a value hash so reviewers see "changed" -> unsalted hashes allow offline guessing of low-entropy values. Rejected; in-memory comparison gives the same signal
+- Close automerge whenever a Secret is present (#511) -> blocks every chart that renders a Secret, with nothing reviewable behind the block. Rejected; reversible if evidence shows value changes that need review
+- Post-hoc regex scan of `upgrade-report.md` in the workflow as the primary control -> a pattern guess, not a contract. Allowed only as extra defence, never as the guard
+
+**Consequences:**
+- A Secret-only config change (e.g. `alertmanager.yaml` rendered into a Secret by kube-prometheus-stack) shows as "key changed" only; reviewers reproduce it locally with `task verify:upgrade`. This is the accepted cost
+- Secret-shaped data in non-Secret kinds (ConfigMap, inline Application `helm.values`/`valuesObject` in git-path Applications) is out of this contract's scope. It stays governed by the secret-wiring policy and the known-secrets register (ADR-009); this ADR does not claim to cover it
+- Existing exposures (PR #742 comment, past artifacts) are incident containment under MCAA-2575, not part of this decision

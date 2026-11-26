@@ -617,3 +617,10 @@ These are documented errors with known solutions:
 - **Cause**: Level 0 rendered the parent Applications chart without rendering the NZBGet child chart against its `values.schema.json`.
 - **Fix**: MCAA-2320 / PR #721 replaces null with an empty string and adds `upstream/localdev/nzbget-schema`, which renders the pinned child chart with the values emitted by the parent Application.
 - **Verification**: The regression test fails the original null value; level 0 passes with 314 passed, 0 failed, 1 skipped.
+
+### 2026-11-26 - Upgrade report published rendered Secret payloads
+
+- **Issue**: A rendered Secret change reached the `upgrade-diff` comment and `upgrade.json` findings because the upgrade classifier masked values only after `objectDiff` had built its raw diff.
+- **Root Cause**: `normaliseDocs` passed Secret `data` and `stringData` to the diff. Parser and Helm diagnostics could also quote the manifest; the workflow published unprojected CRD revalidation findings.
+- **Solution**: Redact parsed Secret values before either diff, preserve key names and compare values only in memory to report added/removed/changed keys. Replace unsafe diagnostics with fixed text and project revalidation JSON to allowlisted fields before publishing. Synthetic sentinel tests cover JSON, Markdown, nested lists and workflow sinks.
+- **Follow-up**: A Secret with `data:` or `stringData:` set to YAML null has no payload and should normalize as an empty mapping. The first guard rejected it and could block an otherwise safe upgrade. Base-side render failures must retain `skip` status with fixed, safe diagnostics so the guard does not silently change ADR-014 automerge behavior. Both cases have focused regressions in PR #743.

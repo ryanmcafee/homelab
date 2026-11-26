@@ -294,11 +294,13 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) (*UpgradeOutput, *Result)
 		baseSrc, baseErr := sourcesFromFiles(baseFiles)
 		headSrc, headErr := sourcesFromFiles(headFiles)
 		if headErr != nil {
-			res.Add(FailCheck(fmt.Sprintf("upgrade/%s/_render", env.Name), start, "parsing the working-tree render: "+headErr.Error()))
+			res.Add(FailCheck(fmt.Sprintf("upgrade/%s/_render", env.Name), start, "parsing the working-tree render: "+upgradeContentOmitted))
 			continue
 		}
 		if baseErr != nil {
-			res.Add(SkipCheck(fmt.Sprintf("upgrade/%s/_base-render", env.Name), "parsing the base render: "+baseErr.Error()))
+			res.Add(Check{Name: fmt.Sprintf("upgrade/%s/_base-render", env.Name), Status: StatusSkip,
+				Detail: "parsing the base render: " + upgradeContentOmitted})
+			continue
 		}
 
 		for _, key := range unionKeys(baseSrc, headSrc) {
@@ -388,24 +390,26 @@ func finishJob(j *upgradeJob, item *UpgradeItem, maxLines int) Check {
 	name := item.Check
 	switch {
 	case j.headErr != nil:
-		return FailCheck(name, start, fmt.Sprintf("helm template failed at head: %s (%s)", j.headErr.detail, item.Change), capLines(j.headErr.lines)...)
+		return FailCheck(name, start, "helm template failed at head: "+upgradeContentOmitted)
 	case j.baseErr != nil:
-		return Check{Name: name, Status: StatusSkip,
-			Detail:   fmt.Sprintf("helm template failed at base, head renders: %s (%s)", j.baseErr.detail, item.Change),
-			Findings: capLines(j.baseErr.lines)}
+		return Check{Name: name, Status: StatusSkip, Detail: "helm template failed at base: " + upgradeContentOmitted}
 	}
 
-	baseObjs, berr := normaliseManifest(j.baseOut)
-	headObjs, herr := normaliseManifest(j.headOut)
+	baseObjs, baseSecrets, berr := normaliseDocsWithSecrets(j.baseOut, nil)
+	headObjs, headSecrets, herr := normaliseDocsWithSecrets(j.headOut, nil)
 	if herr != nil {
-		return FailCheck(name, start, "parsing the head render: "+herr.Error())
+		return FailCheck(name, start, "parsing the head render: "+upgradeContentOmitted)
 	}
 	if berr != nil {
-		return Check{Name: name, Status: StatusSkip, Detail: "parsing the base render: " + berr.Error()}
+		return Check{Name: name, Status: StatusSkip, Detail: "parsing the base render: " + upgradeContentOmitted}
 	}
 
 	item.Rendered = true
 	lines, added, deleted := objectDiff(baseObjs, headObjs)
+	keyLines, keyAdded, keyDeleted := secretKeyDiff(baseSecrets, headSecrets)
+	lines = append(lines, keyLines...)
+	added += keyAdded
+	deleted += keyDeleted
 	item.Added, item.Deleted = added, deleted
 	item.CRDs = changedCRDs(baseObjs, headObjs)
 	item.Diff, item.Truncated = capDiff(lines, maxLines)
@@ -601,11 +605,7 @@ func failedRenders(res *Result, env string) (map[string]bool, []string) {
 		default:
 			continue
 		}
-		f := c.Name + ": " + c.Detail
-		if len(c.Findings) > 0 {
-			f += " — " + c.Findings[0]
-		}
-		findings = append(findings, f)
+		findings = append(findings, c.Name+": "+upgradeContentOmitted)
 	}
 	return failed, findings
 }
@@ -776,7 +776,7 @@ func describeChange(base, head *ChartSource) string {
 	}
 	var parts []string
 	if base.RepoURL != head.RepoURL {
-		parts = append(parts, fmt.Sprintf("repoURL %s → %s", base.RepoURL, head.RepoURL))
+		parts = append(parts, "repoURL changed")
 	}
 	if base.Chart != head.Chart {
 		parts = append(parts, fmt.Sprintf("chart %s → %s", base.Chart, head.Chart))
@@ -810,6 +810,8 @@ func repoDiff(env string, baseFiles, headFiles map[string]string, baseFailed, he
 	item := UpgradeItem{Check: fmt.Sprintf("upgrade/%s/%s", env, upgradeRepoKey), Env: env, Key: upgradeRepoKey}
 	baseObjs := map[string]string{}
 	headObjs := map[string]string{}
+	baseSecrets := map[string]string{}
+	headSecrets := map[string]string{}
 	var skipped []string
 	for _, chart := range unionKeys(baseFiles, headFiles) {
 		if baseFailed[chart] || headFailed[chart] || baseFailed["*"] || headFailed["*"] {
@@ -823,11 +825,11 @@ func repoDiff(env string, baseFiles, headFiles map[string]string, baseFailed, he
 			}
 			data, err := os.ReadFile(path)
 			if err != nil {
-				return item, FailCheck(item.Check, start, fmt.Sprintf("reading the %s render of %s: %v", side, chart, err))
+				return item, FailCheck(item.Check, start, fmt.Sprintf("reading the %s render of %s: %s", side, chart, upgradeContentOmitted))
 			}
-			objs, err := normaliseRepoManifest(data)
+			objs, secrets, err := normaliseDocsWithSecrets(data, maskChartSources)
 			if err != nil {
-				return item, FailCheck(item.Check, start, fmt.Sprintf("parsing the %s render of %s: %v", side, chart, err))
+				return item, FailCheck(item.Check, start, fmt.Sprintf("parsing the %s render of %s: %s", side, chart, upgradeContentOmitted))
 			}
 			dst := baseObjs
 			if side == "head" {
@@ -836,10 +838,21 @@ func repoDiff(env string, baseFiles, headFiles map[string]string, baseFailed, he
 			for id, text := range objs {
 				dst[chart+": "+id] = text
 			}
+			secretDst := baseSecrets
+			if side == "head" {
+				secretDst = headSecrets
+			}
+			for key, value := range secrets {
+				secretDst[chart+": "+key] = value
+			}
 		}
 	}
 
 	lines, added, deleted := objectDiff(baseObjs, headObjs)
+	keyLines, keyAdded, keyDeleted := secretKeyDiff(baseSecrets, headSecrets)
+	lines = append(lines, keyLines...)
+	added += keyAdded
+	deleted += keyDeleted
 	item.Rendered = true
 	item.Added, item.Deleted = added, deleted
 	item.Diff, item.Truncated = capDiff(lines, maxLines)
@@ -874,19 +887,29 @@ func normaliseRepoManifest(data []byte) (map[string]string, error) {
 }
 
 func normaliseDocs(data []byte, mutate func(map[string]any)) (map[string]string, error) {
+	out, _, err := normaliseDocsWithSecrets(data, mutate)
+	return out, err
+}
+
+func normaliseDocsWithSecrets(data []byte, mutate func(map[string]any)) (map[string]string, map[string]string, error) {
 	docs, err := ParseMultiDoc("", "", data)
 	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("invalid manifest YAML; %s", upgradeContentOmitted)
 	}
 	out := map[string]string{}
+	secrets := map[string]string{}
 	for _, d := range docs {
+		originals := map[string]string{}
+		if err := redactUpgradeSecrets(d.Object, false, "", originals); err != nil {
+			return nil, nil, err
+		}
 		dropVersionLabels(d.Object)
 		if mutate != nil {
 			mutate(d.Object)
 		}
 		text, err := marshalYAML(d.Object)
 		if err != nil {
-			return nil, err
+			return nil, nil, fmt.Errorf("cannot encode sanitized manifest; %s", upgradeContentOmitted)
 		}
 		id := d.ID()
 		for n := 2; ; n++ {
@@ -896,8 +919,11 @@ func normaliseDocs(data []byte, mutate func(map[string]any)) (map[string]string,
 			id = fmt.Sprintf("%s#%d", d.ID(), n)
 		}
 		out[id] = string(text)
+		for key, value := range originals {
+			secrets[id+"/"+key] = value
+		}
 	}
-	return out, nil
+	return out, secrets, nil
 }
 
 // marshalYAML renders an object with sorted keys and the two-space indent
@@ -1015,10 +1041,14 @@ func isSecretID(id string) bool {
 func redactSecretValues(text string) string {
 	var obj map[string]any
 	if err := yaml.Unmarshal([]byte(text), &obj); err != nil {
-		return text
+		return upgradeContentOmitted
 	}
 	for _, field := range []string{"data", "stringData"} {
-		if m, ok := obj[field].(map[string]any); ok {
+		if raw, exists := obj[field]; exists {
+			m, ok := raw.(map[string]any)
+			if !ok {
+				return upgradeContentOmitted
+			}
 			for k := range m {
 				m[k] = "<redacted>"
 			}
@@ -1026,7 +1056,7 @@ func redactSecretValues(text string) string {
 	}
 	out, err := marshalYAML(obj)
 	if err != nil {
-		return text
+		return upgradeContentOmitted
 	}
 	return out
 }
