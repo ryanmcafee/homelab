@@ -11,12 +11,25 @@
  */
 
 import { test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertEquals, assertStringIncludes } from "./lib/assert.ts";
 
-const PROBES = join(import.meta.dir, "..", "tests", "e2e", "nats-auth", "probes.sh");
+const PROBES = join(
+  import.meta.dir,
+  "..",
+  "tests",
+  "e2e",
+  "nats-auth",
+  "probes.sh",
+);
 const APPLIED_AT = 1_000;
 
 function stub(path: string, lines: string[]): void {
