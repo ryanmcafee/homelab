@@ -2504,7 +2504,7 @@ spec:
   source:
     repoURL: ghcr.io/renovatebot/charts
     chart: renovate
-    targetRevision: 46.106.12
+    targetRevision: 46.455.4
     helm:
       releaseName: renovate
       values: |

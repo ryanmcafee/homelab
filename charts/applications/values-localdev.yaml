@@ -965,7 +965,7 @@ duckdns:
 renovate:
   enabled: false
   chart:
-    version: 46.106.12
+    version: 46.455.4
   config:
     gitAuthor: "Renovate Bot <renovate@homelab.local>"
 
