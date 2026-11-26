@@ -134,9 +134,8 @@ locals {
     }
   }
 
-  # GPU vendor selection (matches configuration/environments/homelab.yaml GPU_VENDOR)
-  # Phase 7 flipped to "intel" 2026-04-11T04:31:32Z after hardware bring-up verification
-  gpu_vendor = "intel"
+  # GPU vendor selection; "none" skips GPU passthrough on every worker.
+  gpu_vendor = local.config.GPU_VENDOR
 
   # GPU passthrough (NVIDIA Quadro P2200)
   # Verified via: ssh root@<PROXMOX_IP> 'lspci -nn | grep -i nvidia'
@@ -157,7 +156,7 @@ locals {
   # IOMMU group from /sys/bus/pci/devices/<addr>/iommu_group (AMD-Vi active, no
   # intel_iommu kernel flag needed).
   # Kernel driver currently bound to `xe`; Talos machine patch for Intel GPU loads `xe` + `mei` modules.
-  # Active: gpu_vendor above is "intel"; talos-cluster passes this through to worker-1.
+  # Active when GPU_VENDOR is "intel"; talos-cluster passes this through to worker-1.
   gpu_intel_pci_id = "0000:c3:00.0"
 
   gpu_intel_device = {
