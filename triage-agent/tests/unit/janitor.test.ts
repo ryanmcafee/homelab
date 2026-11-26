@@ -252,6 +252,7 @@ describe("readIntakeConfig janitor settings", () => {
   const base = {
     ALERTMANAGER_URL: "http://am:9093",
     WORKFLOW_NAMESPACE: "triage-agent",
+    PLATFORM_ENVIRONMENT: "test",
   };
 
   test("is off without a workspace root", () => {
