@@ -3843,9 +3843,11 @@ spec:
                     - alertname =~ "Watchdog|InfoInhibitor"
                 # Every other alert also goes to the triage agent
                 # (docs/runbooks/triage-agent.md); continue keeps the routes below.
+                # Alerts about the agent itself go to a human only.
                 - receiver: triage-agent
                   matchers:
                     - alertname !~ "TriageAgent.+"
+                    - service != "triage-agent"
                   continue: true
                 # One digest of every pull request that still needs review,
                 # repeated while any does; merging or closing one sends nothing.

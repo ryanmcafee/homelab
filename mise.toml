@@ -57,6 +57,9 @@ pluto = "5.24.4"          # Detect deprecated apiVersions ahead of upgrades
 # the operator - so a rule that passes here is a rule that server evaluates the
 # same way.
 "aqua:prometheus/prometheus" = "3.16.0"
+# amtool checks tests/alerts/homelab/routes.yaml against the rendered routing;
+# keep it on the Alertmanager kube-prometheus-stack deploys (v0.33.0 for 87.1.0).
+"aqua:prometheus/alertmanager" = "0.33.0"
 
 # Security scanning (security-scan.yml)
 "pipx:checkov" = "3.3.19"
