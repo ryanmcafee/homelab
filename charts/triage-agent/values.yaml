@@ -12,6 +12,10 @@ name: triage-agent
 
 # ghcr.io/<owner>/homelab-triage-agent:<configuration/versions.yaml images.triage-agent>
 image: ""
+# RED metric labels (contracts/observability/metrics.v1.yaml); the parent passes environment.
+environment: ""
+tenant: local
+
 # The GitOps repository the workflow clones, fixes and opens PRs against.
 repoUrl: ""
 # owner/name of repoUrl, for gh.
@@ -319,4 +323,4 @@ networkPolicy:
 
 serviceMonitor:
   enabled: true
-  interval: 60s
+  interval: 30s

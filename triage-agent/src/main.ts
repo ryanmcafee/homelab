@@ -12,6 +12,7 @@ import { readIntakeConfig } from "./intake/config.ts";
 import { createIntake } from "./intake/intake.ts";
 import { createJanitor } from "./intake/janitor.ts";
 import { inClusterWorkflowClient, type WorkflowClient } from "./intake/kube.ts";
+import { RedMetrics } from "./intake/red.ts";
 import { createHandler } from "./intake/server.ts";
 import { fakeQuery } from "./llm.ts";
 import { readStageConfig, Workdir } from "./stages/context.ts";
@@ -48,6 +49,8 @@ async function serve(): Promise<number> {
       records: intake.records,
       metrics: intake.metrics,
       queueDepth: intake.queueDepth,
+      red: new RedMetrics(config.build),
+      requestTimeoutMs: config.requestTimeoutMs,
       ...(janitor ? { extraMetrics: janitor.render } : {}),
     }),
   });

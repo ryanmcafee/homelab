@@ -9,6 +9,7 @@ import {
   httpWorkflowClient,
   type WorkflowClient,
 } from "../../src/intake/kube.ts";
+import { RedMetrics } from "../../src/intake/red.ts";
 import { createHandler } from "../../src/intake/server.ts";
 import {
   branchFor,
@@ -34,6 +35,7 @@ const config = readIntakeConfig({
   ALERTMANAGER_URL: "http://am.monitoring.svc:9093/",
   WORKFLOW_NAMESPACE: "triage-agent",
   IGNORED_ALERTS: "Watchdog,GitHubPullRequestNeedsReview",
+  PLATFORM_ENVIRONMENT: "test",
 });
 
 function fakeClient(active: string[] = []) {
@@ -64,6 +66,14 @@ describe("readIntakeConfig", () => {
       cooldownSeconds: 86400,
       workflowTemplate: "triage-fix",
       dryRun: false,
+      requestTimeoutMs: 10_000,
+      build: {
+        service: "triage-agent",
+        environment: "test",
+        tenant: "local",
+        version: "dev",
+        revision: "unknown",
+      },
     });
     expect(config.ignoredAlerts.has("GitHubPullRequestNeedsReview")).toBe(true);
   });
@@ -78,6 +88,21 @@ describe("readIntakeConfig", () => {
         WORKFLOW_NAMESPACE: "t",
       }),
     ).toThrow(/ALERTMANAGER_URL/);
+  });
+
+  test("requires the environment label and rejects label values outside the contract pattern", () => {
+    const base = { ALERTMANAGER_URL: "http://am", WORKFLOW_NAMESPACE: "t" };
+    expect(() => readIntakeConfig(base)).toThrow(/PLATFORM_ENVIRONMENT/);
+    expect(() =>
+      readIntakeConfig({ ...base, PLATFORM_ENVIRONMENT: "Prod_1" }),
+    ).toThrow(/PLATFORM_ENVIRONMENT/);
+    expect(() =>
+      readIntakeConfig({
+        ...base,
+        PLATFORM_ENVIRONMENT: "prod",
+        PLATFORM_TENANT: "-x",
+      }),
+    ).toThrow(/PLATFORM_TENANT/);
   });
 });
 
@@ -204,6 +229,8 @@ describe("createHandler", () => {
       records: intake.records,
       metrics: intake.metrics,
       queueDepth: () => 2,
+      red: new RedMetrics(config.build),
+      requestTimeoutMs: config.requestTimeoutMs,
     });
     return { handle, received };
   }

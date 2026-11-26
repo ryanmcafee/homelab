@@ -18,6 +18,7 @@ spec:
       labels:
         {{- include "triage-agent.labels" . | nindent 8 }}
         app.kubernetes.io/component: intake
+        platform.mcafeeconsulting.com/metrics: red-v1
     spec:
       serviceAccountName: {{ .Values.name }}
       securityContext:
@@ -49,6 +50,10 @@ spec:
               value: {{ .Values.intake.dryRun | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.intake.logLevel | quote }}
+            - name: PLATFORM_ENVIRONMENT
+              value: {{ required "environment is required" .Values.environment | quote }}
+            - name: PLATFORM_TENANT
+              value: {{ .Values.tenant | quote }}
             - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
               value: "0"
             {{- with .Values.intake.janitor }}
@@ -118,6 +123,9 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+    - name: metrics
+      port: 9090
+      targetPort: http
 {{- if .Values.serviceMonitor.enabled }}
 ---
 apiVersion: monitoring.coreos.com/v1
@@ -132,7 +140,7 @@ spec:
     matchLabels:
       {{- include "triage-agent.selector" . | nindent 6 }}
   endpoints:
-    - port: http
+    - port: metrics
       path: /metrics
       interval: {{ .Values.serviceMonitor.interval }}
 {{- end }}

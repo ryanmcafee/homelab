@@ -1,6 +1,7 @@
 import { isAbsolute, normalize } from "node:path";
 import { z } from "zod";
 import type { JanitorPolicy } from "./janitor.ts";
+import type { BuildIdentity } from "./red.ts";
 
 const httpUrl = z
   .string()
@@ -33,6 +34,10 @@ const relativeDirs = z.string().transform((s, ctx) => {
   return dirs;
 });
 
+const labelValue = z
+  .string()
+  .regex(/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/, "must be a DNS label");
+
 const seconds = (d: number) => z.coerce.number().int().positive().default(d);
 
 const envSchema = z.object({
@@ -55,6 +60,12 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  REQUEST_TIMEOUT_SECONDS: seconds(10),
+  PLATFORM_SERVICE: labelValue.default("triage-agent"),
+  PLATFORM_ENVIRONMENT: labelValue,
+  PLATFORM_TENANT: labelValue.default("local"),
+  PLATFORM_VERSION: z.string().min(1).default("dev"),
+  PLATFORM_REVISION: z.string().min(1).default("unknown"),
 });
 
 export interface JanitorConfig {
@@ -75,6 +86,8 @@ export interface IntakeConfig {
   workflowNamespace: string;
   workflowTemplate: string;
   dryRun: boolean;
+  requestTimeoutMs: number;
+  build: BuildIdentity;
   /** Unset without WORKSPACE_ROOT: nothing to reclaim. */
   janitor?: JanitorConfig;
 }
@@ -100,6 +113,14 @@ export function readIntakeConfig(
     workflowNamespace: e.WORKFLOW_NAMESPACE,
     workflowTemplate: e.WORKFLOW_TEMPLATE,
     dryRun: e.DRY_RUN,
+    requestTimeoutMs: e.REQUEST_TIMEOUT_SECONDS * 1000,
+    build: {
+      service: e.PLATFORM_SERVICE,
+      environment: e.PLATFORM_ENVIRONMENT,
+      tenant: e.PLATFORM_TENANT,
+      version: e.PLATFORM_VERSION,
+      revision: e.PLATFORM_REVISION,
+    },
     ...(e.WORKSPACE_ROOT
       ? {
           janitor: {

@@ -82,6 +82,9 @@ jobs:
           file: Dockerfile.triage-agent
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
+          build-args: |
+            PLATFORM_VERSION=${{ steps.version.outputs.version }}
+            PLATFORM_REVISION=${{ github.sha }}
           tags: |
             ghcr.io/${{ steps.version.outputs.owner }}/homelab-triage-agent:latest
             ghcr.io/${{ steps.version.outputs.owner }}/homelab-triage-agent:${{ steps.version.outputs.version }}
