@@ -114,6 +114,66 @@ spec:
             selector: app.kubernetes.io/name=nats
             tail: 100
 
+    - name: rotation-drill
+      description: >-
+        rotation_and_revocation_drill as a bounded maintenance interruption (one key per
+        principal, docs/runbooks/nats-credentials.md). verify's key is swapped by re-rendering and
+        applying only the ConfigMap, so the chart's reloader reloads the same pod. What happens to
+        an established session on the removed key is recorded as MEASURED, against a control
+        session whose key stays. The rollback restores the original key the same way.
+      try:
+        - script:
+            timeout: 12m
+            content: |
+              set -eu
+              root=$(git rev-parse --show-toplevel)
+              dir="$root/tests/e2e/nats-auth"
+              keygen() { kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh "$@"; }
+              client() {
+                kubectl -n "$NAMESPACE" exec nats-client -- env NATS_URL=nats://nats:4222 SEEDS=/seeds "$@"
+              }
+              principals=$(yq '.principals[] | select(has("pending") | not) | .name' \
+                "$root/charts/addons/files/nats-accounts.gen.yaml" | tr '\n' ' ')
+              pairs=$(keygen $principals)
+              probe_pairs=$(keygen rq-responder-bare rq-responder-bounded)
+              move_pairs=$(keygen nack-probe nack-move)
+              next=$(keygen verify-next)
+              rotated=$(printf '%s' "$pairs" | sed "s/\(^\|,\)verify=U[A-Z2-7]*/\1verify=${next#verify-next=}/")
+              [ "$rotated" != "$pairs" ] || { echo "verify's key was not replaced in the rendered pairs" >&2; exit 1; }
+              apply_config() {
+                out=$(mktemp -d)
+                PAIRS="$1" PROBE_PAIRS="$probe_pairs" MOVE_PAIRS="$move_pairs" NAMESPACE="$NAMESPACE" OUT="$out" \
+                  sh "$dir/render.sh"
+                yq 'select(.kind == "ConfigMap")' "$out/server.yaml" | kubectl -n "$NAMESPACE" apply -f -
+              }
+              pod='{.metadata.uid}/{.status.containerStatuses[?(@.name=="nats")].restartCount}'
+              before=$(kubectl -n "$NAMESPACE" get pod nats-0 -o jsonpath="$pod")
+              rc=0
+              client sh /probes/probes.sh drill_hold || rc=1
+              apply_config "$rotated"
+              client env DRILL_ACCEPT=verify-next DRILL_REFUSE=verify \
+                sh /probes/probes.sh drill_await drill_sessions || rc=1
+              connz=$(kubectl get --raw "/api/v1/namespaces/$NAMESPACE/pods/nats-0:8222/proxy/connz?subs=1")
+              for principal in verify dlq-reporter; do
+                printf '%s' "$connz" | grep -q "_INBOX.$principal.drill" && state=present || state=absent
+                echo "MEASURED rotation_and_revocation_drill: connz after rotation: $principal's held session $state"
+              done
+              apply_config "$pairs"
+              client env DRILL_ACCEPT=verify DRILL_REFUSE=verify-next sh /probes/probes.sh drill_await || rc=1
+              client sh /probes/probes.sh drill_release || true
+              after=$(kubectl -n "$NAMESPACE" get pod nats-0 -o jsonpath="$pod")
+              if [ "$before" = "$after" ]; then
+                echo "PASS rotation_and_revocation_drill: both key changes reloaded the same nats-0 ($after)"
+              else
+                echo "FAIL rotation_and_revocation_drill: nats-0 was replaced or restarted ($before -> $after)"
+                rc=1
+              fi
+              exit $rc
+      catch:
+        - podLogs:
+            selector: app.kubernetes.io/name=nats
+            tail: 100
+
     - name: nack-account-move
       description: >-
         nack_account_on_stream_move, recorded as MEASURED lines rather than asserted. A second
