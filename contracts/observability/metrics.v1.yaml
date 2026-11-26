@@ -79,10 +79,17 @@ metrics:
         the service owns is inside the measurement; time the request spent queued in
         the kernel or the gateway is not.
       stream: >-
-        An SSE, websocket, long-poll or watch response. The clock stops when the
-        response headers are written -- when the stream is established or the
-        establishment fails -- NOT when the connection closes. `outcome` reports whether
-        establishment succeeded. A service MUST NOT record a long-lived response's open
+        An SSE, websocket, long-poll or watch response (see streamClassification). The
+        clock stops at establishment -- when the stream is established or the
+        establishment fails -- NOT when the connection closes. Establishment is the moment
+        the service starts waiting on something it does not control: the response headers
+        written for SSE and other streamed bodies, the 101 written for a websocket
+        upgrade, and for a long-poll or watch the moment the hold begins, whether or not
+        headers have been flushed. A long-poll server holds its headers until data
+        arrives, so "headers written" alone would measure the hold. A long-poll answered
+        without holding, because data was already pending, is established when it
+        responds. Closing a stream never records a second observation. `outcome` reports
+        whether establishment succeeded. A service MUST NOT record a long-lived response's open
         lifetime into this family: one such observation lands in +Inf and permanently
         breaches any latency objective for the service, and it drags the p99 of every
         `sum by (service)` panel with it.
@@ -95,6 +102,16 @@ metrics:
         (platform_stream_duration_seconds), which is additive and needs no v2 of this
         file. Until that lands, an SLO over kind=stream measures establishment only and
         must say so.
+      streamClassification: >-
+        What ends the response decides its kind, not how it is framed. A response that
+        ends when the service finishes its own work is kind=http even when it is sent
+        chunked or flushed incrementally: a large export is latency the caller waits
+        for, and the latency SLI is right to count it. A response that ends when the
+        client disconnects, a subscribed event arrives or a hold timeout expires is
+        kind=stream. Waiting on a reply to work this request itself started (an
+        HTTP-to-NATS request/reply bridge, a job it enqueued and awaits) is service-ended
+        and kind=http: that wait is the caller's latency, not a hold. `kind` is fixed per route, so a route that can stream is declared
+        kind=stream, or its streaming form is a separate route.
       pubsub: >-
         From the moment the message is delivered to the handler, to the moment the
         handler acks, naks or terminates it. Time spent waiting for a redelivery is
@@ -268,6 +285,18 @@ labels:
         exists to avoid. It is present in v1 with no producer because `kind` is closed
         and compatibility.breaking forbids adding an enum value later; a value that
         costs nothing unused is cheaper than a metrics.v2.yaml.
+      latencyCoverage: >-
+        Which routes a latency objective covers is decided by `kind`, selected
+        positively. The platform http latency objective covers kind=http only: every
+        latency SLI, recording rule consumer and alert for it MUST carry the positive
+        matcher kind="http", not kind!="stream", because the negative form also admits
+        kind=pubsub and kind=request_reply, whose handler durations run to the 30s ack
+        deadline. kind=stream durations are establishment times, never pooled with
+        kind=http; a stream route gets its own objective on its own kind="stream" row,
+        named as an establishment objective, or none. The availability SLI keeps its
+        shape: a failed establishment is outcome="error" on kind=stream, and whether a
+        kind="stream" availability row pages is decided by the SLO owner when the first
+        stream route ships, never by widening the http matcher.
 
     - name: route
       maxDistinctValuesPerService: 25

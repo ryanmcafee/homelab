@@ -59,6 +59,7 @@ interface LabelSpec {
   sliExclusionRule?: string;
   tailRule?: string;
   busSource?: string;
+  latencyCoverage?: string;
 }
 
 interface ClassificationRow {
@@ -497,6 +498,80 @@ test("C2: kind carries a stream value and bounds what it observes", () => {
       "platform_stream_duration_seconds",
     ),
     "the mid-flight-failure hole must name the additive family that closes it",
+  );
+});
+
+test("C2: a long-poll's clock stops when the hold begins, not when headers flush", () => {
+  const stream = contract.metrics[0].observation?.stream ?? "";
+  // A long-poll server holds its headers until data arrives, so "headers written" alone
+  // measures the hold and puts every healthy long-poll in +Inf.
+  assert(
+    /hold begins, whether or not headers have been flushed/i.test(stream),
+    "observation.stream must stop a long-poll or watch clock when the hold begins",
+  );
+});
+
+test("C2: what ends a response decides its kind, not how it is framed", () => {
+  const classification =
+    contract.metrics[0].observation?.streamClassification ?? "";
+  assert(
+    /chunked/i.test(classification) && classification.includes("kind=http"),
+    "a finite chunked or incrementally flushed response must be classified kind=http",
+  );
+  assert(
+    /client disconnects/i.test(classification) &&
+      classification.includes("kind=stream"),
+    "a response ended by the client or a future event must be classified kind=stream",
+  );
+  assert(
+    /request\/reply bridge[^.]*is service-ended\s+and kind=http/i.test(
+      classification,
+    ),
+    "a request/reply bridge awaits work it started; classified kind=stream, its clock stops at the hold and hides the caller's latency",
+  );
+});
+
+test("C2: the latency objective covers kind=http by a positive matcher", () => {
+  const coverage = labelByName.get("kind")?.latencyCoverage ?? "";
+  assert(
+    coverage.includes('MUST carry the positive matcher kind="http"'),
+    'kind.latencyCoverage must require kind="http" on every latency SLI and alert',
+  );
+  assert(
+    coverage.includes('not kind!="stream"'),
+    "kind.latencyCoverage must reject the negative matcher, which admits pubsub durations",
+  );
+  assert(
+    /never pooled with kind=http/i.test(coverage),
+    "stream establishment times must never share the http latency objective",
+  );
+});
+
+test('C2: every SLI and canary selector in the document pins kind="http"', () => {
+  // The prose rule alone passed with the latency SLI rewritten to kind!="stream" and a
+  // canary p99 with no kind matcher, which pools 30s pubsub handlers into the rollout gate.
+  const sliExpressions = [...doc.matchAll(/```promql\n([\s\S]*?)```/g)]
+    .map((m) => m[1])
+    .filter((expr) => expr.includes('le="0.25"'));
+  const queries = [
+    ...sliExpressions,
+    ...canaryMetrics.map((m) => m.body.slice(m.body.indexOf("query:"))),
+  ];
+  let selectorsChecked = 0;
+  for (const raw of queries) {
+    for (const matchers of selectorMatchers(
+      raw.replace(/\{\{[^{}]*\}\}/g, "ARG"),
+    )) {
+      selectorsChecked++;
+      assert(
+        matchers.includes('kind="http"'),
+        `selector {${matchers.join(",")}} does not pin kind="http"; it pools stream establishment or bus handler durations into the http objective`,
+      );
+    }
+  }
+  assert(
+    sliExpressions.length >= 1 && selectorsChecked >= 12,
+    `only ${selectorsChecked} selectors in ${sliExpressions.length} SLI expressions were reached; the latency SLI and all three canary metrics must be inspected`,
   );
 });
 
