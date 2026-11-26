@@ -1,0 +1,186 @@
+# promtool unit tests for the platform-red-v1 rules in
+# charts/addons/templates/kube-prometheus-stack.yaml (docs/runbooks/platform-red-slo.md).
+#
+# `task test:alerts` renders the addons chart, extracts every group of
+# additionalPrometheusRulesMap into rules.yaml and runs these tests against it,
+# so the expressions under test are the ones that deploy.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # A service at 10% errors must page on the fast tier; a service at 0.1% errors,
+  # well inside its 99.5% objective, must stay silent in the same evaluation.
+  - interval: 1m
+    name: fast availability burn pages, compliant service stays silent
+    input_series:
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="success",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+540x80'
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="error",code="internal",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+60x80'
+      - series: 'platform_request_duration_seconds_count{service="events-api",environment="prod",tenant="local",kind="http",route="POST /api/events",outcome="success",job="events-api",namespace="platform",pod="events-api-def",container="app",endpoint="metrics"}'
+        values: '0+999x80'
+      - series: 'platform_request_duration_seconds_count{service="events-api",environment="prod",tenant="local",kind="http",route="POST /api/events",outcome="error",code="unavailable",job="events-api",namespace="platform",pod="events-api-def",container="app",endpoint="metrics"}'
+        values: '0+1x80'
+    promql_expr_test:
+      - expr: platform:request_error:ratio_rate1h{service="issues-api"}
+        eval_time: 65m
+        exp_samples:
+          - labels: 'platform:request_error:ratio_rate1h{service="issues-api",environment="prod",tenant="local",kind="http"}'
+            value: 0.1
+      - expr: platform:request_error:ratio_rate1h{service="events-api"}
+        eval_time: 65m
+        exp_samples:
+          - labels: 'platform:request_error:ratio_rate1h{service="events-api",environment="prod",tenant="local",kind="http"}'
+            value: 1.0e-3
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: PlatformRequestErrorBudgetBurningFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: platform-http-availability
+              service: issues-api
+              environment: prod
+              tenant: local
+              kind: http
+            exp_annotations:
+              summary: 'issues-api is burning its 99.5% availability budget fast'
+              description: 'issues-api (prod/local) has served more than 10% errors on kind=http over both the long and the short window. At this rate the 30d error budget is gone in under two days. Runbook: docs/runbooks/platform-red-slo.md.'
+      - eval_time: 65m
+        alertname: PlatformRequestLatencyBudgetBurningFast
+        exp_alerts: []
+      - eval_time: 65m
+        alertname: PlatformServiceMetricsAbsent
+        exp_alerts: []
+      # Still pending under `for: 2m`.
+      - eval_time: 1m
+        alertname: PlatformRequestErrorBudgetBurningFast
+        exp_alerts: []
+
+  # 20% of successful requests over 250ms burns the 99%-under-250ms budget at 20x.
+  - interval: 1m
+    name: fast latency burn pages
+    input_series:
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="success",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+600x80'
+      - series: 'platform_request_duration_seconds_bucket{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="success",le="0.25",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+480x80'
+      - series: 'platform_request_duration_seconds_bucket{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="success",le="+Inf",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+600x80'
+    promql_expr_test:
+      - expr: platform:request_latency:violation_ratio_rate1h
+        eval_time: 65m
+        exp_samples:
+          - labels: 'platform:request_latency:violation_ratio_rate1h{service="issues-api",environment="prod",tenant="local",kind="http"}'
+            value: 0.19999999999999996
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: PlatformRequestLatencyBudgetBurningFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: platform-http-latency
+              service: issues-api
+              environment: prod
+              tenant: local
+              kind: http
+            exp_annotations:
+              summary: 'issues-api is burning its 250ms latency budget fast'
+              description: '20% of successful kind=http requests to issues-api took longer than 250ms over both the long and the short window; the objective is 99% under 250ms over 30d. Runbook: docs/runbooks/platform-red-slo.md.'
+
+  # A service that stops exposing produces no error ratio, so every burn-rate
+  # alert goes quiet; platform_build_info is the inventory that makes it loud.
+  - interval: 1m
+    name: a service that stops exposing is loud, not silent
+    input_series:
+      - series: 'platform_build_info{service="issues-api",environment="prod",version="1.4.2",revision="9f2c1ab",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '1x30 _x40'
+      - series: 'platform_build_info{service="events-api",environment="prod",version="2.0.0",revision="beefcab",job="events-api",namespace="platform",pod="events-api-def",container="app",endpoint="metrics"}'
+        values: '1x70'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: PlatformServiceMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: platform-http-availability
+              service: issues-api
+              environment: prod
+            exp_annotations:
+              summary: 'issues-api has stopped exposing RED metrics'
+              description: 'issues-api (prod) exposed platform_build_info within the last day and exposes nothing now, so every SLO and burn-rate alert for it is blind rather than green. Runbook: docs/runbooks/platform-red-slo.md.'
+      - eval_time: 25m
+        alertname: PlatformServiceMetricsAbsent
+        exp_alerts: []
+
+  # Slow tier over 3d: breached-api errors at 2.0% (a 4x burn) and warns;
+  # compliant-api errors at 0.40%, inside its 0.50% budget, and stays silent.
+  - interval: 10m
+    name: slow tier warns on a 4x burn and not on a compliant service
+    input_series:
+      - series: 'platform_request_duration_seconds_count{service="breached-api",environment="prod",tenant="local",kind="http",route="POST /api/events",outcome="success",job="breached-api",namespace="platform",pod="breached-api-abc",container="app",endpoint="metrics"}'
+        values: '0+588x440'
+      - series: 'platform_request_duration_seconds_count{service="breached-api",environment="prod",tenant="local",kind="http",route="POST /api/events",outcome="error",code="unavailable",job="breached-api",namespace="platform",pod="breached-api-abc",container="app",endpoint="metrics"}'
+        values: '0+12x440'
+      - series: 'platform_request_duration_seconds_count{service="compliant-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="success",job="compliant-api",namespace="platform",pod="compliant-api-def",container="app",endpoint="metrics"}'
+        values: '0+996x440'
+      - series: 'platform_request_duration_seconds_count{service="compliant-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="error",code="internal",job="compliant-api",namespace="platform",pod="compliant-api-def",container="app",endpoint="metrics"}'
+        values: '0+4x440'
+    promql_expr_test:
+      - expr: platform:request_error:ratio_rate3d
+        eval_time: 3d30m
+        exp_samples:
+          - labels: 'platform:request_error:ratio_rate3d{service="breached-api",environment="prod",tenant="local",kind="http"}'
+            value: 0.02
+          - labels: 'platform:request_error:ratio_rate3d{service="compliant-api",environment="prod",tenant="local",kind="http"}'
+            value: 0.004
+    alert_rule_test:
+      - eval_time: 3d30m
+        alertname: PlatformRequestErrorBudgetBurningSlow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              slo: platform-http-availability
+              service: breached-api
+              environment: prod
+              tenant: local
+              kind: http
+            exp_annotations:
+              summary: 'breached-api is burning its 99.5% availability budget'
+              description: 'breached-api (prod/local) is above its 99.5% availability objective over a multi-day window (2% errors). Runbook: docs/runbooks/platform-red-slo.md.'
+
+  # 90 req/s success and 10 req/s failing is 10% errors, while one tenant
+  # retries into its quota at 900 req/s. Excluding code="quota" from both sides
+  # reads the real 10% and pages; counting the denials as traffic would read
+  # 1.0% and hide the outage.
+  - interval: 1m
+    name: quota denials are excluded from both sides and do not hide an outage
+    input_series:
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="success",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+5400x80'
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="http",route="GET /api/issues/:id",outcome="error",code="internal",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+600x80'
+      - series: 'platform_request_duration_seconds_count{service="issues-api",environment="prod",tenant="local",kind="http",route="POST /api/events",outcome="error",code="quota",job="issues-api",namespace="platform",pod="issues-api-abc",container="app",endpoint="metrics"}'
+        values: '0+54000x80'
+    promql_expr_test:
+      - expr: platform:request_error:ratio_rate1h
+        eval_time: 65m
+        exp_samples:
+          - labels: 'platform:request_error:ratio_rate1h{service="issues-api",environment="prod",tenant="local",kind="http"}'
+            value: 0.1
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: PlatformRequestErrorBudgetBurningFast
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              slo: platform-http-availability
+              service: issues-api
+              environment: prod
+              tenant: local
+              kind: http
+            exp_annotations:
+              summary: 'issues-api is burning its 99.5% availability budget fast'
+              description: 'issues-api (prod/local) has served more than 10% errors on kind=http over both the long and the short window. At this rate the 30d error budget is gone in under two days. Runbook: docs/runbooks/platform-red-slo.md.'

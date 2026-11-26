@@ -187,10 +187,9 @@ Two clauses it must carry:
   gate anything, and it is out of scope here. This is the contract it will rest on.
 
 Every alert rule written against this contract gets a `promtool` unit test in `tests/alerts/` --
-an alert rule that has never fired in a test is not an alert rule. That directory and its CI gate
-**do not exist yet**; the SRE is building them alongside the first rules. Stated rather than
-implied, because this document previously described the gate as one that already covers the
-JetStream rules, and it does not.
+an alert rule that has never fired in a test is not an alert rule. `task test:alerts` runs them in
+PR CI against the rules the addons chart renders; the RED rules are in the `platform-red-v1`
+group and tested by `tests/alerts/platform-red-slo.test.yaml`.
 
 ## 6. A worked canary AnalysisTemplate
 
