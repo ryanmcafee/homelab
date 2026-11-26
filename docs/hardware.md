@@ -96,18 +96,19 @@ Dataset parents are the `TRUENAS_ZONE_PARENT`, `TRUENAS_ZONE_SSD_PARENT`,
 
 ## PCI passthrough
 
-Passthrough is optional. Every device is declared in the gitignored
-`terragrunt/environments/homelab/hardware.hcl` with its PCI address, vendor:device ID,
-subsystem ID and IOMMU group, and mapped by the `talos-cluster` and `truenas` modules (the
-Proxmox API token is not root, so the hardware mapping is explicit). Start from the template:
+Passthrough is optional: without `terragrunt/environments/homelab/hardware.hcl` nothing is
+passed through. Every device is declared in that gitignored file with its PCI address,
+vendor:device ID, subsystem ID and IOMMU group, and mapped by the `talos-cluster` and
+`truenas` modules (the Proxmox API token is not root, so the hardware mapping is explicit).
+Start from the template:
 
 ```bash
 cp terragrunt/environments/homelab/hardware.hcl.example terragrunt/environments/homelab/hardware.hcl
 ```
 
-Its empty `gpu_devices` and `hba_devices` maps pass nothing through, which is what a host
-without passthrough hardware wants. Terragrunt stops if `hardware.hcl` is missing, and the
-`talos-cluster` plan stops if `GPU_VENDOR` names a vendor with no `gpu_devices` entry.
+Its empty `gpu_devices` and `hba_devices` maps pass nothing through, the same as having no
+file. The `talos-cluster` plan stops if `GPU_VENDOR` names a vendor with no `gpu_devices`
+entry, so set `GPU_VENDOR: none` on a host without a GPU to pass through.
 To pass a device through, read its values on the Proxmox host: `lspci -nnk` gives the PCI
 address, vendor:device ID and subsystem ID, and `/sys/bus/pci/devices/<pci_id>/iommu_group`
 gives the IOMMU group.

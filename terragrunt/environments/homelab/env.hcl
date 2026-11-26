@@ -108,12 +108,13 @@ locals {
     downloads = "${local.config.NFS_SSD_BASE_PATH}/downloads"
   }
 
-  # PCI passthrough describes one physical host, so it lives in the gitignored
-  # hardware.hcl. Copy hardware.hcl.example; its empty maps pass nothing through.
+  # PCI passthrough describes one physical host, so it lives in the optional,
+  # gitignored hardware.hcl; without it nothing is passed through.
   # docs/hardware.md#pci-passthrough lists how to read each value on the host.
   hardware_file = "${get_repo_root()}/terragrunt/environments/homelab/hardware.hcl"
   hardware = fileexists(local.hardware_file) ? read_terragrunt_config(local.hardware_file).locals : {
-    missing = file("hardware.hcl is missing: cp terragrunt/environments/homelab/hardware.hcl.example terragrunt/environments/homelab/hardware.hcl")
+    gpu_devices = {}
+    hba_devices = {}
   }
 
   # TrueNAS direct disk access; the truenas module skips an empty map.

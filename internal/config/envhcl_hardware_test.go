@@ -45,6 +45,32 @@ func TestHardwareHCLExampleDeclaresNoDevices(t *testing.T) {
 	}
 }
 
+// A fork without hardware.hcl must plan, so the absent-file branch is the example's empty maps.
+func TestHomelabEnvHCLWithoutHardwareFilePassesNothingThrough(t *testing.T) {
+	envDir := filepath.Join(findProjectRootForTest(t), "terragrunt", "environments", "homelab")
+	locals := parseHCLLocals(t, filepath.Join(envDir, "env.hcl"))
+
+	conditional, ok := locals["hardware"].(*hclsyntax.ConditionalExpr)
+	if !ok {
+		t.Fatalf("env.hcl: locals.hardware must be fileexists(hardware.hcl) ? read : fallback, got %T", locals["hardware"])
+	}
+	fallback, ok := conditional.FalseResult.(*hclsyntax.ObjectConsExpr)
+	if !ok {
+		t.Fatalf("env.hcl: locals.hardware fallback must be an object literal, got %T", conditional.FalseResult)
+	}
+	empty := map[string]bool{}
+	for _, item := range fallback.Items {
+		name := hcl.ExprAsKeyword(item.KeyExpr)
+		value, isObject := item.ValueExpr.(*hclsyntax.ObjectConsExpr)
+		empty[name] = isObject && len(value.Items) == 0
+	}
+	for _, name := range []string{"gpu_devices", "hba_devices"} {
+		if !empty[name] {
+			t.Errorf("env.hcl: locals.hardware fallback must set %s = {} so a fork without hardware.hcl plans", name)
+		}
+	}
+}
+
 func parseHCLLocals(t *testing.T, path string) map[string]hclsyntax.Expression {
 	t.Helper()
 	source, err := os.ReadFile(path)
