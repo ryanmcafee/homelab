@@ -77,6 +77,7 @@ jobs:
             [ -f "terragrunt/files/$f-rendered.yaml" ] || echo "# stub for terraform validate in CI (task render:pull produces the real file)" > "terragrunt/files/$f-rendered.yaml"
           done
           [ -f "$HOME/.ssh/id_ed25519" ] || ssh-keygen -q -t ed25519 -N '' -f "$HOME/.ssh/id_ed25519"
+          [ -f terragrunt/environments/homelab/hardware.hcl ] || cp terragrunt/environments/homelab/hardware.hcl.example terragrunt/environments/homelab/hardware.hcl
 
       # env.hcl resolves every address, the domain and the LAN CIDR from the
       # ConfigSet, so the export has to run before terragrunt parses anything.

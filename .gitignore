@@ -114,6 +114,9 @@ configuration/environments/staging.yaml
 !configuration/environments/localdev.yaml
 !configuration/environments/*.example
 
+# One Proxmox host's PCI passthrough devices (hardware.hcl.example is the template)
+terragrunt/environments/homelab/hardware.hcl
+
 # Generated outputs (produced by `homelab config export`)
 *.generated.yaml
 *.generated.yml

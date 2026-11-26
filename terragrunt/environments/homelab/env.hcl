@@ -108,63 +108,25 @@ locals {
     downloads = "${local.config.NFS_SSD_BASE_PATH}/downloads"
   }
 
-  # HBA devices for TrueNAS direct disk access
-  # PCI passthrough for NVMe SSDs and SATA drives
-  hba_devices = {
-    "hba-nvme-ssds" = {
-      pci_id       = "0000:c5:00.0"
-      device_id    = "1000:00af" # Broadcom LSI vendor:device ID
-      subsystem_id = "1000:3010" # Broadcom HBA 9400-8i subsystem ID
-      iommu_group  = 16
-      description  = "Broadcom LSI SAS3408 - 2x 1TB NVMe SSDs"
-    }
-    "sata-20tb-drives" = {
-      pci_id       = "0000:49:00.0"
-      device_id    = "1022:7901" # AMD vendor:device ID
-      subsystem_id = "15d9:7901" # Supermicro subsystem ID
-      iommu_group  = 62
-      description  = "AMD FCH SATA Controller #1 - 8x 20TB SATA drives"
-    }
-    "sata-20tb-drives-2" = {
-      pci_id       = "0000:48:00.0"
-      device_id    = "1022:7901" # AMD vendor:device ID
-      subsystem_id = "15d9:7901" # Supermicro subsystem ID
-      iommu_group  = 61
-      description  = "AMD FCH SATA Controller #2 - 3x 20TB SATA drives"
-    }
+  # PCI passthrough describes one physical host, so it lives in the gitignored
+  # hardware.hcl. Copy hardware.hcl.example; its empty maps pass nothing through.
+  # docs/hardware.md#pci-passthrough lists how to read each value on the host.
+  hardware_file = "${get_repo_root()}/terragrunt/environments/homelab/hardware.hcl"
+  hardware = fileexists(local.hardware_file) ? read_terragrunt_config(local.hardware_file).locals : {
+    missing = file("hardware.hcl is missing: cp terragrunt/environments/homelab/hardware.hcl.example terragrunt/environments/homelab/hardware.hcl")
   }
+
+  # TrueNAS direct disk access; the truenas module skips an empty map.
+  hba_devices = local.hardware.hba_devices
 
   # GPU vendor selection; "none" skips GPU passthrough on every worker.
   gpu_vendor = local.config.GPU_VENDOR
 
-  # GPU passthrough (NVIDIA Quadro P2200)
-  # Verified via: ssh root@<PROXMOX_IP> 'lspci -nn | grep -i nvidia'
-  # c1:00.0 VGA compatible controller: NVIDIA Corporation GP106GL [Quadro P2200] [10de:1c31]
-  gpu_pci_id = "0000:c1:00.0"
-
-  # GPU device configuration for hardware mapping
-  # Required for non-root API token PCI passthrough
-  gpu_device = {
-    device_id    = "10de:1c31" # NVIDIA Quadro P2200
-    subsystem_id = "103c:131b" # HP subsystem
-    iommu_group  = 11          # IOMMU group from /sys/kernel/iommu_groups
-    description  = "NVIDIA Quadro P2200 for Plex transcoding"
-  }
-
-  # GPU passthrough — Intel Arc Pro B50 (Battlemage G21)
-  # Values read on the Proxmox host: PCI bus address and IDs from `lspci -nnk`, the
-  # IOMMU group from /sys/bus/pci/devices/<addr>/iommu_group (AMD-Vi active, no
-  # intel_iommu kernel flag needed).
-  # Kernel driver currently bound to `xe`; Talos machine patch for Intel GPU loads `xe` + `mei` modules.
-  # Active when GPU_VENDOR is "intel"; talos-cluster passes this through to worker-1.
-  gpu_intel_pci_id = "0000:c3:00.0"
-
-  gpu_intel_device = {
-    device_id    = "8086:e212" # Intel Arc Pro B50 (Battlemage G21)
-    subsystem_id = "8086:1114" # Intel subsystem
-    iommu_group  = 14          # Clean isolation (1 device in group)
-    description  = "Intel Arc Pro B50 for Plex transcoding"
-  }
+  # One entry per vendor; talos-cluster passes the GPU_VENDOR one through to the gpu worker.
+  gpu_pci_id       = try(local.hardware.gpu_devices.nvidia.pci_id, "")
+  gpu_device       = try({ for k, v in local.hardware.gpu_devices.nvidia : k => v if k != "pci_id" }, null)
+  gpu_intel_pci_id = try(local.hardware.gpu_devices.intel.pci_id, "")
+  gpu_intel_device = try({ for k, v in local.hardware.gpu_devices.intel : k => v if k != "pci_id" }, null)
 
   # Git repository ArgoCD reconciles from — a fork's own remote, not upstream.
   repo_url        = local.config.GITOPS_REPO_URL
