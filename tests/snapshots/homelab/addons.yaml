@@ -5842,7 +5842,7 @@ spec:
   source:
     repoURL: https://nats-io.github.io/k8s/helm/charts/
     chart: nack
-    targetRevision: 0.35.0
+    targetRevision: 0.36.0
     helm:
       releaseName: nack
       values: |

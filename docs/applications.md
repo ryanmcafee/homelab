@@ -73,7 +73,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `kube-prometheus-stack` | `kube-prometheus-stack` | 87.1.0 | envoy-internal: alertmanager, grafana | grafana | smoke-grafana, smoke-prometheus |
 | `kubelet-csr-approver` | `kubelet-csr-approver` | 1.2.14 | — | — | — |
 | `metrics-server` | `metrics-server` | 3.14.0 | — | — | — |
-| `nack` | `nack` | 0.35.0 | — | — | — |
+| `nack` | `nack` | 0.36.0 | — | — | — |
 | `nats` | `nats` | 2.15.3 | — | nats | — |
 | `nats-config` | `charts/nats-config` | git | — | — | — |
 | `node-feature-discovery` | `node-feature-discovery` | 0.18.3 | — | — | — |
