@@ -1,7 +1,7 @@
 # Platform RED SLO: burn-rate alerts and the canary analysis
 
-Every alert in the `platform-red-v1-slo` rule group annotates this file. The group covers two
-objectives over the `platform_request_duration_seconds` family defined by
+Every alert in the `platform-red-v1-slo` and `platform-red-v1-budget` rule groups annotates this
+file. The groups cover two objectives over the `platform_request_duration_seconds` family defined by
 `contracts/observability/metrics.v1.yaml`:
 
 | Objective | SLI | Target | Window |
@@ -14,7 +14,7 @@ exhausts it in about 50 hours, which is why the fast tier pages and the slow tie
 
 > **Status: the rules are deployed; the canary template is not.** The `platform-red-v1` group
 > ships in `charts/addons/templates/kube-prometheus-stack.yaml`, is unit-tested by
-> `tests/alerts/platform-red-slo.test.yaml` (`task test:alerts`), and the Kind suite
+> `tests/alerts/platform-red-slo.test.yaml` and `platform-red-slo-budget.test.yaml` (`task test:alerts`), and the Kind suite
 > `tests/e2e/triage-agent` fires `PlatformRequestErrorBudgetBurningFast` against the triage agent
 > intake, the first service to emit `platform_request_duration_seconds`. The `red-v1-canary`
 > template ships with the first Rollout that uses it.
@@ -27,6 +27,7 @@ exhausts it in about 50 hours, which is why the fast tier pages and the slow tie
 | `PlatformRequestErrorBudgetBurningSlow` | warning | 3x or 1x burn over days | [Availability burn](#availability-burn) |
 | `PlatformRequestLatencyBudgetBurningFast` | critical | 14.4x latency burn against 99% under 250ms | [Latency burn](#latency-burn) |
 | `PlatformServiceMetricsAbsent` | critical | a service that was exposing RED metrics stopped | [Metrics absent](#metrics-absent) |
+| `PrometheusRetentionTruncatesSLOWindow` | warning | `retentionSize` deleted data inside the 30d window | [Budget window and retention](#budget-window-and-retention) |
 
 Every burn-rate alert requires **both** a long and a short window over threshold. A single alert is
 already evidence that the problem is current, not a spike that has since recovered — the short
@@ -126,6 +127,57 @@ Check in this order:
 
 **This alert can fire alongside a real outage.** Do not treat it as "just a scrape problem" until
 step 1 says the pods are healthy.
+
+## Budget window and retention
+
+The budget window is **30 days**, and it is only as long as the data Prometheus still holds.
+`platform-red-v1-budget` records it:
+
+```promql
+platform:request_error:budget_remaining30d{service="<service>", environment="<env>"}
+```
+
+`1` is an untouched budget, `0` is spent, below `0` is overspent. It divides
+`platform:request_error:ratio_rate30d` by the 0.5% the objective allows; that ratio sums the
+hourly `platform:request:rate1h` and `platform:request_error:rate1h` series over `[30d]`, so a
+quiet hour weighs less than a busy one. `tests/alerts/platform-red-slo-budget.test.yaml` proves
+the value and that data older than 30 days is left out.
+
+The recorded series live in the same TSDB as everything else, so they are deleted by the same
+retention. The window holds only because of the Prometheus settings in
+`configuration/templates/helm-addons.tmpl`:
+
+| Environment | `retention` | `retentionSize` | Volume | 30d window |
+|---|---|---|---|---|
+| homelab | `35d` | `80GB` | `100Gi` | whole, unless `retentionSize` binds first |
+| localdev | `1d` | `4GB` | `5Gi` | **never whole**: Kind reads at most one day |
+
+`retention` is 35d rather than 30d because Prometheus deletes whole blocks, and a block can span
+up to 10% of the retention; at exactly 30d the oldest part of the window could already be gone.
+
+**How much the window covers right now:**
+
+```promql
+(time() - prometheus_tsdb_lowest_timestamp_seconds) / 86400
+```
+
+Under 30 means every budget figure is over a shorter window than it claims. On a Prometheus
+younger than 30 days that is expected and nothing to fix.
+
+### Size retention truncated the window
+
+`PrometheusRetentionTruncatesSLOWindow` fires when `retentionSize` deleted a block in the last
+day **and** the oldest sample is now newer than 30 days. Time-based retention never fires it.
+
+1. Check growth: `prometheus_tsdb_storage_blocks_bytes` over the last week, and which jobs add
+   the most series (`topk(10, sum by (job) (scrape_samples_post_metric_relabeling))`).
+2. Drop the cardinality first: a new high-cardinality label on one job is the usual cause, and
+   fixing it at the source costs no disk.
+3. Otherwise raise `retentionSize` and the volume together in `helm-addons.tmpl`. Keep
+   `retentionSize` at or below 80% of the volume, since it also counts the WAL.
+
+Until it is fixed, read `budget_remaining30d` as covering only the days the query above reports.
+Do not use it to gate a release on its own.
 
 ## Quota is excluded from both sides
 
