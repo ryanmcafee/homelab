@@ -6402,7 +6402,7 @@ spec:
       valuesObject:
         namespace: "triage-agent"
         environment: "homelab"
-        image: "ghcr.io/replaceme-user/homelab-triage-agent:0.1.2"
+        image: "ghcr.io/replaceme-user/homelab-triage-agent:0.1.3"
         repoUrl: "https://github.com/REPLACEME-user/homelab.git"
         repoSlug: "REPLACEME-user/homelab"
         alertmanagerUrl: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"

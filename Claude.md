@@ -284,7 +284,7 @@ images:
   homelab-cmp: "0.1.60"
   # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);
   # bump it with every change under triage-agent/ so main publishes a new tag.
-  triage-agent: "0.1.2"
+  triage-agent: "0.1.3"
   # renovate: datasource=docker depName=plexinc/pms-docker
   plex: "1.43.5.11079-b3b13e506"
   # renovate: datasource=docker depName=kometateam/kometa

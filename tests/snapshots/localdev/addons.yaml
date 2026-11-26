@@ -4149,7 +4149,7 @@ spec:
       valuesObject:
         namespace: "triage-agent"
         environment: "localdev"
-        image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.2"
+        image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.3"
         repoUrl: "https://github.com/ryanmcafee/homelab.git"
         repoSlug: "ryanmcafee/homelab"
         alertmanagerUrl: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"

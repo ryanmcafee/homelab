@@ -446,7 +446,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: intake
-          image: ghcr.io/replaceme-user/homelab-triage-agent:0.1.2
+          image: ghcr.io/replaceme-user/homelab-triage-agent:0.1.3
           args: ["serve"]
           env:
             - name: ALERTMANAGER_URL
@@ -920,7 +920,7 @@ spec:
               path: /workspaces/{{workflow.name}}/out/ci-state
               default: ""
       container:
-        image: ghcr.io/replaceme-user/homelab-triage-agent:0.1.2
+        image: ghcr.io/replaceme-user/homelab-triage-agent:0.1.3
         args: ["run", "{{inputs.parameters.stage}}"]
         env:
           - name: WORK_DIR
