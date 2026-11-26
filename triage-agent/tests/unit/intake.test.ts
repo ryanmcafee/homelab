@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import pino from "pino";
 import type { Alert } from "../../src/alerts.ts";
-import { alertGroupSchema } from "../../src/alerts.ts";
+import { alertGroupSchema, groupAlerts } from "../../src/alerts.ts";
 import { fetchActiveAlerts } from "../../src/intake/alertmanager.ts";
 import { readIntakeConfig } from "../../src/intake/config.ts";
 import { createIntake } from "../../src/intake/intake.ts";
@@ -15,6 +15,7 @@ import {
   branchFor,
   buildWorkflow,
   GROUP_LABEL,
+  groupHash,
   slug,
 } from "../../src/intake/workflow.ts";
 import { group } from "./fixtures.ts";
@@ -131,6 +132,23 @@ describe("buildWorkflow", () => {
       /^triage\/kubepodcrashlooping-[0-9a-f]{8}$/,
     );
     expect(branchFor({ ...group, key: "other" })).not.toBe(branchFor(group));
+  });
+
+  test("services burning under one alertname get their own branch and group label", () => {
+    const burning = (fingerprint: string, service: string): Alert => ({
+      fingerprint,
+      name: "PlatformRequestErrorBudgetBurningFast",
+      labels: { alertname: "PlatformRequestErrorBudgetBurningFast", service },
+      annotations: {},
+      startsAt: "2026-09-25T10:00:00Z",
+    });
+    const [a, b] = groupAlerts(
+      [burning("1", "a"), burning("2", "b")],
+      new Set(),
+    );
+    if (!a || !b) throw new Error("expected two groups");
+    expect(branchFor(a)).not.toBe(branchFor(b));
+    expect(groupHash(a)).not.toBe(groupHash(b));
   });
 
   test("slug keeps label-safe characters only", () => {
