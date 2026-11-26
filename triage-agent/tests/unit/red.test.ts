@@ -176,7 +176,12 @@ function setup(onAlerts: () => void = () => {}) {
 const counts = (samples: Sample[]) =>
   samples
     .filter((s) => s.name === `${REQUEST_DURATION}_count`)
-    .map(({ labels, value }) => ({ ...labels, value }));
+    .map(({ labels: { route, outcome, code }, value }) => ({
+      route,
+      outcome,
+      code,
+      value,
+    }));
 
 const webhook = (body: string) =>
   new Request("http://x/webhook", { method: "POST", body });
