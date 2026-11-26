@@ -379,25 +379,28 @@ phase_drill_hold() {
   done
 }
 
-# Polls until $DRILL_ACCEPT's key connects and $DRILL_REFUSE's key is refused, the reload's bound.
+# Polls until the new key connects and the old is refused, within 180s of DRILL_APPLIED_AT (pod epoch).
 phase_drill_await() {
   id=rotation_and_revocation_drill
-  : "${DRILL_ACCEPT:?}" "${DRILL_REFUSE:?}"
-  for second in $(seq 0 2 180); do
+  : "${DRILL_ACCEPT:?}" "${DRILL_REFUSE:?}" "${DRILL_APPLIED_AT:?}"
+  while :; do
     accepted=$(nats --server "$NATS_URL" --nkey "$SEEDS/$DRILL_ACCEPT.nk" --timeout 3s rtt 2>&1)
     refused=$(nats --server "$NATS_URL" --nkey "$SEEDS/$DRILL_REFUSE.nk" --timeout 3s rtt 2>&1)
+    elapsed=$(($(date +%s) - DRILL_APPLIED_AT))
+    [ "$elapsed" -le 180 ] || break
     if measured_rtt "$accepted"; then
       case $refused in
       *"Authorization Violation"*)
-        pass $id "$DRILL_ACCEPT's key connects and $DRILL_REFUSE's key is refused at connect"
-        measured $id "the reloaded key set was in force ${second}s after the ConfigMap was applied"
+        pass $id "$DRILL_ACCEPT's key connects and $DRILL_REFUSE's key is refused at connect within 180s"
+        measured $id "the reloaded key set was confirmed in force ${elapsed}s (wall clock) after the ConfigMap apply started"
         return
         ;;
       esac
     fi
     sleep 2
   done
-  fail $id "$DRILL_ACCEPT's key connects and $DRILL_REFUSE's key is refused within 180s" "$accepted
+  fail $id "$DRILL_ACCEPT's key connects and $DRILL_REFUSE's key is refused within 180s" "${elapsed}s elapsed
+$accepted
 $refused"
 }
 

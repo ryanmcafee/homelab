@@ -206,8 +206,9 @@ Do not invent overlap support, and do not enable anonymous access to cover the g
 **Measured on Kind** (level-2 `rotation_and_revocation_drill`,
 [run 45770012001](https://github.com/ryanmcafee/homelab/actions/runs/45770012001/job/139741976377)):
 the config reload cuts a session already established under the removed key
-(`Disconnected due to: EOF`, and `connz` no longer lists it). Sessions on unchanged keys survive,
-and the reloaded key set was in force 56-76s after the ConfigMap was applied.
+(`Disconnected due to: EOF`, and `connz` no longer lists it). Sessions on unchanged keys survive.
+The drill asserts the reloaded key set is in force within 180s of wall-clock time from the
+ConfigMap apply; each run's measured figure is in its `e2e/measured` check.
 
 If ESO is slow or a restart fails mid-rotation, the correct state is the interruption continuing
 with the new public key in place. Reverting the public key to restore availability puts a

@@ -150,16 +150,19 @@ spec:
               before=$(kubectl -n "$NAMESPACE" get pod nats-0 -o jsonpath="$pod")
               rc=0
               client sh /probes/probes.sh drill_hold || rc=1
+              applied=$(client date +%s)
               apply_config "$rotated"
-              client env DRILL_ACCEPT=verify-next DRILL_REFUSE=verify \
+              client env DRILL_ACCEPT=verify-next DRILL_REFUSE=verify DRILL_APPLIED_AT="$applied" \
                 sh /probes/probes.sh drill_await drill_sessions || rc=1
               connz=$(kubectl get --raw "/api/v1/namespaces/$NAMESPACE/pods/nats-0:8222/proxy/connz?subs=1")
               for principal in verify dlq-reporter; do
                 printf '%s' "$connz" | grep -q "_INBOX.$principal.drill" && state=present || state=absent
                 echo "MEASURED rotation_and_revocation_drill: connz after rotation: $principal's held session $state"
               done
+              applied=$(client date +%s)
               apply_config "$pairs"
-              client env DRILL_ACCEPT=verify DRILL_REFUSE=verify-next sh /probes/probes.sh drill_await || rc=1
+              client env DRILL_ACCEPT=verify DRILL_REFUSE=verify-next DRILL_APPLIED_AT="$applied" \
+                sh /probes/probes.sh drill_await || rc=1
               client sh /probes/probes.sh drill_release || true
               after=$(kubectl -n "$NAMESPACE" get pod nats-0 -o jsonpath="$pod")
               if [ "$before" = "$after" ]; then
