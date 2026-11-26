@@ -450,6 +450,46 @@ phase_drill_sessions() {
   esac
 }
 
+SYS_HELD=verify
+SYS_SUBJECT="_INBOX.$SYS_HELD.sysdrill"
+
+# Before recovery: the break-glass key is refused, and holds a tenant session for $SYS to cut.
+phase_sys_hold() {
+  id=rotation_and_revocation_drill
+  expect $id "the \$SYS key is refused before it is rendered" "Authorization Violation" \
+    "$(nats --server "$NATS_URL" --nkey "$SEEDS/sys.nk" --timeout 3s rtt 2>&1)"
+  mkdir -p "$DRILL"
+  setsid sh -c 'echo $$ >"$1.pid"; exec nats --server "$2" --nkey "$3" --inbox-prefix "_INBOX.$4" sub "$5"' \
+    _ "$DRILL/sys-held" "$NATS_URL" "$SEEDS/$SYS_HELD.nk" "$SYS_HELD" "$SYS_SUBJECT" >"$DRILL/sys-held.out" 2>&1 </dev/null &
+  sleep 2
+  succeeded $id "$SYS_HELD holds a session for \$SYS to cut" "Subscribing on $SYS_SUBJECT" "$(cat "$DRILL/sys-held.out")"
+}
+
+# After recovery: $SYS finds the tenant session across accounts and kicks it; a tenant key cannot.
+phase_sys_kick() {
+  id=rotation_and_revocation_drill
+  : "${SYS_ACCOUNT:?}"
+  connz=$(as sys server request connections --filter-account="$SYS_ACCOUNT" --filter-subject="$SYS_SUBJECT")
+  cid=$(printf '%s' "$connz" | sed -n 's/.*"connections":\[{"cid":\([0-9]*\),.*/\1/p')
+  server=$(printf '%s' "$connz" | sed -n 's/.*"server_id":"\([A-Z0-9]*\)".*/\1/p')
+  if [ -z "$cid" ] || [ -z "$server" ]; then
+    fail $id "\$SYS reads $SYS_HELD's connection in $SYS_ACCOUNT" "$connz"
+    return
+  fi
+  pass $id "\$SYS reads $SYS_HELD's connection in $SYS_ACCOUNT (cid $cid)"
+  refused_pub $id "$SYS_HELD's own key is refused the kick request" "\$SYS.REQ.SERVER.$server.KICK" \
+    "$(as "$SYS_HELD" --trace server request kick "$cid" "$server")"
+  case $(cat "$DRILL/sys-held.out") in
+  *Disconnected*)
+    fail $id "$SYS_HELD's session is still up before \$SYS kicks it" "$(cat "$DRILL/sys-held.out")"
+    return
+    ;;
+  esac
+  as sys server request kick "$cid" "$server" >/dev/null
+  sleep 2
+  expect $id "\$SYS kicks $SYS_HELD's established session" "Disconnected" "$(cat "$DRILL/sys-held.out")"
+}
+
 phase_drill_release() {
   for pid in "$DRILL"/*.pid; do
     [ -f "$pid" ] && kill "$(cat "$pid")" 2>/dev/null

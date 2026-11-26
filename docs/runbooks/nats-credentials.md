@@ -93,6 +93,13 @@ lives, and the date of the last successful recovery drill. Never record the seed
 
 A localdev `$SYS` key must never be reused in homelab. Kind mints none at all (see section 4).
 
+The recovery path is exercised on Kind by `tests/e2e/nats-auth` step `sys-recovery`: a key held
+only in a client pod's memory is rendered as `nats.systemAccountNkey` and applied by config
+reload, with no Secret, External Secrets or 1Password involved. With it, `$SYS` reads a tenant
+connection (`nats server request connections --filter-account`) and cuts it
+(`nats server request kick <cid> <server id>`); the tenant's own key is refused the same request.
+Reloading without the key refuses it again.
+
 ## 3. Activate
 
 Activation is the single change that flips the bus from anonymous to authenticated, and it cannot

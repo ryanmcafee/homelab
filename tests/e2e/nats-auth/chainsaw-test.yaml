@@ -13,7 +13,7 @@ spec:
     contract's open questions consumer_create_name_only_reach and rq_reply_needs_no_inbox_grant
     against the running digest, which the first step prints. nack-account-move records
     nack_account_on_stream_move without asserting an answer; nack-rotation then rotates the key
-    that NACK drives.
+    that NACK drives, and sys-recovery exercises the `$SYS` break-glass path.
   steps:
     - name: render-and-start
       description: >-
@@ -407,4 +407,62 @@ spec:
             kind: Stream
         - podLogs:
             selector: app=nack-move
+            tail: 100
+
+    - name: sys-recovery
+      description: >-
+        rotation_and_revocation_drill's `$SYS` recovery path. A break-glass key minted in the
+        client pod's memory, standing in for the operator's offline copy, is rendered as
+        nats.systemAccountNkey and reloaded; with it `$SYS` reads a tenant connection and kicks
+        it, which the tenant's own key cannot. The path reads no Secret, so it needs no identity
+        service. The rollback removes the `$SYS` user again.
+      try:
+        - script:
+            timeout: 10m
+            content: |
+              set -eu
+              root=$(git rev-parse --show-toplevel)
+              dir="$root/tests/e2e/nats-auth"
+              keygen() { kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh "$@"; }
+              client() {
+                kubectl -n "$NAMESPACE" exec nats-client -- env NATS_URL=nats://nats:4222 SEEDS=/seeds "$@"
+              }
+              principals=$(yq '.principals[] | select(has("pending") | not) | .name' \
+                "$root/charts/addons/files/nats-accounts.gen.yaml" | tr '\n' ' ')
+              pairs=$(keygen $principals)
+              probe_pairs=$(keygen rq-responder-bare rq-responder-bounded)
+              move_pairs=$(keygen nack-probe nack-move)
+              sys=$(keygen sys sys-stranger)
+              sys_key=$(printf '%s' "$sys" | tr ',' '\n' | sed -n 's/^sys=//p')
+              apply_config() {
+                out=$(mktemp -d)
+                PAIRS="$pairs" PROBE_PAIRS="$probe_pairs" MOVE_PAIRS="$move_pairs" SYS_KEY="$1" \
+                  NAMESPACE="$NAMESPACE" OUT="$out" sh "$dir/render.sh"
+                yq 'select(.kind == "ConfigMap")' "$out/server.yaml" | kubectl -n "$NAMESPACE" apply -f -
+                account=$(yq '.config.merge.accounts | keys | .[] | select(. != "$SYS" and . != "NACK_MOVE")' \
+                  "$out/values.yaml")
+              }
+              secrets_before=$(kubectl -n "$NAMESPACE" get secrets -o name | sort)
+              rc=0
+              client sh /probes/probes.sh sys_hold || rc=1
+              applied=$(client date +%s)
+              apply_config "$sys_key"
+              client env DRILL_ACCEPT=sys DRILL_REFUSE=sys-stranger DRILL_APPLIED_AT="$applied" \
+                sh /probes/probes.sh drill_await || rc=1
+              client env SYS_ACCOUNT="$account" sh /probes/probes.sh sys_kick || rc=1
+              applied=$(client date +%s)
+              apply_config ""
+              client env DRILL_ACCEPT=verify DRILL_REFUSE=sys DRILL_APPLIED_AT="$applied" \
+                sh /probes/probes.sh drill_await || rc=1
+              client sh /probes/probes.sh drill_release || true
+              if [ "$(kubectl -n "$NAMESPACE" get secrets -o name | sort)" = "$secrets_before" ]; then
+                echo "PASS rotation_and_revocation_drill: the \$SYS recovery path created no Secret"
+              else
+                echo "FAIL rotation_and_revocation_drill: the \$SYS recovery path created a Secret"
+                rc=1
+              fi
+              exit $rc
+      catch:
+        - podLogs:
+            selector: app.kubernetes.io/name=nats
             tail: 100

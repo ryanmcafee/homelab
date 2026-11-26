@@ -1,6 +1,7 @@
 #!/bin/sh
 # Renders the NATS server exactly as the localdev `nats` Application would with $PAIRS as
 # nats.principalNkeys, plus the two labelled request/reply probe users, into $OUT/server.yaml.
+# A non-empty $SYS_KEY renders as nats.systemAccountNkey, the break-glass `$SYS` user.
 # `render.sh box-image` prints the nats-box image that same chart version pins.
 set -eu
 root=$(git rev-parse --show-toplevel)
@@ -37,7 +38,7 @@ fi
 : "${OUT:?OUT must name the output directory}"
 mkdir -p "$OUT"
 
-PAIRS="$PAIRS" yq -n '.nats.principalNkeys = strenv(PAIRS)' >"$OUT/keys.yaml"
+PAIRS="$PAIRS" SYS_KEY="${SYS_KEY:-}" yq -n '.nats.principalNkeys = strenv(PAIRS) | .nats.systemAccountNkey = strenv(SYS_KEY)' >"$OUT/keys.yaml"
 helm template addons "$root/charts/addons" \
   -f "$root/charts/addons/values.yaml" \
   -f "$root/charts/addons/values-localdev.yaml" \
@@ -51,8 +52,14 @@ yq "$app | .helm.values" "$OUT/addons.yaml" >"$OUT/values.yaml"
 tenant=$(yq '.nats.tenant' "$root/charts/addons/values-localdev.yaml")
 account=$(yq '.config.merge.accounts | keys | .[] | select(. != "$SYS")' "$OUT/values.yaml")
 [ "$(printf '%s\n' "$account" | wc -l)" -eq 1 ] || { echo "expected one tenant account, got: $account" >&2; exit 1; }
-[ "$(yq '.config.merge.accounts["$SYS"].users | length' "$OUT/values.yaml")" -eq 0 ] ||
-  { echo "the render gives \$SYS a user; cold start must hold no maintainer account" >&2; exit 1; }
+if [ -z "${SYS_KEY:-}" ]; then
+  [ "$(yq '.config.merge.accounts["$SYS"].users | length' "$OUT/values.yaml")" -eq 0 ] ||
+    { echo "the render gives \$SYS a user; cold start must hold no maintainer account" >&2; exit 1; }
+else
+  SYS_KEY=$SYS_KEY yq -e '(.config.merge.accounts["$SYS"].users | length) == 1 and
+    .config.merge.accounts["$SYS"].users[0].nkey == strenv(SYS_KEY)' "$OUT/values.yaml" >/dev/null ||
+    { echo "SYS_KEY did not render as the one \$SYS user" >&2; exit 1; }
+fi
 declared=$(printf '%s' "$PAIRS" | tr ',' '\n' | grep -c .)
 rendered=$(yq ".config.merge.accounts.$account.users | length" "$OUT/values.yaml")
 [ "$declared" -eq "$rendered" ] || { echo "$declared keys supplied, $rendered users rendered" >&2; exit 1; }
