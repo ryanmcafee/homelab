@@ -43,7 +43,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `cilium-config` | `charts/cilium-config` | git | envoy-internal: hubble | — | — |
 | `clickhouse` | `charts/clickhouse` | git | — | — | smoke-clickhouse |
 | `clickhouse-dependencies` | `charts/clickhouse-dependencies` | git | — | — | — |
-| `clickhouse-operator` | `altinity-clickhouse-operator` | 0.27.3 | — | — | — |
+| `clickhouse-operator` | `altinity-clickhouse-operator` | 0.27.4 | — | — | — |
 | `cloudnative-pg` | `cloudnative-pg` | 0.28.3 | — | cloudnative-pg | — |
 | `cnpg-barman-cloud` | `plugin-barman-cloud` | 0.8.0 | — | — | — |
 | `democratic-csi` | `democratic-csi` | 0.15.1 | — | — | — |
