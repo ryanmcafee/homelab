@@ -146,9 +146,9 @@ argocd:
   # charts/gitops/values-homelab.yaml; flip this one first.
   notificationsGithub:
     enabled: false
-    # 1Password item whose fields become the argocd-notifications-secret keys
-    # github-appID, github-installationID and github-privateKey.
-    onePasswordItemPath: "vaults/homelab/items/argocd-notifications-github"
+    # onePasswordItemPath (fields github-appID, github-installationID,
+    # github-privateKey) is NOT set here: ARGOCD_NOTIFICATIONS_GITHUB_1P_PATH
+    # reaches it through the Terraform root Application and the gitops chart.
     notifications:
       secret:
         # The OnePasswordItem produces argocd-notifications-secret.
