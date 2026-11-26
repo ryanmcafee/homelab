@@ -229,7 +229,7 @@ jobs:
             echo '{"pass":false,"inspected":{"sources":0,"charts":0},"findings":[],"unusedAllowEntries":[],"pullErrors":[]}' > values.json
           fi
           # Pull diagnostics may contain credentials from a chart registry.
-          if ! jq -e 'if (.pullErrors | type) == "array" then .pullErrors |= map(.error = "diagnostics omitted for credential safety") else empty end' values.json > values.safe.json; then
+          if ! jq -e 'if (.pullErrors | type) == "array" then .pullErrors |= (to_entries | map({key: ("chart-pull-" + (.key | tostring)), error: "diagnostics omitted for credential safety"})) else empty end' values.json > values.safe.json; then
             echo '{"pass":false,"inspected":{"sources":0,"charts":0},"findings":[],"unusedAllowEntries":[],"pullErrors":[]}' > values.safe.json
           fi
           mv values.safe.json values.json

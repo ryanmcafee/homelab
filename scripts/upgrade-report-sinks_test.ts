@@ -160,7 +160,12 @@ test("uploaded values JSON omits chart pull diagnostics", () => {
         inspected: { sources: 0, charts: 0 },
         findings: [],
         unusedAllowEntries: [],
-        pullErrors: [{ key: "synthetic", error: sentinel }],
+        pullErrors: [
+          {
+            key: `https://user:${sentinel}@charts.example.test/repository`,
+            error: sentinel,
+          },
+        ],
       }),
     );
     const run = spawnSync("bash", ["-c", projection ?? ""], {
@@ -171,6 +176,14 @@ test("uploaded values JSON omits chart pull diagnostics", () => {
     expect(readFileSync(join(dir, "values.json"), "utf8")).not.toContain(
       sentinel,
     );
+    expect(
+      JSON.parse(readFileSync(join(dir, "values.json"), "utf8")).pullErrors,
+    ).toEqual([
+      {
+        key: "chart-pull-0",
+        error: "diagnostics omitted for credential safety",
+      },
+    ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
