@@ -447,8 +447,24 @@ func Chainsaw(ctx context.Context, opts ClusterOptions) []Check {
 	for _, test := range report.Tests {
 		checks = append(checks, chainsawTestCheck(test))
 	}
+	if measured := measuredLines(stdout, stderr); len(measured) > 0 {
+		checks = append(checks, Check{Name: "e2e/measured", Status: StatusPass, Detail: fmt.Sprintf("%d MEASURED line(s) from chainsaw output", len(measured)), Findings: measured})
+	}
 	sort.SliceStable(checks, func(i, j int) bool { return checks[i].Name < checks[j].Name })
 	return checks
+}
+
+// measuredLines returns every output line that starts with "MEASURED ", uncapped.
+func measuredLines(outputs ...[]byte) []string {
+	var lines []string
+	for _, out := range outputs {
+		for _, line := range nonEmptyLines(out) {
+			if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "MEASURED ") {
+				lines = append(lines, trimmed)
+			}
+		}
+	}
+	return lines
 }
 
 // chainsawTestCheck converts one report entry into a check. Duration comes

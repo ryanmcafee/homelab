@@ -43,6 +43,8 @@ type fakeClusterRunner struct {
 	// chainsawReport, when non-empty, is written to
 	// <--report-path>/<--report-name>.json on every chainsaw invocation.
 	chainsawReport string
+	// chainsawStdout replaces the default "Running tests..." output.
+	chainsawStdout string
 	// chainsawStderr/chainsawErr make chainsaw exit non-zero.
 	chainsawStderr string
 	chainsawErr    error
@@ -77,7 +79,11 @@ func (f *fakeClusterRunner) Run(_ context.Context, dir, name string, args ...str
 				return nil, []byte(err.Error()), err
 			}
 		}
-		return []byte("Running tests...\n"), []byte(f.chainsawStderr), f.chainsawErr
+		stdout := "Running tests...\n"
+		if f.chainsawStdout != "" {
+			stdout = f.chainsawStdout
+		}
+		return []byte(stdout), []byte(f.chainsawStderr), f.chainsawErr
 	}
 	return nil, []byte("unexpected tool " + name), fmt.Errorf("exit status 127")
 }
@@ -833,6 +839,45 @@ func TestChainsawReportBecomesOneCheckPerTest(t *testing.T) {
 	if dir := flagValue(cmds[0].Args, "--report-path"); dir != "" {
 		if _, err := os.Stat(dir); !os.IsNotExist(err) {
 			t.Errorf("report dir %s should be removed after parsing (stat err: %v)", dir, err)
+		}
+	}
+}
+
+func TestChainsawKeepsMeasuredLinesFromAPassingRun(t *testing.T) {
+	stdout := strings.Join([]string{
+		"| 06:30:01 | nats-auth | rotation-drill | SCRIPT | LOG |",
+		`        echo "MEASURED rotation_and_revocation_drill: connz after rotation: $principal's held session $state"`,
+		"        MEASURED rotation_and_revocation_drill: verify's established session on the removed key was cut: >>> Disconnected due to: EOF",
+		"        PASS dlq-reporter's control session survives the reload",
+		"MEASURED nack_account_on_stream_move: before the move: tenant=present move=absent shared=present",
+		"",
+	}, "\n")
+	opts := clusterOpts(&fakeClusterRunner{chainsawReport: chainsawReportJSON, chainsawStdout: stdout}, t.TempDir())
+	opts.E2EDir = writeChainsawConfig(t)
+	checks := Chainsaw(context.Background(), opts)
+
+	measured := clusterCheck(t, checks, "e2e/measured")
+	if measured.Status != StatusPass {
+		t.Errorf("status = %s, want pass: a MEASURED line records an observation, not a verdict", measured.Status)
+	}
+	want := []string{
+		"MEASURED rotation_and_revocation_drill: verify's established session on the removed key was cut: >>> Disconnected due to: EOF",
+		"MEASURED nack_account_on_stream_move: before the move: tenant=present move=absent shared=present",
+	}
+	if strings.Join(measured.Findings, "\n") != strings.Join(want, "\n") {
+		t.Errorf("findings:\n got %q\nwant %q", measured.Findings, want)
+	}
+	if measured.Detail != "2 MEASURED line(s) from chainsaw output" {
+		t.Errorf("detail = %q", measured.Detail)
+	}
+}
+
+func TestChainsawAddsNoMeasuredCheckWithoutMeasuredLines(t *testing.T) {
+	opts := clusterOpts(&fakeClusterRunner{chainsawReport: chainsawReportJSON}, t.TempDir())
+	opts.E2EDir = writeChainsawConfig(t)
+	for _, c := range Chainsaw(context.Background(), opts) {
+		if c.Name == "e2e/measured" {
+			t.Fatalf("unexpected e2e/measured check: %+v", c)
 		}
 	}
 }
