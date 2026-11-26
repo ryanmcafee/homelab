@@ -1402,6 +1402,74 @@ spec:
                       summary: 'The triage agent intake is not scraped'
                       description: 'No alert reaches the triage agent and the workspace alerts above are blind. `kubectl -n {{ $triageAgent.namespace }} get deploy triage-agent`; docs/runbooks/triage-agent.md.'
           {{- end }}
+          # RED SLOs over contracts/observability/metrics.v1.yaml for every
+          # service that emits platform_request_duration_seconds
+          # (docs/runbooks/platform-red-slo.md). code="quota" is excluded from
+          # both sides of the error ratio; the latency SLI selects
+          # outcome="success" on both sides. The short and long window ratios
+          # sit in separate groups so the long ranges do not delay the short.
+          platform-red-v1:
+            groups:
+              - name: platform-red-v1-sli-short
+                rules:
+                  - record: platform:request_error:ratio_rate5m
+                    expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="error",code!="quota"}[5m])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{code!="quota"}[5m]))'
+                  - record: platform:request_error:ratio_rate30m
+                    expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="error",code!="quota"}[30m])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{code!="quota"}[30m]))'
+                  - record: platform:request_error:ratio_rate1h
+                    expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="error",code!="quota"}[1h])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{code!="quota"}[1h]))'
+                  - record: platform:request_latency:violation_ratio_rate5m
+                    expr: '1 - (sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_bucket{outcome="success",le="0.25"}[5m])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="success"}[5m])))'
+                  - record: platform:request_latency:violation_ratio_rate1h
+                    expr: '1 - (sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_bucket{outcome="success",le="0.25"}[1h])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="success"}[1h])))'
+              - name: platform-red-v1-sli-long
+                rules:
+                  - record: platform:request_error:ratio_rate2h
+                    expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="error",code!="quota"}[2h])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{code!="quota"}[2h]))'
+                  - record: platform:request_error:ratio_rate6h
+                    expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="error",code!="quota"}[6h])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{code!="quota"}[6h]))'
+                  - record: platform:request_error:ratio_rate1d
+                    expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="error",code!="quota"}[1d])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{code!="quota"}[1d]))'
+                  - record: platform:request_error:ratio_rate3d
+                    expr: 'sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{outcome="error",code!="quota"}[3d])) / sum by (service, environment, tenant, kind) (rate(platform_request_duration_seconds_count{code!="quota"}[3d]))'
+              - name: platform-red-v1-slo
+                rules:
+                  - alert: PlatformRequestErrorBudgetBurningFast
+                    expr: '(platform:request_error:ratio_rate1h{kind="http"} > (14.4 * 0.005) and platform:request_error:ratio_rate5m{kind="http"} > (14.4 * 0.005)) or (platform:request_error:ratio_rate6h{kind="http"} > (6 * 0.005) and platform:request_error:ratio_rate30m{kind="http"} > (6 * 0.005))'
+                    for: 2m
+                    labels:
+                      severity: critical
+                      slo: platform-http-availability
+                    annotations:
+                      summary: '{{`{{ $labels.service }}`}} is burning its 99.5% availability budget fast'
+                      description: '{{`{{ $labels.service }}`}} ({{`{{ $labels.environment }}`}}/{{`{{ $labels.tenant }}`}}) has served more than {{`{{ $value | humanizePercentage }}`}} errors on kind=http over both the long and the short window. At this rate the 30d error budget is gone in under two days. Runbook: docs/runbooks/platform-red-slo.md.'
+                  - alert: PlatformRequestErrorBudgetBurningSlow
+                    expr: '(platform:request_error:ratio_rate1d{kind="http"} > (3 * 0.005) and platform:request_error:ratio_rate2h{kind="http"} > (3 * 0.005)) or (platform:request_error:ratio_rate3d{kind="http"} > (1 * 0.005) and platform:request_error:ratio_rate6h{kind="http"} > (1 * 0.005))'
+                    for: 15m
+                    labels:
+                      severity: warning
+                      slo: platform-http-availability
+                    annotations:
+                      summary: '{{`{{ $labels.service }}`}} is burning its 99.5% availability budget'
+                      description: '{{`{{ $labels.service }}`}} ({{`{{ $labels.environment }}`}}/{{`{{ $labels.tenant }}`}}) is above its 99.5% availability objective over a multi-day window ({{`{{ $value | humanizePercentage }}`}} errors). Runbook: docs/runbooks/platform-red-slo.md.'
+                  - alert: PlatformRequestLatencyBudgetBurningFast
+                    expr: 'platform:request_latency:violation_ratio_rate1h{kind="http"} > (14.4 * 0.01) and platform:request_latency:violation_ratio_rate5m{kind="http"} > (14.4 * 0.01)'
+                    for: 2m
+                    labels:
+                      severity: critical
+                      slo: platform-http-latency
+                    annotations:
+                      summary: '{{`{{ $labels.service }}`}} is burning its 250ms latency budget fast'
+                      description: '{{`{{ $value | humanizePercentage }}`}} of successful kind=http requests to {{`{{ $labels.service }}`}} took longer than 250ms over both the long and the short window; the objective is 99% under 250ms over 30d. Runbook: docs/runbooks/platform-red-slo.md.'
+                  - alert: PlatformServiceMetricsAbsent
+                    expr: 'count by (service, environment) (max_over_time(platform_build_info[1d])) unless count by (service, environment) (present_over_time(platform_build_info[3m]))'
+                    for: 5m
+                    labels:
+                      severity: critical
+                      slo: platform-http-availability
+                    annotations:
+                      summary: '{{`{{ $labels.service }}`}} has stopped exposing RED metrics'
+                      description: '{{`{{ $labels.service }}`}} ({{`{{ $labels.environment }}`}}) exposed platform_build_info within the last day and exposes nothing now, so every SLO and burn-rate alert for it is blind rather than green. Runbook: docs/runbooks/platform-red-slo.md.'
           {{- $eco := index .Values "ecowitt-exporter" }}
           {{- if $eco.rules.enabled }}
           # IoT weather and soil sensors (docs/runbooks/iot-sensors.md). The

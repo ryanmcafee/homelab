@@ -12,12 +12,12 @@ objectives over the `platform_request_duration_seconds` family defined by
 A 99.5% availability objective holds 3.6 hours of total outage over 30 days; a 14.4x burn
 exhausts it in about 50 hours, which is why the fast tier pages and the slow tier does not.
 
-> **Status: the rules are not deployed yet.** No service emits
-> `platform_request_duration_seconds`, so nothing in this file can fire today. It exists first
-> because these alerts do not ship without it. The alert definitions, the `red-v1-canary`
-> template and their promtool fixtures live on MCAA-277 until a conformant producer exists, and
-> `contracts/observability/metrics.v1.yaml` is pending in
-> [#433](https://github.com/ryanmcafee/homelab/pull/433).
+> **Status: the rules are deployed; the canary template is not.** The `platform-red-v1` group
+> ships in `charts/addons/templates/kube-prometheus-stack.yaml`, is unit-tested by
+> `tests/alerts/platform-red-slo.test.yaml` (`task test:alerts`), and the Kind suite
+> `tests/e2e/triage-agent` fires `PlatformRequestErrorBudgetBurningFast` against the triage agent
+> intake, the first service to emit `platform_request_duration_seconds`. The `red-v1-canary`
+> template ships with the first Rollout that uses it.
 
 ## Which alert fired
 
