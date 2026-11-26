@@ -2118,11 +2118,12 @@ ecowitt-exporter:
 # Sync Wave: 13 (docs/runbooks/triage-agent.md)
 # ============================================================================
 
-{{- $triage := and $onepassword (eq .Values.TRIAGE_AGENT_ENABLED.Value "true") }}
-
 triage-agent:
-  enabled: {{ $triage }}
+  enabled: {{ eq .Values.TRIAGE_AGENT_ENABLED.Value "true" }}
   namespace: triage-agent
+  # The triage-fix workflow reads the Claude and GitHub tokens from 1Password;
+  # without them the intake runs alone in dry run.
+  workflow: {{ $onepassword }}
   # Published by .github/workflows/triage-agent-image.yml to the fork's own
   # ghcr namespace; the image name there is fixed, only the owner varies.
   image: "ghcr.io/{{ .GitOps.ImageOwner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"

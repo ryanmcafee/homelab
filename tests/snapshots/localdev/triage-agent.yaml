@@ -1,1 +1,177 @@
+---
+# Source: triage-agent/templates/intake.yaml
+# The webhook takes unauthenticated alerts, so only the listed namespaces
+# (Alertmanager, Prometheus) may reach the intake.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: triage-agent-intake
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: triage-agent
+      app.kubernetes.io/component: intake
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
 
+---
+# Source: triage-agent/templates/rbac.yaml
+# Intake: submits Workflows and nothing else; no cluster read access.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: triage-agent
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+
+---
+# Source: triage-agent/templates/intake.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: triage-agent
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/component: intake
+spec:
+  selector:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/component: intake
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: metrics
+      port: 9090
+      targetPort: http
+
+---
+# Source: triage-agent/templates/intake.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triage-agent
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/component: intake
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: triage-agent
+      app.kubernetes.io/component: intake
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: triage-agent
+        app.kubernetes.io/part-of: homelab
+        app.kubernetes.io/component: intake
+        platform.mcafeeconsulting.com/metrics: red-v1
+    spec:
+      serviceAccountName: triage-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: intake
+          image: ghcr.io/ryanmcafee/homelab-triage-agent:0.1.2
+          args: ["serve"]
+          env:
+            - name: ALERTMANAGER_URL
+              value: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"
+            - name: WORKFLOW_NAMESPACE
+              value: "triage-agent"
+            - name: WORKFLOW_TEMPLATE
+              value: "triage-fix"
+            - name: SWEEP_INTERVAL_SECONDS
+              value: "0"
+            - name: COOLDOWN_SECONDS
+              value: "86400"
+            - name: IGNORED_ALERTS
+              value: "Watchdog,InfoInhibitor,GitHubPullRequestNeedsReview,TriageAgentWorkspaceFillingUp,TriageAgentCacheFillingUp,TriageAgentJanitorFailing,TriageAgentIntakeDown"
+            - name: MAX_RECORDS
+              value: "50"
+            - name: DRY_RUN
+              value: "true"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: PLATFORM_ENVIRONMENT
+              value: "localdev"
+            - name: PLATFORM_TENANT
+              value: "local"
+            - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+              value: "0"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 192Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+
+---
+# Source: triage-agent/templates/intake.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: triage-agent
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: triage-agent
+      app.kubernetes.io/component: intake
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

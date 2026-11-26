@@ -72,7 +72,7 @@ keys:
     default: "20"
 
   TRIAGE_AGENT_ENABLED:
-    description: Whether the alert triage agent runs; Alertmanager sends it every firing alert and it opens fix PRs through Argo Workflows (needs SECRETS_PROVIDER=onepassword for the Claude and GitHub tokens)
+    description: Whether the alert triage agent runs; Alertmanager sends it every firing alert and it opens fix PRs through Argo Workflows (needs SECRETS_PROVIDER=onepassword for the Claude and GitHub tokens; without them the intake runs alone in dry run)
     required: true
     default: "true"
     enum:

@@ -10,7 +10,7 @@ you merge the pull request (ADR-036).
 | Service + stages (Bun + TypeScript) | `triage-agent/src/`, tests in `triage-agent/tests/unit/` (`task test:triage-agent`) |
 | Image | `Dockerfile.triage-agent`, published by `.github/workflows/triage-agent-image.yml` as `ghcr.io/<owner>/homelab-triage-agent:<images.triage-agent>` |
 | Chart | `charts/triage-agent`: intake Deployment, WorkflowTemplate `triage-fix`, ServiceAccounts, workspace and cache PVCs, ConfigMaps, OnePasswordItems |
-| Application | `charts/addons/templates/triage-agent.yaml`, wave 13, only with a secret store and Argo Workflows |
+| Application | `charts/addons/templates/triage-agent.yaml`, wave 13; without a secret store or Argo Workflows, the intake alone in dry run (`workflow.enabled: false`) |
 | Alertmanager route + alerts | `charts/addons/templates/kube-prometheus-stack.yaml`: receiver `triage-agent`, `continue: true` (not for `TriageAgent*`); rule group `homelab-triage-agent` |
 | ArgoCD account | `charts/bootstrap/values-homelab.yaml`: `accounts.triage-agent: apiKey`, role `get` + `sync` on applications |
 
@@ -85,8 +85,11 @@ a new fingerprint.
 4. **ArgoCD token** (optional): after the bootstrap sync, generate the `triage-agent` token as above.
 
 Without the item the intake runs but every workflow step waits in `CreateContainerConfigError`.
-`TRIAGE_AGENT_ENABLED=false` turns the whole feature off; Kind renders none of it (no secret store,
-no Argo Workflows).
+`TRIAGE_AGENT_ENABLED=false` turns the whole feature off. Without `SECRETS_PROVIDER=onepassword`
+or Argo Workflows (Kind has neither) the chart renders the intake alone with `intake.dryRun: true`:
+no WorkflowTemplate, volumes, executor RBAC or janitor. It serves `/webhook`, `/submissions` and
+`/metrics` and submits nothing; level 2 (`tests/e2e/triage-agent`) POSTs one alert group and
+asserts the RED series `platform_request_duration_seconds_count{service="triage-agent"}`.
 
 ## Watch it
 

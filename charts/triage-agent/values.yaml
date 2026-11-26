@@ -108,6 +108,9 @@ intake:
 
 # The triage-fix WorkflowTemplate.
 workflow:
+  # false: the intake alone (no template, volumes, executor RBAC or janitor),
+  # which needs intake.dryRun; for clusters without Argo Workflows or a secret store.
+  enabled: true
   templateName: triage-fix
   # Workflows running at once (semaphore); one per alertname at most (mutex).
   maxConcurrent: 1
