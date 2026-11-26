@@ -40,6 +40,7 @@ spec:
       # Derived from configuration/ (ADR-010); the child's values stay environment-free.
       valuesObject:
         namespace: {{ $ta.namespace | quote }}
+        environment: {{ .Values.global.environment | quote }}
         image: {{ $ta.image | quote }}
         repoUrl: {{ .Values.global.repoUrl | quote }}
         repoSlug: {{ $ta.repoSlug | quote }}

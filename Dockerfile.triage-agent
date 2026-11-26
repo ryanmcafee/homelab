@@ -68,6 +68,12 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY triage-agent/package.json ./
 COPY triage-agent/src ./src
 
+# platform_build_info labels; the image workflow passes the tag and commit.
+ARG PLATFORM_VERSION=dev
+ARG PLATFORM_REVISION=unknown
+ENV PLATFORM_VERSION=${PLATFORM_VERSION} \
+    PLATFORM_REVISION=${PLATFORM_REVISION}
+
 # HOME, /workspaces, /cache and /tmp are volumes in the pod; the root filesystem stays read-only.
 ENV HOME=/home/agent \
     CLAUDE_CONFIG_DIR=/home/agent/.claude \

@@ -408,6 +408,9 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+    - name: metrics
+      port: 9090
+      targetPort: http
 
 ---
 # Source: triage-agent/templates/intake.yaml
@@ -432,6 +435,7 @@ spec:
         app.kubernetes.io/name: triage-agent
         app.kubernetes.io/part-of: homelab
         app.kubernetes.io/component: intake
+        platform.mcafeeconsulting.com/metrics: red-v1
     spec:
       serviceAccountName: triage-agent
       securityContext:
@@ -442,7 +446,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: intake
-          image: ghcr.io/replaceme-user/homelab-triage-agent:0.1.1
+          image: ghcr.io/replaceme-user/homelab-triage-agent:0.1.2
           args: ["serve"]
           env:
             - name: ALERTMANAGER_URL
@@ -463,6 +467,10 @@ spec:
               value: "false"
             - name: LOG_LEVEL
               value: "info"
+            - name: PLATFORM_ENVIRONMENT
+              value: "homelab"
+            - name: PLATFORM_TENANT
+              value: "local"
             - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
               value: "0"
             - name: WORKSPACE_ROOT
@@ -580,9 +588,9 @@ spec:
       app.kubernetes.io/name: triage-agent
       app.kubernetes.io/component: intake
   endpoints:
-    - port: http
+    - port: metrics
       path: /metrics
-      interval: 60s
+      interval: 30s
 
 ---
 # Source: triage-agent/templates/workflowtemplate.yaml
@@ -912,7 +920,7 @@ spec:
               path: /workspaces/{{workflow.name}}/out/ci-state
               default: ""
       container:
-        image: ghcr.io/replaceme-user/homelab-triage-agent:0.1.1
+        image: ghcr.io/replaceme-user/homelab-triage-agent:0.1.2
         args: ["run", "{{inputs.parameters.stage}}"]
         env:
           - name: WORK_DIR
