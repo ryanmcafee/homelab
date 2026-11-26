@@ -387,19 +387,20 @@ phase_drill_await() {
     accepted=$(nats --server "$NATS_URL" --nkey "$SEEDS/$DRILL_ACCEPT.nk" --timeout 3s rtt 2>&1)
     refused=$(nats --server "$NATS_URL" --nkey "$SEEDS/$DRILL_REFUSE.nk" --timeout 3s rtt 2>&1)
     elapsed=$(($(date +%s) - DRILL_APPLIED_AT))
-    [ "$elapsed" -le 180 ] || break
+    # Whole-second stamps hide up to 1s, so only a delta under 180 proves real time under 180s.
+    [ "$elapsed" -lt 180 ] || break
     if measured_rtt "$accepted"; then
       case $refused in
       *"Authorization Violation"*)
         pass $id "$DRILL_ACCEPT's key connects and $DRILL_REFUSE's key is refused at connect within 180s"
-        measured $id "the reloaded key set was confirmed in force ${elapsed}s (wall clock) after the ConfigMap apply started"
+        measured $id "the reloaded key set was confirmed in force under $((elapsed + 1))s (wall clock) after the ConfigMap apply started"
         return
         ;;
       esac
     fi
     sleep 2
   done
-  fail $id "$DRILL_ACCEPT's key connects and $DRILL_REFUSE's key is refused within 180s" "${elapsed}s elapsed
+  fail $id "$DRILL_ACCEPT's key connects and $DRILL_REFUSE's key is refused within 180s" "at least ${elapsed}s elapsed
 $accepted
 $refused"
 }
