@@ -360,6 +360,29 @@ phase_move_moved() {
   done
 }
 
+# Waits up to NACK_WAIT seconds from NACK_APPLIED_AT (pod epoch) for $MOVE_STREAM in the tenant
+# account. NACK_REQUIRED=1 makes a miss a FAIL; otherwise the outcome is only MEASURED.
+phase_nack_rotation_placed() {
+  id=rotation_and_revocation_drill
+  : "${NACK_APPLIED_AT:?}" "${NACK_WAIT:?}" "${NACK_WHEN:?}"
+  while :; do
+    state=$(where_is tenant)
+    elapsed=$(($(date +%s) - NACK_APPLIED_AT))
+    if [ "$state" = present ]; then
+      measured $id "NACK reconciled $MOVE_STREAM $NACK_WHEN, under $((elapsed + 1))s after the Stream was applied"
+      [ "${NACK_REQUIRED:-0}" = 1 ] && pass $id "NACK reconciles $MOVE_STREAM $NACK_WHEN"
+      return
+    fi
+    [ "$elapsed" -lt "$NACK_WAIT" ] || break
+    sleep 2
+  done
+  if [ "${NACK_REQUIRED:-0}" = 1 ] || [ "$state" = unreadable ]; then
+    fail $id "NACK reconciles $MOVE_STREAM $NACK_WHEN within ${NACK_WAIT}s" "tenant=$state"
+  else
+    measured $id "NACK did not reconcile $MOVE_STREAM $NACK_WHEN within ${NACK_WAIT}s: tenant=$state"
+  fi
+}
+
 DRILL=${DRILL:-$SEEDS/drill}
 DRILL_ROTATED=verify
 DRILL_CONTROL=dlq-reporter

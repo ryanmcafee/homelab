@@ -11,8 +11,9 @@ spec:
     namespace on keys minted for this run, so the shared anonymous bus is untouched. The
     probes (probes.sh) assert refusals on the server's own violation text and settle the
     contract's open questions consumer_create_name_only_reach and rq_reply_needs_no_inbox_grant
-    against the running digest, which the first step prints. The last step records
-    nack_account_on_stream_move without asserting an answer.
+    against the running digest, which the first step prints. nack-account-move records
+    nack_account_on_stream_move without asserting an answer; nack-rotation then rotates the key
+    that NACK drives.
   steps:
     - name: render-and-start
       description: >-
@@ -286,6 +287,119 @@ spec:
                 kubectl -n "$NAMESPACE" exec nats-client -- nats --server "$shared" --timeout 3s stream ls --names |
                   grep -qx "$stream" && echo "$stream is still on the shared bus $shared after its Stream was deleted"
               done
+              exit $rc
+      catch:
+        - describe:
+            apiVersion: jetstream.nats.io/v1beta2
+            kind: Stream
+        - podLogs:
+            selector: app=nack-move
+            tail: 100
+
+    - name: nack-rotation
+      description: >-
+        rotation_and_revocation_drill's NACK reconnect. The control-loop NACK from the previous
+        step reconciles a Stream on nack-probe's key; that key is then rotated by reloading the
+        ConfigMap and replacing the Account's Secret. Whether NACK reconciles a new Stream on the
+        rotated key without a restart is MEASURED; that it does after the documented restart is
+        asserted. The rollback restores the original key.
+      try:
+        - script:
+            timeout: 12m
+            content: |
+              set -eu
+              root=$(git rev-parse --show-toplevel)
+              dir="$root/tests/e2e/nats-auth"
+              keygen() { kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh "$@"; }
+              client() {
+                kubectl -n "$NAMESPACE" exec nats-client -- env NATS_URL=nats://nats:4222 SEEDS=/seeds "$@"
+              }
+              secret() {
+                client cat "/seeds/$1.nk" | kubectl -n "$NAMESPACE" create secret generic nack-rotation \
+                  --from-file=seed=/dev/stdin --dry-run=client -o yaml | kubectl -n "$NAMESPACE" apply -f -
+              }
+              stream() {
+                kubectl -n "$NAMESPACE" apply -f - <<EOF
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Stream
+              metadata:
+                name: $1
+              spec:
+                name: $2
+                account: rotation
+                subjects: ["nack.rotation.$1.>"]
+                storage: file
+                replicas: 1
+                maxBytes: 1048576
+              EOF
+              }
+              placed() {
+                applied=$(client date +%s)
+                stream "$1" "$2"
+                client env MOVE_STREAM="$2" NACK_APPLIED_AT="$applied" NACK_WAIT="$3" NACK_WHEN="$4" \
+                  NACK_REQUIRED="$5" sh /probes/probes.sh nack_rotation_placed
+              }
+              principals=$(yq '.principals[] | select(has("pending") | not) | .name' \
+                "$root/charts/addons/files/nats-accounts.gen.yaml" | tr '\n' ' ')
+              pairs=$(keygen $principals)
+              probe_pairs=$(keygen rq-responder-bare rq-responder-bounded)
+              move_pairs=$(keygen nack-probe nack-move)
+              next=$(keygen nack-probe-next)
+              rotated=$(printf '%s' "$move_pairs" |
+                sed "s/\(^\|,\)nack-probe=U[A-Z2-7]*/\1nack-probe=${next#nack-probe-next=}/")
+              [ "$rotated" != "$move_pairs" ] ||
+                { echo "nack-probe's key was not replaced in the rendered pairs" >&2; exit 1; }
+              apply_config() {
+                out=$(mktemp -d)
+                PAIRS="$pairs" PROBE_PAIRS="$probe_pairs" MOVE_PAIRS="$1" NAMESPACE="$NAMESPACE" OUT="$out" \
+                  sh "$dir/render.sh"
+                yq 'select(.kind == "ConfigMap")' "$out/server.yaml" | kubectl -n "$NAMESPACE" apply -f -
+              }
+              secret nack-probe
+              kubectl -n "$NAMESPACE" apply -f - <<EOF
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Account
+              metadata:
+                name: rotation
+              spec:
+                name: TENANT_LOCAL
+                servers: [nats://nats:4222]
+                nkey:
+                  secret: {name: nack-rotation}
+                  seed: seed
+              EOF
+              rc=0
+              placed nack-rotation-before NACK_ROTATION_BEFORE 60 "on nack-probe's current key" 1 || rc=1
+              applied=$(client date +%s)
+              apply_config "$rotated"
+              client env DRILL_ACCEPT=nack-probe-next DRILL_REFUSE=nack-probe DRILL_APPLIED_AT="$applied" \
+                sh /probes/probes.sh drill_await || rc=1
+              secret nack-probe-next
+              out=$(placed nack-rotation-after NACK_ROTATION_AFTER 90 \
+                "after its key rotated, without a restart" 0) || rc=1
+              echo "$out"
+              refused=$(kubectl -n "$NAMESPACE" logs deployment/nack-move |
+                grep -m1 -o 'Authorization Violation' || echo none)
+              echo "MEASURED rotation_and_revocation_drill: NACK's log after the rotation shows: $refused"
+              case $out in
+              *"did not reconcile"*)
+                kubectl -n "$NAMESPACE" rollout restart deployment/nack-move
+                kubectl -n "$NAMESPACE" rollout status deployment/nack-move --timeout=3m
+                client env MOVE_STREAM=NACK_ROTATION_AFTER NACK_APPLIED_AT="$(client date +%s)" NACK_WAIT=90 \
+                  NACK_WHEN="on the rotated key after a restart" NACK_REQUIRED=1 \
+                  sh /probes/probes.sh nack_rotation_placed || rc=1
+                ;;
+              esac
+              applied=$(client date +%s)
+              apply_config "$move_pairs"
+              client env DRILL_ACCEPT=nack-probe DRILL_REFUSE=nack-probe-next DRILL_APPLIED_AT="$applied" \
+                sh /probes/probes.sh drill_await || rc=1
+              kubectl -n "$NAMESPACE" delete stream nack-rotation-before nack-rotation-after --wait=false
+              for cr in nack-rotation-before nack-rotation-after; do
+                kubectl -n "$NAMESPACE" wait "stream/$cr" --for=delete --timeout=30s 2>/dev/null ||
+                  kubectl -n "$NAMESPACE" patch stream "$cr" --type merge -p '{"metadata":{"finalizers":null}}'
+              done
+              kubectl -n "$NAMESPACE" delete account rotation --wait=true --timeout=60s
               exit $rc
       catch:
         - describe:
