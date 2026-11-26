@@ -39,6 +39,7 @@ import {
   hostsTomlPath,
   kindBundledStorageObjects,
   kindNodeImage,
+  localImageBuilds,
   kubectlDeleteArgs,
   parseArgs,
   parseVersions,
@@ -605,4 +606,45 @@ test("apparmorRemoveCommand: non-interactive sudo tee into the kernel's .remove"
     "tee",
     "/sys/kernel/security/apparmor/.remove",
   ]);
+});
+
+// ----------------------------------------------------------------------------
+// Images this repository builds, preloaded when the registry lacks the tag
+// ----------------------------------------------------------------------------
+test("localImageBuilds: the enabled triage-agent image with its Dockerfile and version", () => {
+  const doc = `triage-agent:
+  enabled: true
+  image: "ghcr.io/me/homelab-triage-agent:0.1.2"
+`;
+  assertEquals(localImageBuilds(doc), [
+    {
+      image: "ghcr.io/me/homelab-triage-agent:0.1.2",
+      dockerfile: "Dockerfile.triage-agent",
+      version: "0.1.2",
+    },
+  ]);
+});
+
+test("localImageBuilds: nothing when the addon is disabled or has no image", () => {
+  assertEquals(
+    localImageBuilds(
+      `triage-agent:\n  enabled: false\n  image: "ghcr.io/me/x:1"\n`,
+    ),
+    [],
+  );
+  assertEquals(
+    localImageBuilds(`triage-agent:\n  enabled: true\n  image: ""\n`),
+    [],
+  );
+  assertEquals(localImageBuilds("cilium:\n  enabled: true\n"), []);
+});
+
+test("localImageBuilds: the committed localdev values pin the triage-agent image", () => {
+  const values = readFileSync(
+    join(import.meta.dir, "..", "charts/addons/values-localdev.yaml"),
+    "utf8",
+  );
+  const builds = localImageBuilds(values);
+  assertEquals(builds.length, 1);
+  assertStringIncludes(builds[0]?.image ?? "", "/homelab-triage-agent:");
 });

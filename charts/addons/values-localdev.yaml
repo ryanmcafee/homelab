@@ -1797,8 +1797,11 @@ ecowitt-exporter:
 # ============================================================================
 
 triage-agent:
-  enabled: false
+  enabled: true
   namespace: triage-agent
+  # The triage-fix workflow reads the Claude and GitHub tokens from 1Password;
+  # without them the intake runs alone in dry run.
+  workflow: false
   # Published by .github/workflows/triage-agent-image.yml to the fork's own
   # ghcr namespace; the image name there is fixed, only the owner varies.
   image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.2"

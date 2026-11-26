@@ -7,7 +7,7 @@ on the shared workspace volume and pass decisions as output parameters
 intake janitor reclaims the rest. Only triage, plan and implement call the
 model; everything else is deterministic.
 */}}
-{{- if .Values.enabled }}
+{{- if and .Values.enabled .Values.workflow.enabled }}
 {{- $wf := .Values.workflow }}
 {{- $optionalSecret := list "DOTFILES_REPO" "PAPERCLIP_API_KEY" "PAPERCLIP_COMPANY_ID" "ARGOCD_AUTH_TOKEN" }}
 apiVersion: argoproj.io/v1alpha1

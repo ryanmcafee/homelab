@@ -1,5 +1,7 @@
 {{- $ta := index .Values "triage-agent" }}
-{{- if and $ta.enabled (index .Values "argo-workflows" "enabled") }}
+{{- $workflow := eq (include "addons.triageAgentWorkflow" .) "true" }}
+{{- $kps := index .Values "kube-prometheus-stack" }}
+{{- if $ta.enabled }}
 ---
 # Baseline, not restricted: the Argo Workflows executor containers the
 # controller injects into every step pod carry no container securityContext.
@@ -16,8 +18,9 @@ metadata:
     argocd.argoproj.io/sync-wave: "13"
 ---
 # Alert triage agent: the intake turns every Alertmanager alert group into a
-# triage-fix Workflow (triage -> plan -> fix -> PR -> CI -> Pushover). Needs
-# the 1Password item (Claude and GitHub tokens) and Argo Workflows (wave 12).
+# triage-fix Workflow (triage -> plan -> fix -> PR -> CI -> Pushover). The
+# workflow needs the 1Password item (Claude and GitHub tokens) and Argo
+# Workflows (wave 12); without them the intake runs alone in dry run.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -56,7 +59,15 @@ spec:
           secretName: {{ $logs.store.secretName | quote }}
           itemPath: {{ $ta.artifactsItemPath | quote }}
         {{- end }}
+        intake:
+          dryRun: {{ not $workflow }}
+          {{- if not $kps.alertmanager.enabled }}
+          sweepIntervalSeconds: 0
+          {{- end }}
+        serviceMonitor:
+          enabled: {{ $kps.enabled }}
         workflow:
+          enabled: {{ $workflow }}
           workspace:
             storageClass: {{ $ta.storageClass | quote }}
             accessMode: ReadWriteMany

@@ -1,0 +1,159 @@
+---
+# Triage agent intake as the first RED v1 producer (MCAA-2444, MCAA-2445):
+# Kind runs the intake alone in dry run, one Alertmanager-shaped POST to
+# /webhook is observed, and Prometheus scrapes the series off /metrics.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: triage-agent
+spec:
+  description: >-
+    The dry-run triage agent intake answers a webhook POST from the monitoring namespace and Prometheus then holds platform_request_duration_seconds_count{service="triage-agent"}.
+  steps:
+    - name: application-healthy
+      description: The triage-agent Application is Healthy, its last sync Succeeded and the intake Deployment is Available.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: triage-agent
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: triage-agent
+                namespace: triage-agent
+              status:
+                availableReplicas: 1
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: triage-agent
+            namespace: argocd
+        - events:
+            namespace: triage-agent
+        - podLogs:
+            namespace: triage-agent
+            selector: app.kubernetes.io/component=intake
+            tail: 50
+    - name: post-webhook
+      description: >-
+        A curl Job in the monitoring namespace, the only one the intake NetworkPolicy
+        admits, POSTs a Watchdog alert group to /webhook until it gets a 2xx.
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-triage-agent-webhook
+                namespace: monitoring
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 300
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: WEBHOOK_URL
+                            value: "http://triage-agent.triage-agent.svc.cluster.local:8080/webhook"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            body='{"version":"4","alerts":[{"status":"firing","labels":{"alertname":"Watchdog","severity":"none"},"startsAt":"2026-01-01T00:00:00Z","fingerprint":"e2e-triage-agent"}]}'
+                            i=1
+                            while [ "$i" -le 20 ]; do
+                              code=$(curl -s -o /tmp/out -w '%{http_code}' --max-time 10 -H 'Content-Type: application/json' --data "$body" "$WEBHOOK_URL")
+                              echo "attempt $i/20: POST /webhook HTTP $code: $(cat /tmp/out 2>/dev/null)"
+                              case "$code" in 2??) exit 0 ;; esac
+                              i=$((i + 1))
+                              sleep 6
+                            done
+                            echo "giving up: /webhook never answered 2xx"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-triage-agent-webhook
+                namespace: monitoring
+              status:
+                succeeded: 1
+      catch:
+        - podLogs:
+            namespace: monitoring
+            selector: job-name=e2e-triage-agent-webhook
+            tail: 50
+        - podLogs:
+            namespace: triage-agent
+            selector: app.kubernetes.io/component=intake
+            tail: 50
+    - name: red-series-scraped
+      description: >-
+        Prometheus answers count(platform_request_duration_seconds_count{service="triage-agent"}) > 0;
+        /healthz and /metrics are not observed, so only the POST above creates the series.
+      timeouts:
+        exec: 5m
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              prom=$(kubectl get pod -n monitoring -l app.kubernetes.io/name=prometheus \
+                -o jsonpath='{.items[0].metadata.name}')
+              query='count(platform_request_duration_seconds_count{service="triage-agent"})'
+              count=""
+              for i in $(seq 1 24); do
+                count=$(kubectl exec -n monitoring "$prom" -c prometheus -- \
+                  promtool query instant http://localhost:9090 "$query" \
+                  | sed -n 's/.* => \([0-9.e+-]*\) @.*/\1/p')
+                echo "attempt $i/24: $query = ${count:-<no series>}"
+                [ "${count:-0}" -gt 0 ] && exit 0
+                sleep 10
+              done
+              echo "FAIL: Prometheus has no platform_request_duration_seconds_count{service=\"triage-agent\"};"
+              echo "check the ServiceMonitor triage-agent/triage-agent target and the intake's /metrics"
+              kubectl exec -n monitoring "$prom" -c prometheus -- \
+                promtool query instant http://localhost:9090 'up{namespace="triage-agent"}' || true
+              exit 1
+      catch:
+        - podLogs:
+            namespace: triage-agent
+            selector: app.kubernetes.io/component=intake
+            tail: 50
+        - describe:
+            apiVersion: monitoring.coreos.com/v1
+            kind: ServiceMonitor
+            namespace: triage-agent

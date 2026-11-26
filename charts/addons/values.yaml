@@ -1261,6 +1261,7 @@ ecowitt-exporter:
 triage-agent:
   enabled: false
   namespace: triage-agent
+  workflow: false
   image: ""
   repoSlug: ""
   workflowUiUrl: ""

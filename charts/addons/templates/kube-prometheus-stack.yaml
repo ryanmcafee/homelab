@@ -230,7 +230,7 @@ spec:
               {{- end }}`}}
 
           {{- $triage := index .Values "triage-agent" }}
-          {{- $triageOn := and $triage.enabled (index .Values "argo-workflows" "enabled") }}
+          {{- $triageOn := $triage.enabled }}
           alertmanagerSpec:
             {{- if $route.enabled }}
             externalUrl: https://{{ $route.hostname }}
@@ -1352,13 +1352,14 @@ spec:
                       description: 'ztunnel or a waypoint has rejected xDS configuration for 15m, so it keeps running on stale config. `istioctl proxy-status` and the istiod logs name the resource.'
           {{- end }}
           {{- $triageAgent := index .Values "triage-agent" }}
-          {{- if and $triageAgent.enabled (index .Values "argo-workflows" "enabled") }}
+          {{- if $triageAgent.enabled }}
           # Alert triage agent (docs/runbooks/triage-agent.md). Metrics: the
           # intake's /metrics (workspace janitor, volume usage by statfs).
           homelab-triage-agent:
             groups:
               - name: homelab-triage-agent
                 rules:
+                  {{- if eq (include "addons.triageAgentWorkflow" .) "true" }}
                   - alert: TriageAgentWorkspaceFillingUp
                     expr: 'max by (namespace) (triage_agent_volume_used_bytes{volume="workspace"} / triage_agent_volume_capacity_bytes{volume="workspace"}) > 0.85'
                     for: 15m
@@ -1391,6 +1392,7 @@ spec:
                     annotations:
                       summary: 'The triage agent workspace janitor is failing'
                       description: 'No clean janitor round for an hour or errors in the last 30m, so finished workspaces are not reclaimed. The intake log names the path or the Kubernetes API error; docs/runbooks/triage-agent.md.'
+                  {{- end }}
                   - alert: TriageAgentIntakeDown
                     expr: 'absent(up{job="triage-agent", namespace="{{ $triageAgent.namespace }}"} == 1)'
                     for: 15m

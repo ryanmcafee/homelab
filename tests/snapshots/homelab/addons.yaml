@@ -6308,8 +6308,9 @@ spec:
 ---
 # Source: addons/templates/triage-agent.yaml
 # Alert triage agent: the intake turns every Alertmanager alert group into a
-# triage-fix Workflow (triage -> plan -> fix -> PR -> CI -> Pushover). Needs
-# the 1Password item (Claude and GitHub tokens) and Argo Workflows (wave 12).
+# triage-fix Workflow (triage -> plan -> fix -> PR -> CI -> Pushover). The
+# workflow needs the 1Password item (Claude and GitHub tokens) and Argo
+# Workflows (wave 12); without them the intake runs alone in dry run.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -6345,7 +6346,12 @@ spec:
         artifacts:
           secretName: "argo-workflows-artifacts"
           itemPath: "vaults/homelab/items/argo-workflows-artifacts"
+        intake:
+          dryRun: false
+        serviceMonitor:
+          enabled: true
         workflow:
+          enabled: true
           workspace:
             storageClass: "democratic-csi-nfs"
             accessMode: ReadWriteMany

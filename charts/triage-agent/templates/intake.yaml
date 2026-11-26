@@ -1,4 +1,7 @@
 {{- if .Values.enabled }}
+{{- if and (not .Values.workflow.enabled) (not .Values.intake.dryRun) }}
+{{- fail "intake.dryRun must be true while workflow.enabled is false: there is no WorkflowTemplate to submit to" }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -56,6 +59,7 @@ spec:
               value: {{ .Values.tenant | quote }}
             - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
               value: "0"
+            {{- if .Values.workflow.enabled }}
             {{- with .Values.intake.janitor }}
             - name: WORKSPACE_ROOT
               value: /workspaces
@@ -71,6 +75,7 @@ spec:
               value: {{ .orphanGraceSeconds | quote }}
             - name: HIGH_WATERMARK
               value: {{ .highWatermark | quote }}
+            {{- end }}
             {{- end }}
           ports:
             - name: http
@@ -93,20 +98,24 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.workflow.enabled }}
             - name: workspace
               mountPath: /workspaces
             - name: cache
               mountPath: /cache
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        {{- if .Values.workflow.enabled }}
         - name: workspace
           persistentVolumeClaim:
             claimName: {{ .Values.name }}-workspace
         - name: cache
           persistentVolumeClaim:
             claimName: {{ .Values.name }}-cache
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

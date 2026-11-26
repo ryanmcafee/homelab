@@ -20,7 +20,9 @@
  *                       charts/addons/values-localdev.yaml cilium.values),
  *                       wait for Ready nodes, remove Kind's bundled
  *                       local-path-provisioner (the addon Application owns
- *                       it), apply localdev/fakes. Idempotent.
+ *                       it), build and `kind load` each image this repo
+ *                       builds whose pinned tag is not published yet, apply
+ *                       localdev/fakes. Idempotent.
  *   down [--purge-cache]
  *                       Delete the cluster; --purge-cache also removes the
  *                       registry containers and the cache directory.
@@ -305,6 +307,40 @@ export function extractCiliumValues(yamlText: string): string | null {
     return null;
   }
   return stringifyYaml(values as Record<string, unknown>);
+}
+
+/** Addons whose image this repository builds, by values key. */
+const LOCAL_IMAGE_DOCKERFILES: Readonly<Record<string, string>> = {
+  "triage-agent": "Dockerfile.triage-agent",
+};
+
+export interface LocalImageBuild {
+  image: string;
+  dockerfile: string;
+  version: string;
+}
+
+/**
+ * The enabled addons in an addons values document whose image this repository
+ * builds: a version bump pins a tag the registry only has after merge.
+ */
+export function localImageBuilds(yamlText: string): LocalImageBuild[] {
+  const doc = parseYaml(yamlText);
+  return Object.entries(LOCAL_IMAGE_DOCKERFILES).flatMap(
+    ([key, dockerfile]) => {
+      const image = dig(doc, [key, "image"]);
+      if (
+        dig(doc, [key, "enabled"]) !== true ||
+        typeof image !== "string" ||
+        !image
+      ) {
+        return [];
+      }
+      return [
+        { image, dockerfile, version: image.slice(image.lastIndexOf(":") + 1) },
+      ];
+    },
+  );
 }
 
 // ============================================================================
@@ -1516,6 +1552,56 @@ async function applyFakes(ctx: Ctx): Promise<void> {
 // ============================================================================
 // Subcommands
 // ============================================================================
+/**
+ * Builds and `kind load`s each locally built image the registry lacks, so a
+ * PR that bumps one runs its own code in Kind instead of ImagePullBackOff.
+ */
+async function preloadLocalImages(ctx: Ctx): Promise<void> {
+  const builds = localImageBuilds(
+    await readFile(`${ctx.repoRoot}/${ADDONS_LOCALDEV_VALUES}`, "utf8"),
+  );
+  if (builds.length === 0) return;
+  const revision = (
+    await ctx.exec.run(["git", "rev-parse", "HEAD"], { cwd: ctx.repoRoot })
+  ).stdout.trim();
+  for (const { image, dockerfile, version } of builds) {
+    const inspect = await ctx.exec.run([
+      "docker",
+      "manifest",
+      "inspect",
+      image,
+    ]);
+    if (inspect.code === 0) {
+      log.ok(`${image} is published; Kind pulls it`);
+      continue;
+    }
+    log.info(
+      `${image} is not in the registry; building ${dockerfile} for Kind`,
+    );
+    await ctx.exec.must(
+      [
+        "docker",
+        "build",
+        "-f",
+        dockerfile,
+        "--build-arg",
+        `PLATFORM_VERSION=${version}`,
+        "--build-arg",
+        `PLATFORM_REVISION=${revision || "unknown"}`,
+        "-t",
+        image,
+        ".",
+      ],
+      { cwd: ctx.repoRoot, inherit: true },
+    );
+    await ctx.exec.must(
+      ["kind", "load", "docker-image", image, "--name", ctx.args.cluster],
+      { inherit: true },
+    );
+    log.ok(`${image} built and loaded into ${ctx.args.cluster}`);
+  }
+}
+
 async function readVersions(ctx: Ctx): Promise<Versions> {
   return parseVersions(
     await readFile(`${ctx.repoRoot}/${VERSIONS_YAML}`, "utf8"),
@@ -1552,6 +1638,7 @@ async function cmdUp(ctx: Ctx): Promise<void> {
   }
   await installCilium(ctx, versions);
   await waitForNodes(ctx);
+  await preloadLocalImages(ctx);
   await removeKindBundledStorage(ctx);
   await applyFakes(ctx);
   await deliverNatsSeeds(ctx);

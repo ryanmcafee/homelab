@@ -141,6 +141,22 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
 
 ---
+# Source: addons/templates/triage-agent.yaml
+# Baseline, not restricted: the Argo Workflows executor containers the
+# controller injects into every step pod carry no container securityContext.
+# docs/runbooks/triage-agent.md
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: triage-agent
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+
+---
 # Source: addons/templates/nats.yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -2811,6 +2827,20 @@ spec:
                     annotations:
                       summary: 'Proxies reject the configuration istiod sends'
                       description: 'ztunnel or a waypoint has rejected xDS configuration for 15m, so it keeps running on stale config. `istioctl proxy-status` and the istiod logs name the resource.'
+          # Alert triage agent (docs/runbooks/triage-agent.md). Metrics: the
+          # intake's /metrics (workspace janitor, volume usage by statfs).
+          homelab-triage-agent:
+            groups:
+              - name: homelab-triage-agent
+                rules:
+                  - alert: TriageAgentIntakeDown
+                    expr: 'absent(up{job="triage-agent", namespace="triage-agent"} == 1)'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The triage agent intake is not scraped'
+                      description: 'No alert reaches the triage agent and the workspace alerts above are blind. `kubectl -n triage-agent get deploy triage-agent`; docs/runbooks/triage-agent.md.'
           # Progressive delivery (docs/progressive-delivery.md,
           # docs/runbooks/rollouts.md). Scraped through the ServiceMonitor in
           # charts/prometheus-config. The phase label of rollout_info is the
@@ -4021,6 +4051,66 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/triage-agent.yaml
+# Alert triage agent: the intake turns every Alertmanager alert group into a
+# triage-fix Workflow (triage -> plan -> fix -> PR -> CI -> Pushover). The
+# workflow needs the 1Password item (Claude and GitHub tokens) and Argo
+# Workflows (wave 12); without them the intake runs alone in dry run.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: triage-agent
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/triage-agent
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+      # Derived from configuration/ (ADR-010); the child's values stay environment-free.
+      valuesObject:
+        namespace: "triage-agent"
+        environment: "localdev"
+        image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.2"
+        repoUrl: "https://github.com/ryanmcafee/homelab.git"
+        repoSlug: "ryanmcafee/homelab"
+        alertmanagerUrl: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"
+        workflowUiUrl: "https://workflows.homelab.local"
+        onePassword:
+          itemPath: ""
+        pushover:
+          itemPath: ""
+        intake:
+          dryRun: true
+          sweepIntervalSeconds: 0
+        serviceMonitor:
+          enabled: true
+        workflow:
+          enabled: false
+          workspace:
+            storageClass: "local-path"
+            accessMode: ReadWriteMany
+          cache:
+            storageClass: "local-path"
+            accessMode: ReadWriteMany
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: triage-agent
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - SkipDryRunOnMissingResource=true
 
 ---
 # Source: addons/templates/envoy-gateway.yaml

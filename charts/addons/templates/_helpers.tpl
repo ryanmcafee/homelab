@@ -52,3 +52,11 @@ Usage: {{ include "addons.gatewayParentRefs" (dict "root" . "gateway" "internal"
   namespace: {{ required "global.gateway.namespace is required" .root.Values.global.gateway.namespace }}
   sectionName: {{ .sectionName | default "https" }}
 {{- end }}
+
+{{/*
+"true" when the triage agent runs its triage-fix workflow (Argo Workflows); empty for the dry-run intake alone.
+*/}}
+{{- define "addons.triageAgentWorkflow" -}}
+{{- $ta := index .Values "triage-agent" -}}
+{{- if and $ta.enabled $ta.workflow (index .Values "argo-workflows" "enabled") }}true{{ end -}}
+{{- end }}
