@@ -8,7 +8,7 @@ metadata:
   name: triage-agent
 spec:
   description: >-
-    The dry-run triage agent intake answers a webhook POST from the monitoring namespace and Prometheus then holds platform_request_duration_seconds_count{service="triage-agent"}.
+    The dry-run triage agent intake answers a webhook POST from the monitoring namespace, Prometheus then holds platform_request_duration_seconds_count{service="triage-agent"}, and requests that time out fire PlatformRequestErrorBudgetBurningFast for it.
   steps:
     - name: application-healthy
       description: The triage-agent Application is Healthy, its last sync Succeeded and the intake Deployment is Available.
@@ -157,3 +157,95 @@ spec:
             apiVersion: monitoring.coreos.com/v1
             kind: ServiceMonitor
             namespace: triage-agent
+    - name: error-burn-fires
+      description: >-
+        Slow-body POSTs make the intake hit its 10s request deadline and answer 504
+        (outcome="error",code="timeout"), so PlatformRequestErrorBudgetBurningFast
+        must fire for service="triage-agent" off the deployed platform-red-v1 rules.
+      timeouts:
+        exec: 10m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-triage-agent-slow-posts
+                namespace: monitoring
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 600
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: WEBHOOK_URL
+                            value: "http://triage-agent.triage-agent.svc.cluster.local:8080/webhook"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            body='{"version":"4","alerts":[]}'
+                            end=$(( $(date +%s) + 540 ))
+                            for worker in 1 2 3 4; do
+                              while [ "$(date +%s)" -lt "$end" ]; do
+                                curl -s -o /dev/null -w "worker $worker: HTTP %{http_code}\n" \
+                                  --max-time 15 --limit-rate 1 -H 'Content-Type: application/json' \
+                                  --data "$body" "$WEBHOOK_URL" || true
+                              done &
+                            done
+                            wait
+        - script:
+            timeout: 10m
+            content: |
+              set -eu
+              prom=$(kubectl get pod -n monitoring -l app.kubernetes.io/name=prometheus \
+                -o jsonpath='{.items[0].metadata.name}')
+              q() {
+                kubectl exec -n monitoring "$prom" -c prometheus -- \
+                  promtool query instant http://localhost:9090 "$1" \
+                  | sed -n 's/.* => \([0-9.e+-]*\) @.*/\1/p'
+              }
+              ratio='platform:request_error:ratio_rate5m{service="triage-agent",kind="http"}'
+              firing='count(ALERTS{alertname="PlatformRequestErrorBudgetBurningFast",service="triage-agent",alertstate="firing"})'
+              for i in $(seq 1 54); do
+                r=$(q "$ratio"); f=$(q "$firing")
+                echo "attempt $i/54: $ratio = ${r:-<no series>}; $firing = ${f:-<none>}"
+                [ "${f:-0}" -gt 0 ] && exit 0
+                sleep 10
+              done
+              echo "FAIL: PlatformRequestErrorBudgetBurningFast never fired for service=\"triage-agent\";"
+              echo "a missing ratio means the platform-red-v1 rule group is not loaded, a ratio under 0.072 means the 504s were not observed"
+              kubectl exec -n monitoring "$prom" -c prometheus -- \
+                promtool query instant http://localhost:9090 \
+                'sum by (outcome, code) (platform_request_duration_seconds_count{service="triage-agent"})' || true
+              exit 1
+      catch:
+        - podLogs:
+            namespace: monitoring
+            selector: job-name=e2e-triage-agent-slow-posts
+            tail: 20
+        - podLogs:
+            namespace: triage-agent
+            selector: app.kubernetes.io/component=intake
+            tail: 50
