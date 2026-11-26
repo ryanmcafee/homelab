@@ -52,6 +52,10 @@ var onePasswordPathKeys = []onePasswordPathKey{
 		values: []string{"importSweep", "apiKeySecret", "onePasswordItemPath"}},
 	{key: "RADARR_1P_PATH", parent: "applications", chart: "radarr-config", item: "radarr-api-key",
 		values: []string{"importSweep", "apiKeySecret", "onePasswordItemPath"}},
+	{key: "PLEX_1P_PATH", parent: "applications", chart: "plex-config", item: "plex",
+		values: []string{"onePasswordItemPath"}},
+	{key: "RENOVATE_1P_PATH", parent: "applications", chart: "renovate-config", item: "renovate-token",
+		values: []string{"onePasswordItemPath"}},
 }
 
 // TestOnePasswordItemPathsAreNotCommittedInChildOverlays keeps the duplication

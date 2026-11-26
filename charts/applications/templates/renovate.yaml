@@ -29,6 +29,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      # valuesObject overrides valueFiles, so RENOVATE_1P_PATH reaches the item.
+      valuesObject:
+        onePasswordItemPath: {{ .Values.renovate.onePasswordItemPath | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.renovate.namespace }}
