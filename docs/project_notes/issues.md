@@ -163,3 +163,8 @@ Each entry should include:
 ### MCAA-2320 / PR #721 — NZBGet chart schema and level 0 regression
 
 Changed the localdev architecture override to a chart-schema-valid empty string. Added a level 0 render of the pinned NZBGet child chart using the rendered Application values, so schema failures surface before Kind sync. Focused Go tests and `task verify:text` passed (314 passed, 0 failed, 1 skipped). Awaiting PR review and merge; main level 2 remains the final acceptance check.
+
+### 2026-11-26 - MCAA-2574 upgrade report Secret guard
+
+- Fresh-main branch `fix/mcaa-2574-secret-upgrade-report` salvages the synthetic regressions and workflow projection from conflicting PR #511, then adapts the guard to ADR-056: redact at normalization, retain key names/counts, compare values only in memory, fail closed, and keep Secret presence out of the automerge veto.
+- Failing-test-first evidence: the synthetic Go regressions exposed added, removed, changed, nested and diagnostic Secret values in JSON and Markdown before the fix. Focused Go and Bun tests and level 0 pass after the fix. PR link and merge SHA to be added on delivery.

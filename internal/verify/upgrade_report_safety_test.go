@@ -48,15 +48,25 @@ stringData: {message: SYNTHETIC_HEAD_MESSAGE}
 `
 	item := UpgradeItem{Check: "upgrade/test/synthetic"}
 	check := finishJob(&upgradeJob{baseOut: []byte(base), headOut: []byte(head)}, &item, 400)
+	if check.Status != StatusPass {
+		t.Fatalf("Secret presence must not fail an otherwise valid diff: %s", check.Status)
+	}
+	if item.Added < 2 || item.Deleted < 2 {
+		t.Fatalf("Secret key status must contribute to diff counts: +%d -%d", item.Added, item.Deleted)
+	}
 	res := NewResult(0)
 	res.Add(check)
 	encoded, _ := res.JSON()
 	for _, body := range []string{string(encoded), UpgradeReport(&UpgradeOutput{Items: []UpgradeItem{item}}, res, 0)} {
 		for _, sentinel := range []string{"SYNTHETIC_BASE_", "SYNTHETIC_HEAD_"} {
-			if strings.Contains(body, sentinel) { t.Fatalf("Secret payload exposed") }
+			if strings.Contains(body, sentinel) {
+				t.Fatalf("Secret payload exposed")
+			}
 		}
-		for _, signal := range []string{"changed", "removed", "added", "message", "<redacted>"} {
-			if !strings.Contains(body, signal) { t.Errorf("missing safe key signal %q", signal) }
+		for _, signal := range []string{"changed", "removed", "added", "message"} {
+			if !strings.Contains(body, signal) {
+				t.Errorf("missing safe key signal %q", signal)
+			}
 		}
 	}
 }
@@ -101,7 +111,7 @@ data: {visible: public-value}
 		if !strings.Contains(string(encoded), "public-value") {
 			t.Fatal("nonsecret data removed")
 		}
-		if !strings.Contains(string(encoded), "password") || !strings.Contains(string(encoded), "<redacted>") {
+		if !strings.Contains(string(encoded), "password") || !(strings.Contains(string(encoded), "<redacted>") || strings.Contains(string(encoded), `\u003credacted\u003e`)) {
 			t.Fatal("Secret key names and redaction marker must remain visible")
 		}
 		for _, invalid := range []string{
