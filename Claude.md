@@ -276,7 +276,7 @@ charts:
   # renovate: datasource=helm depName=opentelemetry-collector registryUrl=https://open-telemetry.github.io/opentelemetry-helm-charts
   opentelemetry-collector: "0.173.1"
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
-  altinity-clickhouse-operator: "0.27.3"
+  altinity-clickhouse-operator: "0.27.4"
   # Componentized LiteLLM chart (gateway, backend, ui, migrations Job), OCI-only (issue #424).
   # renovate: datasource=docker depName=ghcr.io/berriai/litellm/chart/litellm
   litellm: "1.102.1"
