@@ -183,6 +183,10 @@ probes:
 # "auth.baseUrlMode=explicit requires auth.publicBaseUrl" check.
 extraEnv: []
 
+# Share of resources.limits.memory set as NODE_OPTIONS --max-old-space-size (0 disables; extraEnv NODE_OPTIONS wins).
+nodeHeap:
+  percent: 75
+
 # First chart init container (templates/disk-guard.yaml, files/paperclip-disk-guard.ts).
 # The server prunes its database dumps only after a successful new dump, so a full
 # volume never recovers on its own and every later init step fails with
