@@ -169,3 +169,10 @@ Changed the localdev architecture override to a chart-schema-valid empty string.
 - Fresh-main branch `fix/mcaa-2574-secret-upgrade-report` salvages the synthetic regressions and workflow projection from conflicting PR #511, then adapts the guard to ADR-056: redact at normalization, retain key names/counts, compare values only in memory, fail closed, and keep Secret presence out of the automerge veto.
 - Failing-test-first evidence: the synthetic Go regressions exposed added, removed, changed, nested and diagnostic Secret values in JSON and Markdown before the fix. Focused Go and Bun tests and level 0 pass after the fix. PR link and merge SHA to be added on delivery.
 - Architect follow-up on PR #743: focused tests first failed for null Secret fields and base-side failure status; the guard now treats null as empty and preserves `skip` with fixed diagnostics. CI found one Biome formatting error in the workflow sink test; formatting and direct Biome/TypeScript checks pass locally. Level 0 passes (314 passed, 0 failed, 1 skipped). Current-head CI and merge remain.
+
+### 2026-09-28 - Sync-aware localdev diagnostics (MCAA-468)
+
+- PR: https://github.com/ryanmcafee/homelab/pull/487; implementation commit `bbf81af`.
+- Diagnosis now selects Healthy/Succeeded/OutOfSync Applications, prints the failing `status.sync.status` field and sync detail, and collects their destination namespace diagnostics.
+- Regression demonstrated before the fix: OutOfSync failed and Synced passed. After: both pass; all 139 ArgoCD script tests pass (53 ms); TypeScript and level 0 pass (271 checks, 1 intentional skip, 10.177 s).
+- QA verified the real CI Diagnostics path on MCAA-470: two Healthy/Succeeded/OutOfSync Applications named `status.sync.status` and yielded namespace evidence; Synced controls stayed quiet. ADR-012 allows sync-only drift in Kind level 2. No production mutation. Ready-path API count is unchanged; drift runs the existing namespace collector (~1.57 s for 57 Applications in QA's Kind run).
