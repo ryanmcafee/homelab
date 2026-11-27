@@ -48,14 +48,18 @@ resource "unifi_setting" "syslog" {
   site = var.site
 
   syslog = {
-    enabled                        = true
-    ip                             = var.telemetry_collector_ip
-    port                           = var.syslog_port
-    log_all_contents               = true
-    this_controller                = false
-    this_controller_encrypted_only = false
-    debug                          = false
-    netconsole_enabled             = false
+    enabled          = true
+    ip               = var.telemetry_collector_ip
+    port             = var.syslog_port
+    log_all_contents = true
+    debug            = false
+    this_controller = {
+      enabled        = false
+      encrypted_only = false
+    }
+    netconsole = {
+      enabled = false
+    }
   }
 }
 
