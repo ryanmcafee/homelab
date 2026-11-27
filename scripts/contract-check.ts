@@ -1651,6 +1651,48 @@ export function pinnedLengthCount(baseline: Baseline): number {
   );
 }
 
+/** Every document the rules read, parsed once. `dir` travels with them because
+ * validateRegistry resolves each `dataschema` relative to it. */
+export interface Contract {
+  dir: string;
+  registry: Registry;
+  taxonomy: Taxonomy;
+  envelope: Envelope;
+  baseline: Baseline;
+  payloads: Map<string, PayloadSchema>;
+}
+
+export function loadContract(dir = CONTRACTS_DIR): Contract {
+  const registry = loadRegistry(dir);
+  return {
+    dir,
+    registry,
+    taxonomy: loadTaxonomy(dir),
+    envelope: loadEnvelope(dir),
+    baseline: loadBaseline(dir),
+    payloads: loadPayloads(registry, dir),
+  };
+}
+
+/**
+ * Every rule the `check` command applies. The composition lives here rather
+ * than inline in `main` so the test that runs it against the committed
+ * contracts/events/ cannot fall behind a rule added later: both callers read
+ * this one list.
+ */
+export function collectViolations(contract: Contract): Violation[] {
+  const { dir, registry, taxonomy, envelope, baseline, payloads } = contract;
+
+  return [
+    ...validateTaxonomy(taxonomy),
+    ...validateRegistry(registry, taxonomy, envelope, dir),
+    ...checkCompatibility(baseline, registry),
+    ...checkEnvelopeCompatibility(baseline, envelope),
+    ...checkTaxonomyCompatibility(baseline, taxonomy),
+    ...checkPayloadCompatibility(baseline, payloads),
+  ];
+}
+
 export function renderViolations(violations: Violation[]): string {
   if (violations.length === 0) return "contract ok";
   return violations
@@ -1695,21 +1737,9 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
-  const registry = loadRegistry(dir);
-  const taxonomy = loadTaxonomy(dir);
-  const envelope = loadEnvelope(dir);
-  const baseline = loadBaseline(dir);
-
-  const payloads = loadPayloads(registry, dir);
-
-  const violations = [
-    ...validateTaxonomy(taxonomy),
-    ...validateRegistry(registry, taxonomy, envelope, dir),
-    ...checkCompatibility(baseline, registry),
-    ...checkEnvelopeCompatibility(baseline, envelope),
-    ...checkTaxonomyCompatibility(baseline, taxonomy),
-    ...checkPayloadCompatibility(baseline, payloads),
-  ];
+  const contract = loadContract(dir);
+  const { registry, taxonomy, baseline } = contract;
+  const violations = collectViolations(contract);
 
   if (violations.length > 0) {
     log.fail(`${violations.length} contract violation(s)`);
