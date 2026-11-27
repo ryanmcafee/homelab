@@ -246,7 +246,7 @@ charts:
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
   nvidia-gpu-operator: "v26.7.3"
   # renovate: datasource=helm depName=intel-device-plugins-gpu registryUrl=https://intel.github.io/helm-charts
-  intel-device-plugins-gpu: "0.36.0"
+  intel-device-plugins-gpu: "0.37.1"
   # renovate: datasource=helm depName=intel-device-plugins-operator registryUrl=https://intel.github.io/helm-charts
   intel-device-plugins-operator: "0.36.0"
   # renovate: datasource=helm depName=node-feature-discovery registryUrl=https://kubernetes-sigs.github.io/node-feature-discovery/charts
