@@ -624,6 +624,12 @@ These are documented errors with known solutions:
 - **Prevention**: Moving an app's output directory orphans what the old one holds; prune or move the old files in the same change. An app that prunes only after writing more cannot recover from a full volume, so bound such directories from outside it. Query the app's own log lines before guessing at a disk consumer
 - **Follow-up**: #709 merged before the commit that prunes the former directory, so its disk-guard pruned nothing (the dumps were removed by hand). No dump succeeded after 2026-11-07: the 04:47 dump that day never finished and the server skipped every later one as "still running" until a restart, then ENOSPC (2026-11-21/22), then ECONNRESET (2026-11-23/24): after `paperclip-postgres-1` restarted at 2026-11-23 09:01 the server's connection pool kept failing (~1,780 ECONNRESET an hour) until paperclip-0 restarted. Confirm a dump completes about a day after each server start
 
+### 2026-11-27 - paperclip-0 CrashLoopBackOff on a JavaScript heap out of memory
+- **Issue**: ArgoCD `paperclip` sync stuck waiting on the Instance; `paperclip` exited 134 (`FATAL ERROR: Ineffective mark-compacts near heap limit`) about three minutes after every start, heap at the 12 GiB `--max-old-space-size`.
+- **Cause**: `heartbeat_runs.context_snapshot` reached 6 GB stored (14 GB as text): every run stores the issue's full comment history twice (`executionContinuation.messages` and `paperclipWake.executionContinuation.messages`), up to 1,476 messages and 3.9 MB per copy on long threads (paperclipai/paperclip#15543). Startup recovery reads full run rows, Postgres sat in `ClientWrite` streaming them and the heap filled.
+- **Fix**: CronJob `paperclip-snapshot-trim` keeps only message ids in those continuations for runs settled over 24 h, except a task session's last run (the resume delta compares its bodies). Readers of earlier runs match comments by id. Tested on exported rows: a 1 MB snapshot drops to 40 KB, ids and every other key unchanged, a second pass trims nothing.
+- **Prevention**: Watch `pg_total_relation_size('heartbeat_runs')`; drop the CronJob once an upstream release bounds the continuation.
+
 ### 2026-11-25 - NZBGet chart schema failure escaped level 0
 - **Issue**: Chart 32.0.0 rejected the localdev `kubernetes.io/arch: null` value, but level 0 passed and Kind level 2 waited 40 minutes for an Application that could not render.
 - **Cause**: Level 0 rendered the parent Applications chart without rendering the NZBGet child chart against its `values.schema.json`.
