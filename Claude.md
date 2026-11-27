@@ -250,7 +250,7 @@ charts:
   # renovate: datasource=helm depName=intel-device-plugins-operator registryUrl=https://intel.github.io/helm-charts
   intel-device-plugins-operator: "0.37.1"
   # renovate: datasource=helm depName=node-feature-discovery registryUrl=https://kubernetes-sigs.github.io/node-feature-discovery/charts
-  node-feature-discovery: "0.18.3"
+  node-feature-discovery: "0.20.1"
   # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
   oauth2-proxy: "10.7.4"
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook

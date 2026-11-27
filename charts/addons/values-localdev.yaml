@@ -1184,7 +1184,7 @@ node-feature-discovery:
   chart:
     name: node-feature-discovery
     repo: https://kubernetes-sigs.github.io/node-feature-discovery/charts
-    version: "0.18.3"
+    version: "0.20.1"
 
 # ============================================================================
 # Argo Workflows - Workflow Orchestration
