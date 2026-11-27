@@ -1,6 +1,6 @@
 {{- /*
-LiteLLM (issue #424): OpenAI-compatible LLM gateway with its database on the
-existing CloudNativePG operator:
+LiteLLM (issue #424, docs/apps/litellm.md): OpenAI-compatible LLM gateway with
+its database on the existing CloudNativePG operator:
   wave 10  Namespace litellm
   wave 11  litellm-dependencies  charts/litellm-dependencies (OnePasswordItems -> Secrets litellm-master-key-secret, litellm-salt-key, litellm-api-keys; secret store only)
   wave 12  litellm-database      charts/litellm-database (postgresql.cnpg.io Cluster litellm-db -> Secret litellm-db-app)
