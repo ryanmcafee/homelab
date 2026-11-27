@@ -181,6 +181,7 @@ Changed the localdev architecture override to a chart-schema-valid empty string.
 
 - Pinned the Python, pipx and Node runtimes the pipx/npm tools need, kept mise's stderr in install errors, and added the `cold-install` CI gate (`task toolchain:check`), which installs from committed HEAD in an uncached Ubuntu container.
 - `task toolchain:policy` keeps that workflow read-only and its Dockerfile digest- and checksum-pinned.
+
 ### 2026-09-28: OpenClaw verification gate (MCAA-496)
 
 - Review revision: restrict parameter paths to canonical identifiers/indexes and
