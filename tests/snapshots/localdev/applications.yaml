@@ -2332,8 +2332,6 @@ spec:
           gateway:
             name: envoy-internal
             namespace: envoy-gateway-system
-        snapshotTrim:
-          image: ghcr.io/cloudnative-pg/postgresql:18.6
   destination:
     server: https://kubernetes.default.svc
     namespace: paperclip
