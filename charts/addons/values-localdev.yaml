@@ -71,7 +71,7 @@ kubelet-csr-approver:
   chart:
     name: kubelet-csr-approver
     repo: https://postfinance.github.io/kubelet-csr-approver
-    version: "1.2.14"
+    version: "1.2.16"
 
   # IP prefixes allowed for kubelet serving certificates
   # Must include all node IPs in the cluster

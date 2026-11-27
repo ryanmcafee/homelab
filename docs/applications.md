@@ -69,7 +69,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `istiod` | `istiod` | 1.31.1 | — | — | — |
 | `kiali` | `kiali-server` | 2.32.0 | — | — | smoke-kiali |
 | `kube-prometheus-stack` | `kube-prometheus-stack` | 87.1.0 | envoy-internal: alertmanager, grafana | grafana | smoke-grafana, smoke-prometheus |
-| `kubelet-csr-approver` | `kubelet-csr-approver` | 1.2.14 | — | — | — |
+| `kubelet-csr-approver` | `kubelet-csr-approver` | 1.2.16 | — | — | — |
 | `metrics-server` | `metrics-server` | 3.14.0 | — | — | — |
 | `nack` | `nack` | 0.36.0 | — | — | — |
 | `nats` | `nats` | 2.15.3 | — | nats | — |

@@ -28,7 +28,7 @@ charts:
   # renovate: datasource=helm depName=tailscale-operator registryUrl=https://pkgs.tailscale.com/helmcharts
   tailscale-operator: "1.98.4"
   # renovate: datasource=helm depName=kubelet-csr-approver registryUrl=https://postfinance.github.io/kubelet-csr-approver
-  kubelet-csr-approver: "1.2.14"
+  kubelet-csr-approver: "1.2.16"
   # renovate: datasource=helm depName=metrics-server registryUrl=https://kubernetes-sigs.github.io/metrics-server/
   metrics-server: "3.14.0"
   # renovate: datasource=helm depName=connect registryUrl=https://1password.github.io/connect-helm-charts
