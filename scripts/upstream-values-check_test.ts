@@ -642,7 +642,7 @@ test("the committed allowlist parses and every entry carries a reason", () => {
   const allow = parseAllowlist(
     readFileSync(join(REPO_ROOT, ALLOWLIST_PATH), "utf8"),
   );
-  assertEquals(allow.length, 48);
+  assertEquals(allow.length, 49);
   const pinned = new Set(
     ["homelab", "localdev"].flatMap((env) =>
       collectSources(REPO_ROOT, env).map(cacheKey),

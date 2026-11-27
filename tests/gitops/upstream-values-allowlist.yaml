@@ -114,7 +114,7 @@ allow:
       Same TrueCharts common library volume spawner; see the flaresolverr entry.
   - chart: nzbget
     repoURL: oci.trueforge.org/truecharts
-    targetRevision: 29.4.2
+    targetRevision: 32.0.0
     path: persistence
     reason: >-
       Same TrueCharts common library volume spawner; see the flaresolverr entry.
@@ -169,7 +169,7 @@ allow:
       entry.
   - chart: nzbget
     repoURL: oci.trueforge.org/truecharts
-    targetRevision: 29.4.2
+    targetRevision: 32.0.0
     path: workload.main.podSpec
     reason: >-
       Same TrueCharts common library workload spawner; see the flaresolverr
@@ -203,6 +203,8 @@ allow:
       Same TrueCharts common library workload spawner; see the flaresolverr
       entry.
   - chart: nzbget
+    repoURL: oci.trueforge.org/truecharts
+    targetRevision: 32.0.0
     path: sevenZipImage
     reason: >-
       The TrueCharts common library looks up a container's imageSelector as a
@@ -275,14 +277,14 @@ allow:
       values.yaml seeds both requests and limits.memory but not limits.cpu.
   - chart: gateway-helm
     repoURL: docker.io/envoyproxy
-    targetRevision: v1.9.1
+    targetRevision: 1.10.0
     path: deployment.envoyGateway.resources
     reason: >-
       templates/envoy-gateway-deployment.yaml toYamls the block; values.yaml
       declares limits.memory only.
   - chart: gateway-helm
     repoURL: docker.io/envoyproxy
-    targetRevision: v1.9.1
+    targetRevision: 1.10.0
     path: deployment.pod.annotations
     reason: >-
       templates/envoy-gateway-deployment.yaml toYamls the annotations map, whose
