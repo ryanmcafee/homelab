@@ -75,9 +75,9 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `nats` | `nats` | 2.15.3 | — | nats | — |
 | `nats-config` | `charts/nats-config` | git | — | — | — |
 | `node-feature-discovery` | `node-feature-discovery` | 0.20.1 | — | — | — |
-| `otel-collector-agent` | `opentelemetry-collector` | 0.173.1 | — | — | — |
-| `otel-collector-cluster` | `opentelemetry-collector` | 0.173.1 | — | — | — |
-| `otel-collector-gateway` | `opentelemetry-collector` | 0.173.1 | envoy-internal: otel, otlp | — | — |
+| `otel-collector-agent` | `opentelemetry-collector` | 0.183.2 | — | — | — |
+| `otel-collector-cluster` | `opentelemetry-collector` | 0.183.2 | — | — | — |
+| `otel-collector-gateway` | `opentelemetry-collector` | 0.183.2 | envoy-internal: otel, otlp | — | — |
 | `port-forwarding-controller` | `port-forwarding` | 1.1.2 | — | — | — |
 | `port-forwarding-controller-config` | `charts/port-forwarding-controller-config` | git | — | — | — |
 | `prometheus-config` | `charts/prometheus-config` | git | — | — | — |

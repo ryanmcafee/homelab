@@ -1653,7 +1653,7 @@ logging:
     chart:
       name: opentelemetry-collector
       repo: https://open-telemetry.github.io/opentelemetry-helm-charts
-      version: "0.173.1"
+      version: "0.183.2"
     # The contrib distribution carries the clickhouse exporter; the image tag
     # follows the chart's appVersion.
     image:
