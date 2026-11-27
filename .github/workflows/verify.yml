@@ -92,7 +92,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install go, helm, bun, kubeconform, conftest, pluto, task from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: go helm bun kubeconform conftest pluto task
 
@@ -100,7 +100,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Cache kubeconform core schemas
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/homelab-kubeconform
           key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
@@ -162,7 +162,7 @@ jobs:
       # kubectl is here for the same reason: the argo-events webhook guard's jsonpath is
       # evaluated by `kubectl --local` against fixtures, not reimplemented in TypeScript.
       - name: Install go, bun, conftest, argocd, helm, kubectl, yq, promtool, amtool, embedme, task from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: go bun conftest argocd helm kubectl yq aqua:prometheus/prometheus aqua:prometheus/alertmanager npm:embedme task
 
@@ -229,7 +229,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install helm and bun from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: helm bun
 
@@ -271,7 +271,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install go and helm from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: go helm
 
@@ -356,7 +356,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install go and bun from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: go bun
 
@@ -400,7 +400,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install go, helm, bun, kubeconform, conftest, pluto, task from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: go helm bun kubeconform conftest pluto task
 
@@ -408,7 +408,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Cache kubeconform core schemas
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/homelab-kubeconform
           key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}

@@ -105,7 +105,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install go, helm, bun, kubeconform, pluto, task from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: go helm bun kubeconform pluto task
 
@@ -113,7 +113,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Cache kubeconform core schemas
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/homelab-kubeconform
           key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
@@ -371,7 +371,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install bun, task from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: bun task
 
@@ -475,7 +475,7 @@ jobs:
 
       - name: Install go, helm, bun, embedme, task from mise.toml
         if: steps.guard.outputs.run == 'true'
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: go helm bun npm:embedme task
 
