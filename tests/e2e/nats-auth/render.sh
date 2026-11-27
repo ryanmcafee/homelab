@@ -38,7 +38,7 @@ fi
 : "${OUT:?OUT must name the output directory}"
 mkdir -p "$OUT"
 
-PAIRS="$PAIRS" SYS_KEY="${SYS_KEY:-}" yq -n '.nats.principalNkeys = strenv(PAIRS) | .nats.systemAccountNkey = strenv(SYS_KEY)' >"$OUT/keys.yaml"
+PAIRS="$PAIRS" SYS_KEY="${SYS_KEY:-}" yq -n '.nats.principalNkeys = strenv(PAIRS) | .nats.systemAccountNkey = strenv(SYS_KEY) | .nats.testOnlyAuthWithoutNackInbox = true' >"$OUT/keys.yaml"
 helm template addons "$root/charts/addons" \
   -f "$root/charts/addons/values.yaml" \
   -f "$root/charts/addons/values-localdev.yaml" \
