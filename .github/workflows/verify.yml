@@ -7,10 +7,10 @@ name: Verify (level 0)
 #   level-0     task verify        render + lint + kubeconform + pluto + gitops graph + snapshots + policy
 #   policy      task test:policy   Rego unit tests + negative fixtures
 #               task test:health   ArgoCD health Lua (charts/bootstrap/files/health) against tests/health
-#               task test:alerts   promtool unit tests of the rendered alerting rules against tests/alerts
 #               task test:scripts  bun unit tests of scripts/, including every scripts/*_test.ts
 #                                  contract gate -- `task verify` does NOT run these, so they live
 #                                  here and nowhere else in a pull request's checks (MCAA-477)
+#   alerts      task test:alerts   promtool unit tests of the rendered alerting rules against tests/alerts
 #   schemas     task schemas:check vendored CRD schemas match configuration/versions.yaml
 #   cmp-parity  task test:cmp-parity  pinned homelab-cmp image == source `config export`
 #   scaffold    task test:scaffold one scaffolded app per pattern passes level 0 in a temp copy
@@ -174,10 +174,10 @@ jobs:
       # resource-overrides health`, the same code path the controller runs.
       # kubectl is here for the same reason: the argo-events webhook guard's jsonpath is
       # evaluated by `kubectl --local` against fixtures, not reimplemented in TypeScript.
-      - name: Install go, bun, conftest, argocd, helm, kubectl, yq, promtool, amtool, embedme, task from mise.toml
+      - name: Install go, bun, conftest, argocd, helm, kubectl, yq, embedme, task from mise.toml
         uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
-          install_args: go bun conftest argocd helm kubectl yq aqua:prometheus/prometheus aqua:prometheus/alertmanager npm:embedme task
+          install_args: go bun conftest argocd helm kubectl yq npm:embedme task
 
       - name: Install script dependencies from bun.lock
         run: bun install --frozen-lockfile
@@ -196,13 +196,6 @@ jobs:
 
       - name: ArgoCD health Lua fixtures
         run: task test:health
-
-      # promtool evaluates the alerting rules the addons chart renders against
-      # synthetic series (tests/alerts). A rule whose threshold encodes a
-      # deadline - PF_WORK's 24h silent-loss budget - is otherwise only ever
-      # read, never exercised. docs/runbooks/pf-work-age-expiry.md.
-      - name: Prometheus alerting rule unit tests
-        run: task test:alerts
 
       # Every script in scripts/ is TypeScript run by Bun and is the automation
       # this repo runs; a formatting or type error there breaks a task, not a
@@ -228,6 +221,33 @@ jobs:
       # heads. `task docs:embedme` regenerates the block.
       - name: task docs:embedme:verify
         run: task docs:embedme:verify
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}
+
+  # promtool evaluates the alerting rules the addons chart renders against
+  # synthetic series (tests/alerts). A rule whose threshold encodes a
+  # deadline - PF_WORK's 24h silent-loss budget - is otherwise only ever
+  # read, never exercised. docs/runbooks/pf-work-age-expiry.md.
+  # Its own job: both environments take 5-10 minutes, so it runs beside the policy steps.
+  alerts:
+    name: Prometheus alerting rule unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install go, helm, yq, promtool, amtool, task from mise.toml
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+        with:
+          install_args: go helm yq aqua:prometheus/prometheus aqua:prometheus/alertmanager task
+
+      - name: Prometheus alerting rule unit tests
+        run: task test:alerts
 
       - name: Cancel the other CI runs for this PR head
         if: failure() && github.event_name == 'pull_request'
