@@ -54,11 +54,11 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `envoy-gateway` | `gateway-helm` | 1.10.0 | — | envoy-gateway | — |
 | `envoy-gateway-config` | `charts/envoy-gateway-config` | git | — | envoy-gateway | — |
 | `envoy-gateway-crds` | `gateway-crds-helm` | 1.10.0 | — | — | — |
-| `external-dns-cloudflare` | `external-dns` | 1.21.1 | — | — | — |
-| `external-dns-cloudflare-crd` | `external-dns` | 1.21.1 | — | — | — |
+| `external-dns-cloudflare` | `external-dns` | 1.24.0 | — | — | — |
+| `external-dns-cloudflare-crd` | `external-dns` | 1.24.0 | — | — | — |
 | `external-dns-config` | `charts/external-dns-config` | git | — | — | — |
-| `external-dns-unifi-crd` | `external-dns` | 1.21.1 | — | — | — |
-| `external-dns-unifi-ingress` | `external-dns` | 1.21.1 | — | — | — |
+| `external-dns-unifi-crd` | `external-dns` | 1.24.0 | — | — | — |
+| `external-dns-unifi-ingress` | `external-dns` | 1.24.0 | — | — | — |
 | `gateway-api-crds` | `config/crd/standard` | git | — | — | — |
 | `github-pr-exporter` | `prometheus-json-exporter` | 0.20.2 | — | — | — |
 | `grafana-config` | `charts/grafana-config` | git | — | — | — |
