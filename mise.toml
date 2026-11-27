@@ -5,7 +5,7 @@
 [tools]
 # Infrastructure as Code
 terraform = "1.16.4"
-terragrunt = "1.0.8"
+terragrunt = "1.2.3"
 packer = "latest"
 
 # Every CI workflow installs its tools from this file through jdx/mise-action
