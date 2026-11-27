@@ -457,7 +457,7 @@ func renderUpstream(ctx context.Context, r Runner, workDir string, src ChartSour
 	}
 
 	args := upstreamArgs(src, kubeVersion, files)
-	stdout, stderr, err := r.Run(ctx, workDir, "helm", args...)
+	stdout, stderr, err := runHelmWithRetry(ctx, r, workDir, args)
 	if err != nil {
 		if isShimMissing(stderr) {
 			return nil, &upstreamError{detail: ToolMissingDetail("helm")}
