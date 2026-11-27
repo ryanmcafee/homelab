@@ -416,11 +416,16 @@ export function branchGuardError(
  */
 export const COMMITTER_READ_FROM_MAJOR = 44;
 
-/**
- * Whether the deployed Renovate reads `%ce`. `RENOVATE_MAJOR` lets CI and the
- * runbook pin it explicitly; absent that we assume the pre-44 behaviour, which
- * is the one measured here, and the committer finding stays advisory.
- */
+/** Renovate major this repository enforces; `task renovate:deployed-major` read 44.263.5 on 2026-11-27. */
+export const CONFIGURED_RENOVATE_MAJOR = 44;
+
+/** `RENOVATE_MAJOR` when it parses as a major, otherwise {@link CONFIGURED_RENOVATE_MAJOR}. */
+export function configuredRenovateMajor(raw: string | undefined): number {
+  const pinned = Number.parseInt(raw ?? "", 10);
+  return Number.isNaN(pinned) ? CONFIGURED_RENOVATE_MAJOR : pinned;
+}
+
+/** Whether a Renovate of the given major reads `%ce` as well as `%ae`. */
 export function committerIsRead(
   renovateMajor: number | null | undefined,
 ): boolean {
@@ -738,7 +743,7 @@ async function deployedMajorCommand(args: string[]): Promise<void> {
   const read = readDeployedRenovate(bodies);
   const committerRead =
     args.includes("--committer-strict") ||
-    committerIsRead(Number.parseInt(Bun.env.RENOVATE_MAJOR ?? "", 10) || null);
+    committerIsRead(configuredRenovateMajor(Bun.env.RENOVATE_MAJOR));
   const { error, warning } = deployedMajorFindings(read, {
     committerIsRead: committerRead,
   });
@@ -763,11 +768,9 @@ async function main(): Promise<void> {
   const checkOnly = args.includes("--check");
   const noCommit = args.includes("--no-commit");
   const anyBranch = args.includes("--any-branch");
-  // `RENOVATE_MAJOR` is the honest input (read it out of a PR's renovate-debug
-  // blob); `--committer-strict` is the manual override for a dry run.
   const committerRead =
     args.includes("--committer-strict") ||
-    committerIsRead(Number.parseInt(Bun.env.RENOVATE_MAJOR ?? "", 10) || null);
+    committerIsRead(configuredRenovateMajor(Bun.env.RENOVATE_MAJOR));
 
   const [workflowYaml, renovateConfig] = await Promise.all([
     readFile(WORKFLOW_PATH, "utf8"),

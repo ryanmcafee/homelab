@@ -30,7 +30,9 @@ import {
   branchGuardError,
   commitIdentityFindings,
   COMMITTER_READ_FROM_MAJOR,
+  CONFIGURED_RENOVATE_MAJOR,
   committerIsRead,
+  configuredRenovateMajor,
   deployedMajorFindings,
   changedPaths,
   GENERATED_PATHS,
@@ -578,6 +580,26 @@ test("committerIsRead tracks the 43 -> 44 boundary", () => {
   assertEquals(committerIsRead(43), false);
   assertEquals(committerIsRead(44), true);
   assertEquals(committerIsRead(null), false, "unknown must not fail closed");
+});
+
+test("configuredRenovateMajor defaults to the measured 44 regime and honours RENOVATE_MAJOR", () => {
+  assertEquals(CONFIGURED_RENOVATE_MAJOR, 44);
+  assertEquals(configuredRenovateMajor(undefined), 44);
+  assertEquals(configuredRenovateMajor(""), 44);
+  assertEquals(configuredRenovateMajor("not-a-number"), 44);
+  assertEquals(configuredRenovateMajor("43"), 43);
+  assertEquals(configuredRenovateMajor("45"), 45);
+  assertEquals(committerIsRead(configuredRenovateMajor(undefined)), true);
+  assertEquals(
+    deployedMajorFindings(
+      readDeployedRenovate([
+        bodyWithDebug({ createdInVer: "44.263.5", updatedInVer: "44.263.5" }),
+      ]),
+      { committerIsRead: committerIsRead(configuredRenovateMajor(undefined)) },
+    ),
+    { error: null, warning: null },
+    "the deployed 44.263.5 must pass under the default regime",
+  );
 });
 
 test("a pinned committer is advisory on the deployed 43.x, not an error", () => {
