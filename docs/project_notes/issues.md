@@ -176,3 +176,8 @@ Changed the localdev architecture override to a chart-schema-valid empty string.
 - Diagnosis now selects Healthy/Succeeded/OutOfSync Applications, prints the failing `status.sync.status` field and sync detail, and collects their destination namespace diagnostics.
 - Regression demonstrated before the fix: OutOfSync failed and Synced passed. After: both pass; all 139 ArgoCD script tests pass (53 ms); TypeScript and level 0 pass (271 checks, 1 intentional skip, 10.177 s).
 - QA verified the real CI Diagnostics path on MCAA-470: two Healthy/Succeeded/OutOfSync Applications named `status.sync.status` and yielded namespace evidence; Synced controls stayed quiet. ADR-012 allows sync-only drift in Kind level 2. No production mutation. Ready-path API count is unchanged; drift runs the existing namespace collector (~1.57 s for 57 Applications in QA's Kind run).
+
+### 2026-09-25 - Clean-machine toolchain bootstrap (issue #331)
+
+- Pinned the Python, pipx and Node runtimes the pipx/npm tools need, kept mise's stderr in install errors, and added the `cold-install` CI gate (`task toolchain:check`), which installs from committed HEAD in an uncached Ubuntu container.
+- `task toolchain:policy` keeps that workflow read-only and its Dockerfile digest- and checksum-pinned.

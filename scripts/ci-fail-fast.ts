@@ -66,6 +66,7 @@ function checksOutWorkspaceRoot(step: Dict): boolean {
 /** Label-triggered cold draws report a measured verdict, not a PR check, so they never cancel PR CI. */
 export const EXEMPT_JOBS: Readonly<Record<string, readonly string[]>> = {
   "kind-cold-draw.yml": ["resolve", "draw"],
+  "toolchain-bootstrap.yml": ["cold-install"],
 };
 
 /**

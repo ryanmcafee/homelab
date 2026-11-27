@@ -24,7 +24,17 @@ Talos on Proxmox, ArgoCD app-of-apps, Cilium BGP to a UniFi gateway, no PII in g
 
 ## Boot it on your laptop
 
-Docker is the only requirement. The Kind loop runs the same charts production does, with fakes
+Install [mise](https://mise.jdx.dev/getting-started.html) first, then run from the clone:
+
+```bash
+mise trust
+mise install
+mise exec -- task install-tools
+```
+
+`task toolchain:check` replays this install from committed HEAD in a clean Linux container.
+
+Docker is also required for the Kind loop. The loop runs the same charts production does, with fakes
 standing in for 1Password, TrueNAS and the UniFi gateway, and syncs the Applications that need no
 real hardware — fewer than the production total further down this page.
 

@@ -211,7 +211,10 @@ func installTools() error {
 	if err != nil || !result.Success {
 		logger.Error("mise installation failed")
 		logger.Info("Run 'mise doctor' for diagnostics")
-		return fmt.Errorf("mise install failed")
+		if err != nil {
+			return fmt.Errorf("mise install failed: %w\n%s", err, strings.TrimSpace(result.Stderr))
+		}
+		return fmt.Errorf("mise install failed (exit %d): %s", result.Code, strings.TrimSpace(result.Stderr))
 	}
 	logger.OK("All tools installed via mise")
 
