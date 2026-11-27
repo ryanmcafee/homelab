@@ -356,10 +356,9 @@ dbIndexes:
 
 # templates/snapshot-trim.yaml: CronJob that keeps only message ids in the
 # continuations of runs settled for minAgeHours (paperclipai/paperclip#15543);
-# a task session's last run stays whole. image: psql, as for dbIndexes.
+# a task session's last run stays whole. Runs psql from dbIndexes.image.
 snapshotTrim:
   enabled: true
-  image: ""
   schedule: "*/15 * * * *"
   minAgeHours: 24
   minBytes: 65536

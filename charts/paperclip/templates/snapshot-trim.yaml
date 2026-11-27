@@ -44,7 +44,7 @@ spec:
           automountServiceAccountToken: false
           containers:
             - name: psql
-              image: {{ required "snapshotTrim.image is required when snapshotTrim.enabled" .Values.snapshotTrim.image | quote }}
+              image: {{ required "dbIndexes.image is required when snapshotTrim.enabled" .Values.dbIndexes.image | quote }}
               env:
                 - name: DATABASE_URL
                   valueFrom:
