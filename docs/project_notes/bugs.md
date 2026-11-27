@@ -587,6 +587,12 @@ These are documented errors with known solutions:
 - **Solution**: Key `pull_request_target` runs by the base repository's PR number and put schedule/manual sweeps in a distinct `sweep` group, retaining `cancel-in-progress` for same-PR supersession.
 - **Prevention**: `scripts/pr-dependency-triage-concurrency_test.ts` checks different-PR isolation, same-PR supersession, and sweep separation.
 
+### 2026-11-27 - Cancelled triage checks blocked Renovate automerge
+- **Issue**: Renovate automerge PRs #715, #726, #727 and #728 stayed open with every other check green.
+- **Root cause**: Same-PR `pull_request_target` events (opened, then edited) cancelled the earlier triage run, leaving a `cancelled` "Classify PR dependency state" check on the head commit. Renovate merges only when every check run is success, neutral or skipped, so it waited forever.
+- **Solution**: Key PR-event runs by `github.run_id` so they never cancel each other; sweeps still supersede one another.
+- **Prevention**: `scripts/pr-dependency-triage-concurrency_test.ts` fails if PR events share a cancellation group again.
+
 ### 2026-09-30 - Cold-draw policy tests timed out on unavailable external commands
 - **Issue**: PR #460's policy job exceeded Bun's five-second limit in two `kind-cold-draw` cases.
 - **Likely Cause**: The capture unit test ran four real `kubectl` and two real `docker` commands through synchronous `Bun.spawnSync`; their latency and host state were outside the test's control. The fixture-only verdict case also timed out in that run, consistent with the synchronous capture blocking the runner. The CI log does not isolate which external command consumed the time.
