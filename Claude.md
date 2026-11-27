@@ -342,7 +342,7 @@ tools:
   # Code search MCP server of the Paperclip agents (PAPERCLIP_MCP_CODESEARCH), from the
   # PAPERCLIP_CODESEARCH_REPO default; another repository sets PAPERCLIP_CODESEARCH_VERSION.
   # renovate: datasource=git-tags depName=https://github.com/ryanmcafee/codesearch
-  codesearch: "v1.6.1"
+  codesearch: "v1.7.1"
   # renovate: datasource=github-releases depName=kyverno/chainsaw
   chainsaw: "v0.2.15"
   # renovate: datasource=github-releases depName=argoproj/argo-cd
