@@ -5163,7 +5163,7 @@ spec:
       valuesObject:
         namespace: observability
         database: otel
-        image: clickhouse/clickhouse-server:26.10.11.12
+        image: clickhouse/clickhouse-server:26.11.3.10
         networkNames: homelab=198.51.100.0/25,lan=198.51.100.128/25
         resources:
           limits:
