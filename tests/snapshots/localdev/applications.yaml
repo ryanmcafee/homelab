@@ -948,7 +948,7 @@ spec:
       valuesObject:
         namespace: litellm
         ambientOptOut: false
-        imageName: ghcr.io/cloudnative-pg/postgresql:17.11
+        imageName: ghcr.io/cloudnative-pg/postgresql:18.6
         instances: 1
         resources:
           limits:
@@ -1603,7 +1603,7 @@ spec:
       valuesObject:
         namespace: paperclip
         ambientOptOut: true
-        imageName: ghcr.io/cloudnative-pg/postgresql:17.11
+        imageName: ghcr.io/cloudnative-pg/postgresql:18.6
         instances: 1
         resources:
           limits:
@@ -1677,7 +1677,7 @@ spec:
             intervalMinutes: 1440
             retentionDays: 1
         dbIndexes:
-          image: ghcr.io/cloudnative-pg/postgresql:17.11
+          image: ghcr.io/cloudnative-pg/postgresql:18.6
         exporter:
           enabled: true
           image: oven/bun:1.4.5-alpine

@@ -177,7 +177,7 @@ metadata:
   namespace: argo-workflows
 spec:
   instances: 1
-  imageName: "ghcr.io/cloudnative-pg/postgresql:17.11"
+  imageName: "ghcr.io/cloudnative-pg/postgresql:18.6"
   primaryUpdateStrategy: unsupervised
   storage:
     storageClass: democratic-csi-iscsi

@@ -1256,7 +1256,7 @@ argo-workflows:
       database: argo
       owner: argo
       instances: 1
-      imageName: "ghcr.io/cloudnative-pg/postgresql:17.11"
+      imageName: "ghcr.io/cloudnative-pg/postgresql:18.6"
       # Block storage: PostgreSQL refuses the NFS classes (bugs.md 2026-09-15).
       storageClass: local-path
       storageSize: 5Gi
