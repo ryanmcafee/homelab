@@ -28,7 +28,8 @@
   // Every versions.yaml bump is its own gated PR, so a low cap queues them for days.
   prConcurrentLimit: 25,
   prHourlyLimit: 0,
-  rebaseWhen: 'behind-base-branch',
+  // Rebasing every behind branch reset CI each run, so automerge PRs were never green when checked.
+  rebaseWhen: 'conflicted',
   automerge: false,
   // Renovate merges an automerge PR itself, and only once every status check
   // on the head commit is green. platformAutomerge (GitHub native auto-merge)
