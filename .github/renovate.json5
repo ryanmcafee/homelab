@@ -289,6 +289,14 @@
       ],
       allowedVersions: '<0.7.0',
     },
+    {
+      // Generated from configuration/versions.yaml; upgrade.yml regenerates and reverts any direct bump.
+      matchFileNames: [
+        'charts/addons/values-localdev.yaml',
+        'charts/applications/values-localdev.yaml',
+      ],
+      enabled: false,
+    },
   ],
   // Patterns are anchored at the repository root: internal/scaffold/testdata/repo
   // holds a miniature copy of charts/, configuration/ and Taskfile.yml whose golden
