@@ -73,6 +73,8 @@ concurrency:
 
 permissions:
   contents: read
+  # The fail-fast step cancels this PR's other CI runs once a job fails.
+  actions: write
 
 # Every pinned tool carries a Renovate marker so the bump lands here too. The renderer
 # in particular must match configuration/versions.yaml `tools.helm` (the single source of
@@ -140,6 +142,13 @@ jobs:
           path: verify-level0.json
           retention-days: 14
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}
+
   policy:
     name: Policy unit tests and negative fixtures
     runs-on: ubuntu-latest
@@ -204,6 +213,13 @@ jobs:
       - name: task docs:embedme:verify
         run: task docs:embedme:verify
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}
+
   # Network-dependent, but kept per PR: any PR can edit versions.yaml without re-vendoring.
   schemas:
     name: Vendored CRD schemas are current
@@ -234,6 +250,13 @@ jobs:
           esac
           exit "$rc"
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}
+
   snapshot:
     name: Golden snapshots
     runs-on: ubuntu-latest
@@ -242,6 +265,8 @@ jobs:
       # Read-only on contents: this job never commits. pull-requests: write is
       # for the sticky comment only.
       pull-requests: write
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -311,6 +336,13 @@ jobs:
           echo "::error::Rendered manifests differ from tests/snapshots. Run 'task test:snapshot -- --update' and commit, or download the snapshots-regenerated artifact."
           exit 1
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}
+
   cmp-parity:
     name: CMP image parity
     runs-on: ubuntu-latest
@@ -348,6 +380,13 @@ jobs:
           bun \
             scripts/cmp-parity-test.ts --base-ref "origin/$BASE"
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}
+
   # Scaffolder self-test (issue #261 item 21): `homelab scaffold app` for every
   # pattern (operator, helm, deps-main-config, and all of them together) in a
   # temporary copy of the repository must pass level 0 there, plus the PII
@@ -379,3 +418,10 @@ jobs:
       # (preinstalled on the runner) still checks the generated YAML.
       - name: task test:scaffold
         run: task test:scaffold
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}

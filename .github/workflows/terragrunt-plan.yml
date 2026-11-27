@@ -36,6 +36,8 @@ concurrency:
 
 permissions:
   contents: read
+  # The fail-fast step cancels this PR's other CI runs once a job fails.
+  actions: write
 
 jobs:
   validate:
@@ -106,3 +108,8 @@ jobs:
         env:
           TF_PLUGIN_CACHE_DIR: ''
         run: terragrunt run --all validate --non-interactive
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure

@@ -51,7 +51,17 @@ still red, or a timeout after `VERIFY_TIMEOUT_MINUTES`). The bot's commits are
 `fix(ci): …` with a `Ci-Autofix-Run: <run id>` trailer, so `git log --grep Ci-Autofix-Run`
 lists everything it ever pushed.
 
+## Fail-fast CI
+
+Every job of a `pull_request` workflow ends with `.github/actions/cancel-pr-ci-on-failure`:
+once a job fails it cancels the other in-flight `pull_request` runs for the PR head SHA, except
+`Upgrade verification` (its `regenerate` job must finish). Its own run is cancelled too unless
+`keep-own-run` is true, which the workflows listed in `ci-autofix.yml` set on non-renovate
+branches, so their run still concludes `failure` and autofix fires. Fork PRs get a read-only
+token, so it only logs a warning there. `scripts/ci-fail-fast_test.ts` fails when a job lacks
+the step or `keep-own-run` disagrees with the `workflows:` list.
+
 ## Disabling
 
 Delete the secrets, add `no-autofix` to a PR, or remove a workflow name from the `workflows:`
-list in `ci-autofix.yml` to stop reacting to it.
+list in `ci-autofix.yml` (and its `keep-own-run`) to stop reacting to it.

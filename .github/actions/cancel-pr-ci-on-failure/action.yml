@@ -1,0 +1,84 @@
+name: Cancel PR CI on failure
+description: >-
+  Cancels every other in-flight pull_request workflow run for this PR head SHA,
+  and optionally this run, so no CI time is spent after a known failure. It
+  only logs warnings and never fails the calling job.
+
+inputs:
+  keep-own-run:
+    description: Leave this workflow run running so its sibling jobs finish and it concludes failure.
+    required: false
+    default: 'false'
+  token:
+    description: Token with actions write permission on the repository.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Cancel the other runs for this PR head
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ github.repository }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        OWN_RUN_ID: ${{ github.run_id }}
+        KEEP_OWN_RUN: ${{ inputs.keep-own-run }}
+        # Its regenerate job commits snapshots onto renovate/* branches and must finish.
+        PROTECTED_WORKFLOW: Upgrade verification
+      run: |
+        set -uo pipefail
+
+        if [[ -z "$HEAD_SHA" ]]; then
+          echo "::notice::Not a pull_request event; nothing to cancel."
+          exit 0
+        fi
+
+        cancel_run() {
+          local id=$1 label=$2 out
+          if out=$(gh api -X POST "repos/$REPO/actions/runs/$id/cancel" 2>&1); then
+            echo "Cancelled run $id ($label)"
+          elif [[ "$out" == *"HTTP 403"* ]]; then
+            echo "::warning::Cannot cancel run $id ($label): no actions: write (fork PRs get a read-only token)."
+          elif [[ "$out" == *"HTTP 409"* ]]; then
+            echo "Run $id ($label) already finished"
+          else
+            echo "::warning::Cannot cancel run $id ($label): $out"
+          fi
+        }
+
+        runs_url="repos/$REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100"
+        if ! others=$(gh api --paginate "$runs_url" --jq '
+            .workflow_runs[]
+            | select(.event == "pull_request")
+            | select(.status | IN("queued", "in_progress", "waiting", "pending", "requested"))
+            | select(.id != ($ENV.OWN_RUN_ID | tonumber))
+            | select(.name != $ENV.PROTECTED_WORKFLOW)
+            | "\(.id)\t\(.name)"' 2>&1); then
+          echo "::warning::Cannot list the workflow runs for $HEAD_SHA: $others"
+          exit 0
+        fi
+
+        if [[ -z "$others" ]]; then
+          echo "No other in-flight runs for $HEAD_SHA."
+        fi
+        while IFS=$'\t' read -r id name; do
+          [[ -n "$id" ]] && cancel_run "$id" "$name"
+        done <<<"$others"
+
+        if [[ "$KEEP_OWN_RUN" == "true" ]]; then
+          echo "Keeping this run ($OWN_RUN_ID) running: keep-own-run is true."
+          exit 0
+        fi
+        if ! pending_jobs=$(gh api --paginate "repos/$REPO/actions/runs/$OWN_RUN_ID/jobs?per_page=100" --jq '
+            .jobs[] | select(.status != "completed" and .runner_name != $ENV.RUNNER_NAME) | .name' 2>&1); then
+          echo "::warning::Cannot list the jobs of this run: $pending_jobs"
+          exit 0
+        fi
+        if [[ -z "$pending_jobs" ]]; then
+          echo "No sibling jobs still running in this run."
+          exit 0
+        fi
+        echo "Sibling jobs still running: $(paste -sd, - <<<"$pending_jobs")"
+        cancel_run "$OWN_RUN_ID" "this run"

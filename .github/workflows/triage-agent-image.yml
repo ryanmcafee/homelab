@@ -38,6 +38,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -91,10 +93,17 @@ jobs:
           cache-from: type=gha,scope=triage-agent
           cache-to: type=gha,mode=max,scope=triage-agent
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+
   smoke:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -144,10 +153,17 @@ jobs:
           run_stage notify | tee "$work/notify.log"
           grep -q "Triage report: SmokeAlert" "$work/notify.log"
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+
   workflow-lint:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -166,3 +182,8 @@ jobs:
           yq 'select(.kind == "WorkflowTemplate")' tests/snapshots/homelab/triage-agent.yaml > /tmp/triage-fix.yaml
           bun triage-agent/scripts/sample-workflow.ts > /tmp/workflow.json
           argo lint --offline /tmp/triage-fix.yaml /tmp/workflow.json
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure

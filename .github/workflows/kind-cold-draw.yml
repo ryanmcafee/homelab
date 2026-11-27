@@ -56,6 +56,11 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.action != 'labeled'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -117,6 +122,11 @@ jobs:
           path: kind-cold-draw-selftest
           retention-days: 30
           if-no-files-found: error
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
 
   resolve:
     name: Resolve approved PR head

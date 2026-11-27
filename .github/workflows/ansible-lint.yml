@@ -11,6 +11,11 @@ on:
     paths:
       - 'ansible/**'
 
+permissions:
+  contents: read
+  # The fail-fast step cancels this PR's other CI runs once a job fails.
+  actions: write
+
 jobs:
   ansible-lint:
     runs-on: ubuntu-latest
@@ -46,3 +51,10 @@ jobs:
         run: |
           cd ansible
           ansible-lint
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}
