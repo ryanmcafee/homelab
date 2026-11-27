@@ -307,7 +307,7 @@ images:
   # renovate: datasource=docker depName=oven/bun
   bun: "1.4.5-alpine"
   # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
-  cloudnative-pg-postgresql: "17.11"
+  cloudnative-pg-postgresql: "18.6"
   # renovate: datasource=docker depName=clickhouse/clickhouse-server
   clickhouse-server: "26.11.3.10"
   # The one image every LiteLLM container runs (gateway, backend, ui, migrations): it has to
