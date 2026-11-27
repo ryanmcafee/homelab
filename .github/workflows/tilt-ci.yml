@@ -169,7 +169,7 @@ jobs:
 
       # level 2 includes level 0, so the level-0 tools come along.
       - name: Install go, helm, bun, kind, kubectl, argocd, chainsaw, tilt, task, kubeconform, conftest, pluto from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: go helm bun kind kubectl argocd aqua:kyverno/chainsaw tilt task kubeconform conftest pluto
 
@@ -186,7 +186,7 @@ jobs:
           task --version
 
       - name: Cache kubeconform core schemas
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/homelab-kubeconform
           key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
@@ -207,7 +207,7 @@ jobs:
       # empty or evicted cache only costs pull time.
       - name: Restore registry pull-through cache (best effort)
         id: registry-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/homelab-kind-registry
           key: kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml', 'localdev/values/argocd-values.yaml') }}
@@ -255,7 +255,7 @@ jobs:
 
       - name: Save registry pull-through cache (main, even on failure)
         if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.registry-blobs.outputs.fingerprint != ''
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/homelab-kind-registry
           key: kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml') }}-${{ steps.registry-blobs.outputs.fingerprint }}
@@ -410,7 +410,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install go, helm, bun, kind, kubectl, tilt, task from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: go helm bun kind kubectl tilt task
 
@@ -476,7 +476,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install yamllint from mise.toml
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
         with:
           install_args: pipx:yamllint
 
