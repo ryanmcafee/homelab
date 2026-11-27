@@ -3523,7 +3523,7 @@ spec:
           # provisioning file keeps the $-reference; Grafana expands it from
           # the environment, so the password never enters a ConfigMap.
           plugins:
-            - grafana-clickhouse-datasource@4.21.3
+            - grafana-clickhouse-datasource@4.24.0
           envValueFrom:
             CLICKHOUSE_PASSWORD:
               secretKeyRef:

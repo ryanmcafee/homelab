@@ -855,7 +855,7 @@ kube-prometheus-stack:
     # ClickHouse datasource for the cluster logs (docs/logging.md). Grafana
     # installs the plugin at startup and reads the password of the read-only
     # ClickHouse user from Secret logging.secrets.grafana.
-    clickhousePlugin: "v4.21.3"
+    clickhousePlugin: "v4.24.0"
 
     # grafana.com dashboards the Grafana init container downloads into the
     # "homelab" folder; revisions are pinned. The ClickHouse operator chart
