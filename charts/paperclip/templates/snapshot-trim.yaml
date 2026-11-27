@@ -1,0 +1,92 @@
+{{- /* Bounds heartbeat_runs.context_snapshot growth; see files/paperclip-snapshot-trim.sql. */}}
+{{- if .Values.snapshotTrim.enabled }}
+{{- $name := printf "%s-snapshot-trim" .Values.name }}
+{{- $sql := .Files.Get "files/paperclip-snapshot-trim.sql" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+data:
+  paperclip-snapshot-trim.sql: |-
+    {{- $sql | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+spec:
+  schedule: {{ .Values.snapshotTrim.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ int .Values.snapshotTrim.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ $name }}
+            {{- if .Values.serviceMesh.ambient }}
+            istio.io/dataplane-mode: none
+            {{- end }}
+          annotations:
+            checksum/sql: {{ $sql | sha256sum }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: psql
+              image: {{ required "snapshotTrim.image is required when snapshotTrim.enabled" .Values.snapshotTrim.image | quote }}
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.database.secretName }}
+                      key: {{ .Values.database.secretKey }}
+                - name: PGOPTIONS
+                  value: "-c statement_timeout=0 -c lock_timeout=60s"
+              command:
+                - psql
+                - "$(DATABASE_URL)"
+                - -X
+                - -v
+                - "min_age_hours={{ int .Values.snapshotTrim.minAgeHours }}"
+                - -v
+                - "min_bytes={{ int .Values.snapshotTrim.minBytes }}"
+                - -v
+                - "batch_size={{ int .Values.snapshotTrim.batchSize }}"
+                - -f
+                - /sql/paperclip-snapshot-trim.sql
+              volumeMounts:
+                - name: sql
+                  mountPath: /sql
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 26
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+          volumes:
+            - name: sql
+              configMap:
+                name: {{ $name }}
+{{- end }}

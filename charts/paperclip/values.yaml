@@ -353,3 +353,15 @@ dbIndexes:
       (company_id, (coalesce(native_issue_id::text, context_snapshot ->> 'issueId')), created_at DESC, id DESC)
     heartbeat_runs_homelab_company_agent_created_idx: >-
       (company_id, agent_id, created_at)
+
+# templates/snapshot-trim.yaml: CronJob that keeps only message ids in the
+# continuations of runs settled for minAgeHours (paperclipai/paperclip#15543);
+# a task session's last run stays whole. image: psql, as for dbIndexes.
+snapshotTrim:
+  enabled: true
+  image: ""
+  schedule: "*/15 * * * *"
+  minAgeHours: 24
+  minBytes: 65536
+  batchSize: 100
+  activeDeadlineSeconds: 3600
