@@ -296,11 +296,9 @@ sonarr:
     main:
       podSpec:
 {{- if $localdev }}
-        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
-        # key when helm merges values, so the pod schedules on any node.
+        # Kind nodes run the host architecture; an empty string (the schema rejects null) drops the amd64 pin.
         nodeSelector:
-          kubernetes.io/arch: null
+          kubernetes.io/arch: ""
 {{- end }}
         containers:
           main:
@@ -412,11 +410,9 @@ radarr:
     main:
       podSpec:
 {{- if $localdev }}
-        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
-        # key when helm merges values, so the pod schedules on any node.
+        # Kind nodes run the host architecture; an empty string (the schema rejects null) drops the amd64 pin.
         nodeSelector:
-          kubernetes.io/arch: null
+          kubernetes.io/arch: ""
 {{- end }}
         containers:
           main:
@@ -528,11 +524,9 @@ prowlarr:
     main:
       podSpec:
 {{- if $localdev }}
-        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
-        # key when helm merges values, so the pod schedules on any node.
+        # Kind nodes run the host architecture; an empty string (the schema rejects null) drops the amd64 pin.
         nodeSelector:
-          kubernetes.io/arch: null
+          kubernetes.io/arch: ""
 {{- end }}
         containers:
           main:
@@ -611,9 +605,7 @@ nzbget:
     main:
       podSpec:
 {{- if $localdev }}
-        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-        # Chart 32.0.0 requires a string; the common pod template skips empty
-        # selectors, so Kind can schedule this pod on either architecture.
+        # Kind nodes run the host architecture; an empty string (the schema rejects null) drops the amd64 pin.
         nodeSelector:
           kubernetes.io/arch: ""
 {{- end }}
@@ -739,11 +731,9 @@ tautulli:
     main:
       podSpec:
 {{- if $localdev }}
-        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
-        # key when helm merges values, so the pod schedules on any node.
+        # Kind nodes run the host architecture; an empty string (the schema rejects null) drops the amd64 pin.
         nodeSelector:
-          kubernetes.io/arch: null
+          kubernetes.io/arch: ""
 {{- end }}
         containers:
           main:
@@ -814,11 +804,9 @@ lazylibrarian:
     main:
       podSpec:
 {{- if $localdev }}
-        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
-        # key when helm merges values, so the pod schedules on any node.
+        # Kind nodes run the host architecture; an empty string (the schema rejects null) drops the amd64 pin.
         nodeSelector:
-          kubernetes.io/arch: null
+          kubernetes.io/arch: ""
 {{- end }}
         containers:
           main:
@@ -913,11 +901,9 @@ homeassistant:
     main:
       podSpec:
 {{- if $localdev }}
-        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
-        # key when helm merges values, so the pod schedules on any node.
+        # Kind nodes run the host architecture; an empty string (the schema rejects null) drops the amd64 pin.
         nodeSelector:
-          kubernetes.io/arch: null
+          kubernetes.io/arch: ""
 {{- end }}
         hostNetwork: true
         containers:
@@ -986,11 +972,9 @@ mosquitto:
     main:
       podSpec:
 {{- if $localdev }}
-        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
-        # key when helm merges values, so the pod schedules on any node.
+        # Kind nodes run the host architecture; an empty string (the schema rejects null) drops the amd64 pin.
         nodeSelector:
-          kubernetes.io/arch: null
+          kubernetes.io/arch: ""
 {{- end }}
         containers:
           main:
@@ -1086,11 +1070,9 @@ flaresolverr:
     main:
       podSpec:
 {{- if $localdev }}
-        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
-        # key when helm merges values, so the pod schedules on any node.
+        # Kind nodes run the host architecture; an empty string (the schema rejects null) drops the amd64 pin.
         nodeSelector:
-          kubernetes.io/arch: null
+          kubernetes.io/arch: ""
 {{- end }}
         containers:
           main:

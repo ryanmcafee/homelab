@@ -1366,7 +1366,7 @@ spec:
                       cpu: 100m
                       memory: 512Mi
               nodeSelector:
-                kubernetes.io/arch: null
+                kubernetes.io/arch: ""
         persistence:
           config:
             accessModes:
@@ -1478,7 +1478,7 @@ spec:
                       cpu: 25m
                       memory: 256Mi
               nodeSelector:
-                kubernetes.io/arch: null
+                kubernetes.io/arch: ""
         persistence:
           books:
             enabled: true
@@ -1920,7 +1920,7 @@ spec:
                       cpu: 50m
                       memory: 128Mi
               nodeSelector:
-                kubernetes.io/arch: null
+                kubernetes.io/arch: ""
         persistence:
           config:
             accessModes:
@@ -2601,7 +2601,7 @@ spec:
                       cpu: 100m
                       memory: 256Mi
               nodeSelector:
-                kubernetes.io/arch: null
+                kubernetes.io/arch: ""
         persistence:
           config:
             accessModes:
@@ -2763,7 +2763,7 @@ spec:
                       cpu: 75m
                       memory: 512Mi
               nodeSelector:
-                kubernetes.io/arch: null
+                kubernetes.io/arch: ""
         persistence:
           config:
             accessModes:
@@ -2928,7 +2928,7 @@ spec:
                       cpu: 75m
                       memory: 512Mi
               nodeSelector:
-                kubernetes.io/arch: null
+                kubernetes.io/arch: ""
         persistence:
           config:
             accessModes:
@@ -3065,7 +3065,7 @@ spec:
                       cpu: 25m
                       memory: 256Mi
               nodeSelector:
-                kubernetes.io/arch: null
+                kubernetes.io/arch: ""
         persistence:
           config:
             accessModes:

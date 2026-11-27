@@ -9,17 +9,19 @@ import (
 	"testing"
 )
 
-type nzbgetSchemaRunner struct{}
+type trueChartsSchemaRunner struct{ rendered []string }
 
-func (nzbgetSchemaRunner) LookPath(string) (string, error) { return "/fake/helm", nil }
+func (*trueChartsSchemaRunner) LookPath(string) (string, error) { return "/fake/helm", nil }
 
-func (nzbgetSchemaRunner) Run(_ context.Context, _ string, _ string, args ...string) ([]byte, []byte, error) {
-	if !containsArg(args, "oci://oci.trueforge.org/truecharts/nzbget") || flagValue(args, "--version") != "32.0.0" {
-		return nil, nil, fmt.Errorf("wrong chart or version: %v", args)
-	}
+func (r *trueChartsSchemaRunner) Run(_ context.Context, _ string, _ string, args ...string) ([]byte, []byte, error) {
 	values, err := os.ReadFile(flagValue(args, "-f"))
 	if err != nil {
 		return nil, nil, err
+	}
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "oci://oci.trueforge.org/truecharts/") {
+			r.rendered = append(r.rendered, strings.TrimPrefix(arg, "oci://oci.trueforge.org/truecharts/")+"@"+flagValue(args, "--version"))
+		}
 	}
 	if strings.Contains(string(values), "kubernetes.io/arch: null") {
 		return nil, []byte("got null, want string"), fmt.Errorf("schema validation failed")
@@ -30,33 +32,57 @@ func (nzbgetSchemaRunner) Run(_ context.Context, _ string, _ string, args ...str
 	return []byte("kind: Deployment\n"), nil, nil
 }
 
-func containsArg(args []string, want string) bool {
-	for _, arg := range args {
-		if arg == want {
-			return true
-		}
-	}
-	return false
+func trueChartsApplication(name, repoURL, version, arch string) string {
+	return "apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: " + name +
+		"\nspec:\n  destination:\n    namespace: media\n  source:\n    repoURL: " + repoURL +
+		"\n    chart: " + name + "\n    targetRevision: " + version +
+		"\n    helm:\n      values: |\n        workload:\n          main:\n            podSpec:\n              nodeSelector:\n                kubernetes.io/arch: " + arch + "\n"
 }
 
-func TestLocaldevNZBGetSchemaUsesRenderedApplicationValues(t *testing.T) {
+func TestLocaldevTrueChartsSchemaRendersEveryTrueChartsApplication(t *testing.T) {
 	for _, tc := range []struct {
-		name, arch string
-		want       Status
+		name, sonarrArch string
+		want             map[string]Status
 	}{
-		{"valid", "\"\"", StatusPass},
-		{"invalid", "null", StatusFail},
+		{"all valid", "\"\"", map[string]Status{"nzbget": StatusPass, "sonarr": StatusPass}},
+		{"null fails only its own app", "null", map[string]Status{"nzbget": StatusPass, "sonarr": StatusFail}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "applications.yaml")
-			manifest := "apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: nzbget\nspec:\n  destination:\n    namespace: media\n  source:\n    repoURL: oci://oci.trueforge.org/truecharts\n    chart: nzbget\n    targetRevision: 32.0.0\n    helm:\n      values: |\n        workload:\n          main:\n            podSpec:\n              nodeSelector:\n                kubernetes.io/arch: " + tc.arch + "\n"
+			manifest := trueChartsApplication("nzbget", "oci://oci.trueforge.org/truecharts", "32.0.0", "\"\"") +
+				"---\n" + trueChartsApplication("sonarr", "oci.trueforge.org/truecharts", "29.0.1", tc.sonarrArch) +
+				"---\n" + trueChartsApplication("plex", "https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages", "1.9.0", "null")
 			if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			check := LocaldevNZBGetSchema(context.Background(), nzbgetSchemaRunner{}, t.TempDir(), "1.34.0", map[string]string{"applications": path})
-			if check.Status != tc.want {
-				t.Fatalf("status %s, want %s: %s %v", check.Status, tc.want, check.Detail, check.Findings)
+			runner := &trueChartsSchemaRunner{}
+			checks := LocaldevTrueChartsSchema(context.Background(), runner, t.TempDir(), "1.34.0", map[string]string{"applications": path})
+			got := map[string]Status{}
+			for _, c := range checks {
+				got[strings.TrimSuffix(strings.TrimPrefix(c.Name, "upstream/localdev/"), "-schema")] = c.Status
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("checks %v, want %v", got, tc.want)
+			}
+			for app, want := range tc.want {
+				if got[app] != want {
+					t.Errorf("%s: status %s, want %s", app, got[app], want)
+				}
+			}
+			if strings.Join(runner.rendered, ",") != "nzbget@32.0.0,sonarr@29.0.1" {
+				t.Errorf("rendered %v, want the two TrueCharts sources only", runner.rendered)
 			}
 		})
+	}
+}
+
+func TestLocaldevTrueChartsSchemaFailsWithoutTrueChartsSources(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "applications.yaml")
+	if err := os.WriteFile(path, []byte(trueChartsApplication("plex", "https://example.invalid/charts", "1.0.0", "null")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	checks := LocaldevTrueChartsSchema(context.Background(), &trueChartsSchemaRunner{}, t.TempDir(), "1.34.0", map[string]string{"applications": path})
+	if len(checks) != 1 || checks[0].Status != StatusFail {
+		t.Fatalf("checks %+v, want one failure", checks)
 	}
 }
