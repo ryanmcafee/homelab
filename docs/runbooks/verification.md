@@ -534,9 +534,10 @@ than deleting the test — there is no bypass, because the copy-pasted command *
 here.
 
 `task renovate:regen` runs the same check on its own commit as
-`renovate-regen/commit-identity`. A wrong **author** fails it; a wrong **committer** prints a
-warning naming the 44 boundary and does not fail, because on the deployed 43.x the commit is
-genuinely fine and a gate that rejects its own correct output is worse than no gate.
+`renovate-regen/commit-identity`. A wrong **author** fails it. A wrong **committer** fails it
+too: on 2026-11-27 `task renovate:deployed-major` read **44.263.5**, so the repository now
+defaults to the 44 regime (`CONFIGURED_RENOVATE_MAJOR` in `scripts/renovate-regen.ts`). Set
+`RENOVATE_MAJOR=43` only to reproduce the old advisory behaviour against a 43.x deployment.
 
 **Moving to the 44 regime.** Do not wait to remember: `task renovate:deployed-major` is the
 trigger, and it goes red as `renovate-regen/deployed-major` on the first Renovate run after the
