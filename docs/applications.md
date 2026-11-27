@@ -83,7 +83,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `prometheus-config` | `charts/prometheus-config` | git | — | — | — |
 | `spegel` | `spegel` | 0.6.0 | — | — | — |
 | `tailscale-config` | `charts/tailscale-config` | git | — | — | — |
-| `tailscale-operator` | `tailscale-operator` | 1.98.4 | — | — | — |
+| `tailscale-operator` | `tailscale-operator` | 1.104.7 | — | — | — |
 | `triage-agent` | `charts/triage-agent` | git | — | triage-agent | — |
 | `ztunnel` | `ztunnel` | 1.32.0 | — | — | — |
 <!-- docs-check:end addons-table -->

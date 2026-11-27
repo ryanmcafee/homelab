@@ -485,7 +485,7 @@ tailscale-operator:
   chart:
     name: tailscale-operator
     repo: https://pkgs.tailscale.com/helmcharts
-    version: "1.98.4"
+    version: "1.104.7"
 
   # 1Password vault path for the operator OAuth client (creates secret: operator-oauth)
   onePasswordItemPath: vaults/homelab/items/tailscale-operator-oauth
