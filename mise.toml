@@ -62,7 +62,7 @@ pluto = "5.24.4"          # Detect deprecated apiVersions ahead of upgrades
 "aqua:prometheus/alertmanager" = "0.33.0"
 
 # Security scanning (security-scan.yml)
-"pipx:checkov" = "3.3.19"
+"pipx:checkov" = "3.4.11"
 
 # Secrets Management
 op = "latest"          # 1Password CLI for secrets management
