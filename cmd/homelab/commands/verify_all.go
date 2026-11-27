@@ -122,9 +122,11 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 			// Catch upstream values.schema.json failures before the Kind sync loop.
 			if localdev, ok := out.Files["localdev"]; ok {
 				if version, err := verify.ClusterKubernetesVersion(repoRoot, "localdev"); err != nil {
-					result.Add(verify.FailCheck("upstream/localdev/nzbget-schema", start, "resolving Kubernetes version", err.Error()))
+					result.Add(verify.FailCheck("upstream/localdev/truecharts-schema", start, "resolving Kubernetes version", err.Error()))
 				} else {
-					result.Add(verify.LocaldevNZBGetSchema(ctx, runner, dir, version, localdev))
+					for _, check := range verify.LocaldevTrueChartsSchema(ctx, runner, dir, version, localdev) {
+						result.Add(check)
+					}
 				}
 			}
 

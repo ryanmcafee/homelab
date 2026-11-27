@@ -153,7 +153,7 @@ diff --git a/configuration/schema/applications.schema.yaml b/configuration/schem
 diff --git a/configuration/templates/helm-apps.tmpl b/configuration/templates/helm-apps.tmpl
 --- a/configuration/templates/helm-apps.tmpl
 +++ b/configuration/templates/helm-apps.tmpl
-@@ -16,3 +16,70 @@
+@@ -16,3 +16,68 @@
      main:
        hostnames:
          - {{ .Values.SONARR_HOSTNAME.Value }}
@@ -182,11 +182,9 @@ diff --git a/configuration/templates/helm-apps.tmpl b/configuration/templates/he
 +      main:
 +        podSpec:
 +{{- if $localdev }}
-+          # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
-+          # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
-+          # key when helm merges values, so the pod schedules on any node.
++          # Kind nodes run the host architecture; an empty string (the schema rejects null) drops the amd64 pin.
 +          nodeSelector:
-+            kubernetes.io/arch: null
++            kubernetes.io/arch: ""
 +{{- end }}
 +          containers:
 +            main:

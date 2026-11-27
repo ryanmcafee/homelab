@@ -630,6 +630,12 @@ These are documented errors with known solutions:
 - **Fix**: MCAA-2320 / PR #721 replaces null with an empty string and adds `upstream/localdev/nzbget-schema`, which renders the pinned child chart with the values emitted by the parent Application.
 - **Verification**: The regression test fails the original null value; level 0 passes with 314 passed, 0 failed, 1 skipped.
 
+### 2026-11-27 - Every TrueCharts major failed Kind on the same null nodeSelector
+- **Issue**: The TrueCharts major bump (#780) failed Kind level 2 after 40 minutes: flaresolverr, lazylibrarian, prowlarr, radarr, sonarr and tautulli could not render (`/workload/main/podSpec/nodeSelector/kubernetes.io~1arch: got null, want string`).
+- **Cause**: The 2026-11-25 fix moved only NZBGet to an empty string and only NZBGet was schema-rendered, so the other seven TrueCharts apps kept `null` until their common library gained `values.schema.json`.
+- **Fix**: Every localdev TrueCharts override (and the scaffold template) uses `""`; `upstream/localdev/<app>-schema` now renders every TrueCharts source of the localdev render, replacing the NZBGet-only check.
+- **Prevention**: A level-0 guard for one chart family belongs on the whole family; derive its targets from the render rather than naming one app.
+
 ### 2026-11-26 - Upgrade report published rendered Secret payloads
 
 - **Issue**: A rendered Secret change reached the `upgrade-diff` comment and `upgrade.json` findings because the upgrade classifier masked values only after `objectDiff` had built its raw diff.
