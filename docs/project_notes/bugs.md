@@ -624,6 +624,7 @@ These are documented errors with known solutions:
 - **Root Cause**: `normaliseDocs` passed Secret `data` and `stringData` to the diff. Parser and Helm diagnostics could also quote the manifest; the workflow published unprojected CRD revalidation findings.
 - **Solution**: Redact parsed Secret values before either diff, preserve key names and compare values only in memory to report added/removed/changed keys. Replace unsafe diagnostics with fixed text and project revalidation JSON to allowlisted fields before publishing. Synthetic sentinel tests cover JSON, Markdown, nested lists and workflow sinks.
 - **Follow-up**: A Secret with `data:` or `stringData:` set to YAML null has no payload and should normalize as an empty mapping. The first guard rejected it and could block an otherwise safe upgrade. Base-side render failures must retain `skip` status with fixed, safe diagnostics so the guard does not silently change ADR-014 automerge behavior. Both cases have focused regressions in PR #743.
+
 ### 2026-09-28 - Diagnose omitted healthy Applications with sync drift
 
 - **Issue**: `localdev:diagnose` printed all-clear after level 2 rejected Healthy/Succeeded/OutOfSync.
