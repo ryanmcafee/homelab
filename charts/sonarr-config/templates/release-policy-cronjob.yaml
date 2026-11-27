@@ -1,0 +1,136 @@
+{{- if .Values.releasePolicy.enabled }}
+{{- $sweep := .Values.importSweep }}
+{{- $name := printf "%s-release-policy" $sweep.app }}
+{{- $policy := $.Files.Get "files/arr-release-policy.ts" }}
+{{- $client := $.Files.Get "files/arr-import-sweep.ts" }}
+{{- $useConfig := not $sweep.apiKeySecret.name }}
+{{- with .Values.releasePolicy }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: {{ $sweep.app }}
+    app.kubernetes.io/component: release-policy
+data:
+  arr-release-policy.ts: |-
+    {{- $policy | nindent 4 }}
+  arr-import-sweep.ts: |-
+    {{- $client | nindent 4 }}
+---
+# Bans the configured release type in every quality profile (files/arr-release-policy.ts).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: {{ $sweep.app }}
+    app.kubernetes.io/component: release-policy
+spec:
+  schedule: {{ .schedule | quote }}
+  {{- with $sweep.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ .activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ .ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/part-of: {{ $sweep.app }}
+            app.kubernetes.io/component: release-policy
+          annotations:
+            checksum/script: {{ print $policy $client | sha256sum }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: {{ $sweep.securityContext.runAsUser }}
+            runAsGroup: {{ $sweep.securityContext.runAsGroup }}
+            fsGroup: {{ $sweep.securityContext.runAsGroup }}
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          {{- if $useConfig }}
+          # The app's config claim is ReadWriteOnce: share the node the app runs on.
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      {{- toYaml $sweep.appPodLabels | nindent 22 }}
+          {{- end }}
+          containers:
+            - name: policy
+              image: "{{ $sweep.image.repository }}:{{ $sweep.image.tag }}"
+              imagePullPolicy: {{ $sweep.image.pullPolicy }}
+              command: ["bun", "/scripts/arr-release-policy.ts"]
+              env:
+                - name: ARR_URL
+                  value: {{ $sweep.url | quote }}
+                {{- if $useConfig }}
+                - name: CONFIG_XML
+                  value: /app-config/config.xml
+                {{- else }}
+                - name: ARR_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ $sweep.apiKeySecret.name | quote }}
+                      key: {{ $sweep.apiKeySecret.key | quote }}
+                {{- end }}
+                - name: DRY_RUN
+                  value: {{ .dryRun | toString | quote }}
+                - name: BANNED_FORMAT_NAME
+                  value: {{ .banned.formatName | quote }}
+                - name: BANNED_TITLE_REGEX
+                  value: {{ .banned.titleRegex | quote }}
+                - name: BANNED_QUALITY_REGEX
+                  value: {{ .banned.qualityRegex | quote }}
+                - name: BANNED_FORMAT_SCORE
+                  value: {{ .banned.score | toString | quote }}
+                - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+                  value: "0"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+                {{- if $useConfig }}
+                - name: app-config
+                  mountPath: /app-config
+                  readOnly: true
+                {{- end }}
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                {{- toYaml .resources | nindent 16 }}
+          volumes:
+            - name: script
+              configMap:
+                name: {{ $name }}
+            {{- if $useConfig }}
+            - name: app-config
+              persistentVolumeClaim:
+                claimName: {{ $sweep.configClaim | quote }}
+                readOnly: true
+            {{- end }}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 16Mi
+{{- end }}
+{{- end }}
