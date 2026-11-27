@@ -31,10 +31,6 @@ initContainers:
       {{- end }}
       - name: BUN_VERSION
         value: {{ regexReplaceAll "-.*$" $d.bunVersion "" | quote }}
-      - name: CODESEARCH_REPO
-        value: {{ $d.codesearch.repo | quote }}
-      - name: CODESEARCH_VERSION
-        value: {{ $d.codesearch.version | quote }}
       - name: MCP_SERVERS
         value: {{ $d.mcpServers | toJson | quote }}
     resources:

@@ -1,0 +1,25 @@
+{{- /*
+Agents call the cluster codesearch service over HTTP MCP; NetworkPolicies are
+additive, so this opens only that port next to the operator's own policy.
+*/}}
+{{- if and .Values.codesearch.enabled .Values.security.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.name }}-codesearch-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperclip
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.codesearch.namespace }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.codesearch.port }}
+{{- end }}

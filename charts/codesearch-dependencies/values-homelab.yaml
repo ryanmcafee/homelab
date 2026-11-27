@@ -1,0 +1,7 @@
+# codesearch-dependencies homelab values
+#
+# Nothing differs from values.yaml: the image, 1Password paths and the log
+# store arrive through the parent Application's helm.valuesObject (ADR-010).
+# The file exists because the parent Application always appends
+# values-<environment>.yaml.
+namespace: codesearch
