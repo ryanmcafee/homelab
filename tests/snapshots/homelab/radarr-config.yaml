@@ -1922,7 +1922,7 @@ spec:
                       app.kubernetes.io/name: radarr
           containers:
             - name: scan
-              image: "ghcr.io/linuxserver/ffmpeg:9.0-cli-ls84"
+              image: "linuxserver/ffmpeg:9.0-cli-ls84"
               imagePullPolicy: IfNotPresent
               command: ["/bin/bash", "/scripts/corruption-scan.sh"]
               env:
