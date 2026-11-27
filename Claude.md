@@ -314,7 +314,7 @@ images:
   # litellm-migrations): BerriAI publishes them alongside the chart, so this has to move
   # with charts.litellm above, whose appVersion is exactly this value.
   # renovate: datasource=docker depName=ghcr.io/berriai/litellm-gateway
-  litellm: "1.110.3"
+  litellm: "1.110.4"
   # Grafana plugin, installed by the kube-prometheus-stack Grafana at startup.
   # renovate: datasource=github-releases depName=grafana/clickhouse-datasource
   grafana-clickhouse-datasource: "v4.21.3"
