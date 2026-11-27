@@ -81,7 +81,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `port-forwarding-controller` | `port-forwarding` | 1.1.2 | — | — | — |
 | `port-forwarding-controller-config` | `charts/port-forwarding-controller-config` | git | — | — | — |
 | `prometheus-config` | `charts/prometheus-config` | git | — | — | — |
-| `spegel` | `spegel` | 0.6.0 | — | — | — |
+| `spegel` | `spegel` | 0.8.2 | — | — | — |
 | `tailscale-config` | `charts/tailscale-config` | git | — | — | — |
 | `tailscale-operator` | `tailscale-operator` | 1.98.4 | — | — | — |
 | `triage-agent` | `charts/triage-agent` | git | — | triage-agent | — |

@@ -202,7 +202,7 @@ charts:
   # renovate: datasource=helm depName=connect registryUrl=https://1password.github.io/connect-helm-charts
   onepassword-connect: "2.4.3"
   # renovate: datasource=docker depName=ghcr.io/spegel-org/helm-charts/spegel
-  spegel: "0.6.0"
+  spegel: "0.8.2"
   # renovate: datasource=helm depName=local-path-provisioner registryUrl=https://charts.containeroo.ch
   local-path-provisioner: "0.0.38"
   # renovate: datasource=helm depName=cloudnative-pg registryUrl=https://cloudnative-pg.github.io/charts

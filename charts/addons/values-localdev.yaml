@@ -129,7 +129,7 @@ metrics-server:
 
 spegel:
   chart:
-    version: "0.6.0"
+    version: "0.8.2"
 
 # ============================================================================
 # Cilium - CNI (adopted, not installed, by the Application)
