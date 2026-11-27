@@ -74,7 +74,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `nack` | `nack` | 0.36.0 | — | — | — |
 | `nats` | `nats` | 2.15.3 | — | nats | — |
 | `nats-config` | `charts/nats-config` | git | — | — | — |
-| `node-feature-discovery` | `node-feature-discovery` | 0.18.3 | — | — | — |
+| `node-feature-discovery` | `node-feature-discovery` | 0.20.1 | — | — | — |
 | `otel-collector-agent` | `opentelemetry-collector` | 0.173.1 | — | — | — |
 | `otel-collector-cluster` | `opentelemetry-collector` | 0.173.1 | — | — | — |
 | `otel-collector-gateway` | `opentelemetry-collector` | 0.173.1 | envoy-internal: otel, otlp | — | — |
