@@ -149,7 +149,7 @@ images:
   litellm: "1.110.3"
   # Grafana plugin, installed by the kube-prometheus-stack Grafana at startup.
   # renovate: datasource=github-releases depName=grafana/clickhouse-datasource
-  grafana-clickhouse-datasource: "v4.21.3"
+  grafana-clickhouse-datasource: "v4.24.0"
   # NATS on the Argo Events trigger bus. Deliberately un-annotated for Renovate:
   # this is not a free image tag but a key the argo-events chart's
   # controller-config maps to an image, so it may only move to a version that
