@@ -9,9 +9,9 @@ UI and the management API are human traffic, /v1/* is virtual-key traffic.
 
 The split is the upstream one, not a path-per-component carve-up. The UI owns
 an explicit set of paths, the gateway owns the data-plane prefixes, and the
-backend owns the catch-all at / -- which is why wave 13 sets the dashboard's
-backendUrl to the bare hostname. Gateway API resolves this across routes by
-match specificity: Exact first, then the longest PathPrefix.
+backend owns the catch-all at /, so the dashboard reaches it same-origin.
+Gateway API resolves this across routes by match specificity: Exact first,
+then the longest PathPrefix.
 */}}
 {{- if .Values.route.enabled }}
 {{- $r := .Values.route }}

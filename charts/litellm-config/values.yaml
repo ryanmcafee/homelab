@@ -35,7 +35,7 @@ route:
     port: 4000
 
   # Paths the UI serves. Mirrors $uiPaths in the upstream chart's
-  # templates/ingress.yaml (chart 1.102.1); / is Exact so the backend keeps the
+  # templates/ingress.yaml (chart 1.111.0); / is Exact so the backend keeps the
   # catch-all underneath it.
   uiExactPaths:
     - /
@@ -60,6 +60,7 @@ route:
     # and /test/tools/list are backend MCP management routes, so a prefix here
     # would 404 them.
     - /test
+    - /eu_jev/v1/systemone
   gatewayPathPrefixes:
     - /v1/chat
     - /chat
@@ -144,3 +145,22 @@ route:
     - /v1/realtime
     - /realtime
     - /health
+    - /v1/decisions
+    - /decisions
+    - /v1/systemone
+    - /systemone
+    - /v1/extraction
+    - /extraction
+    - /v1/live/sessions
+    - /live/sessions
+    - /api/event_logging
+    - /azure_speech
+    - /transcribe
+    - /typesafe
+    - /gigachat
+    - /fal_ai
+    - /deepgram
+    - /openrouter
+    - /nvidia_nim
+    - /tinyfish
+    - /watsonx

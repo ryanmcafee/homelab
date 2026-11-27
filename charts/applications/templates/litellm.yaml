@@ -4,7 +4,7 @@ existing CloudNativePG operator:
   wave 10  Namespace litellm
   wave 11  litellm-dependencies  charts/litellm-dependencies (OnePasswordItems -> Secrets litellm-master-key-secret, litellm-salt-key, litellm-api-keys; secret store only)
   wave 12  litellm-database      charts/litellm-database (postgresql.cnpg.io Cluster litellm-db -> Secret litellm-db-app)
-  wave 13  litellm               OCI chart ghcr.io/berriai/litellm/chart/litellm (gateway, backend, ui, migrations Job)
+  wave 13  litellm               OCI chart ghcr.io/berriai/litellm/chart/litellm (gateway, backend, ui, migrations Job; one image)
   wave 14  litellm-config        charts/litellm-config (HTTPRoutes for ui, gateway and backend) plus the PostSync smoke Job
 Every value comes from the `litellm:` block of configuration/templates/helm-apps.tmpl;
 charts/applications/values.yaml only holds placeholders. Derived values reach the
@@ -172,6 +172,8 @@ spec:
         # litellm-litellm-gateway; wave 14's HTTPRoutes and the SRE alerts
         # address litellm-gateway / litellm-backend / litellm-ui.
         fullnameOverride: litellm
+        image:
+          tag: {{ $ll.proxy.imageTag | quote }}
         masterKey:
           secretName: litellm-master-key-secret
           secretKey: master-key
@@ -200,13 +202,9 @@ spec:
             argocd:
               enabled: true
           activeDeadlineSeconds: 1800
-          image:
-            tag: {{ $ll.proxy.imageTag | quote }}
           resources:
             {{- toYaml $ll.proxy.migrations.resources | nindent 12 }}
         gateway:
-          image:
-            tag: {{ $ll.proxy.imageTag | quote }}
           # LITELLM_SALT_KEY encrypts every provider credential the proxy
           # stores in the database and the chart has no value for it, so both
           # it and the provider keys arrive as whole-Secret envFrom. The
@@ -249,8 +247,6 @@ spec:
           resources:
             {{- toYaml $ll.proxy.gateway.resources | nindent 12 }}
         backend:
-          image:
-            tag: {{ $ll.proxy.imageTag | quote }}
           envSecrets:
             - litellm-salt-key
           extraEnv:
@@ -272,13 +268,8 @@ spec:
           resources:
             {{- toYaml $ll.proxy.backend.resources | nindent 12 }}
         ui:
-          image:
-            tag: {{ $ll.proxy.imageTag | quote }}
-          # The dashboard is a static bundle: it calls the backend from the
-          # browser, so this is the routable host wave 14 publishes, not a
-          # cluster Service. The chart's own Ingress serves the management API
-          # at the host root, so wave 14's HTTPRoutes must match that split.
-          backendUrl: https://{{ $ll.hostname }}
+          # Wave 14 serves the dashboard and backend on one host, so the
+          # browser reaches the backend same-origin and ui.backendUrl stays unset.
           hpa:
             enabled: false
           resources:

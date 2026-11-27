@@ -66,6 +66,9 @@ spec:
             type: Exact
             value: /test
         - path:
+            type: Exact
+            value: /eu_jev/v1/systemone
+        - path:
             type: PathPrefix
             value: /v1/chat
         - path:
@@ -251,13 +254,13 @@ spec:
         - path:
             type: PathPrefix
             value: /aws
-        - path:
-            type: PathPrefix
-            value: /bedrock
       backendRefs:
         - name: litellm-gateway
           port: 4000
     - matches:
+        - path:
+            type: PathPrefix
+            value: /bedrock
         - path:
             type: PathPrefix
             value: /comprehendmedical
@@ -318,6 +321,63 @@ spec:
         - path:
             type: PathPrefix
             value: /health
+        - path:
+            type: PathPrefix
+            value: /v1/decisions
+        - path:
+            type: PathPrefix
+            value: /decisions
+        - path:
+            type: PathPrefix
+            value: /v1/systemone
+        - path:
+            type: PathPrefix
+            value: /systemone
+        - path:
+            type: PathPrefix
+            value: /v1/extraction
+        - path:
+            type: PathPrefix
+            value: /extraction
+        - path:
+            type: PathPrefix
+            value: /v1/live/sessions
+        - path:
+            type: PathPrefix
+            value: /live/sessions
+        - path:
+            type: PathPrefix
+            value: /api/event_logging
+        - path:
+            type: PathPrefix
+            value: /azure_speech
+        - path:
+            type: PathPrefix
+            value: /transcribe
+        - path:
+            type: PathPrefix
+            value: /typesafe
+        - path:
+            type: PathPrefix
+            value: /gigachat
+        - path:
+            type: PathPrefix
+            value: /fal_ai
+        - path:
+            type: PathPrefix
+            value: /deepgram
+        - path:
+            type: PathPrefix
+            value: /openrouter
+        - path:
+            type: PathPrefix
+            value: /nvidia_nim
+        - path:
+            type: PathPrefix
+            value: /tinyfish
+        - path:
+            type: PathPrefix
+            value: /watsonx
       backendRefs:
         - name: litellm-gateway
           port: 4000

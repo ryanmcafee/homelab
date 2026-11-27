@@ -1424,7 +1424,7 @@ litellm:
       name: litellm
       repo: ghcr.io/berriai/litellm/chart
       version: "{{ .Versions.Charts.litellm }}"
-    # All four component images ship on one tag (versions.yaml images.litellm).
+    # Every container runs ghcr.io/berriai/litellm at this tag (versions.yaml images.litellm).
     imageTag: "{{ index .Versions.Images "litellm" }}"
     serviceMonitor:
       enabled: true
