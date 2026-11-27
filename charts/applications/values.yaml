@@ -1017,8 +1017,8 @@ renovate:
     repo: ghcr.io/renovatebot/charts
     version: "46.49.0"
 
-  # CronJob schedule (every 4 hours)
-  schedule: "0 */4 * * *"
+  # CronJob schedule (hourly, so a PR that goes green automerges within the hour)
+  schedule: "0 * * * *"
 
   # Seconds a finished Job is kept (6h: past the next scheduled run). Without
   # it a failed Job, and its KubeJobFailed alert, never expires.
