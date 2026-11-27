@@ -248,7 +248,7 @@ charts:
   # renovate: datasource=helm depName=intel-device-plugins-gpu registryUrl=https://intel.github.io/helm-charts
   intel-device-plugins-gpu: "0.36.0"
   # renovate: datasource=helm depName=intel-device-plugins-operator registryUrl=https://intel.github.io/helm-charts
-  intel-device-plugins-operator: "0.36.0"
+  intel-device-plugins-operator: "0.37.1"
   # renovate: datasource=helm depName=node-feature-discovery registryUrl=https://kubernetes-sigs.github.io/node-feature-discovery/charts
   node-feature-discovery: "0.18.3"
   # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
