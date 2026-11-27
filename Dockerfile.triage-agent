@@ -19,7 +19,7 @@ COPY triage-agent/package.json triage-agent/bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 # renovate: datasource=docker depName=node
-FROM node:24-bookworm-slim
+FROM node:26-bookworm-slim
 
 ARG TARGETARCH
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
