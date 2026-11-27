@@ -282,6 +282,13 @@
       automergeType: 'pr',
       platformAutomerge: false,
     },
+    {
+      // Spegel 0.7+ sets trafficDistribution PreferSameNode, which needs Kubernetes 1.34+; lift once the cluster runs it.
+      matchPackageNames: [
+        'ghcr.io/spegel-org/helm-charts/spegel',
+      ],
+      allowedVersions: '<0.7.0',
+    },
   ],
   // Patterns are anchored at the repository root: internal/scaffold/testdata/repo
   // holds a miniature copy of charts/, configuration/ and Taskfile.yml whose golden
