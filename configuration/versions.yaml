@@ -132,7 +132,7 @@ images:
   # renovate: datasource=docker depName=kindest/node
   kind-node: "v1.36.1"
   # renovate: datasource=docker depName=versity/versitygw
-  versitygw: "v1.8.0"
+  versitygw: "v1.11.0"
   # renovate: datasource=docker depName=ghcr.io/paperclipai/paperclip
   paperclip: "2026.1117.0"
   # Runtime of the paperclip agent health exporter (charts/paperclip files/paperclip-exporter.ts).
