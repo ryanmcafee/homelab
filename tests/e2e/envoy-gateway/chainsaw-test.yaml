@@ -172,6 +172,13 @@ spec:
             namespace: envoy-gateway-system
         - events:
             namespace: envoy-gateway-system
+        - script:
+            timeout: 1m
+            content: |
+              kubectl get gatewayclasses -o yaml || true
+              kubectl get leases -n envoy-gateway-system -o wide || true
+              kubectl logs -n envoy-gateway-system deploy/envoy-gateway --timestamps \
+                | grep -iE 'gatewayclass|status update|update status|leader|elect|error' | tail -n 200 || true
     - name: test-route
       description: >-
         A backend and an HTTPRoute for e2e-envoy-gateway.homelab.local on the https listener of

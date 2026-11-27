@@ -872,6 +872,52 @@ func TestChainsawKeepsMeasuredLinesFromAPassingRun(t *testing.T) {
 	}
 }
 
+func TestChainsawWritesOnlyFailedTestOutput(t *testing.T) {
+	stdout := strings.Join([]string{
+		"Version: 0.2.15",
+		"    | 20:07:01 | grafana | application-healthy | ASSERT    | DONE  | argoproj.io/v1alpha1/Application @ argocd/grafana",
+		"    | 20:07:02 | plex | curl-identity | CATCH     | RUN   |",
+		"    | 20:07:02 | plex | curl-identity | DESCRIBE  | LOG   |",
+		"        === STDOUT",
+		"        Name:         curl-plex",
+		"    | 20:07:02 | grafana | application-healthy | SCRIPT    | LOG   |",
+		"        grafana-only line",
+		"    | 20:07:03 | plex | curl-identity | PODLOGS   | DONE  |",
+		"",
+	}, "\n")
+	var out strings.Builder
+	opts := clusterOpts(&fakeClusterRunner{chainsawReport: chainsawReportJSON, chainsawStdout: stdout, chainsawErr: fmt.Errorf("exit status 1")}, t.TempDir())
+	opts.E2EDir = writeChainsawConfig(t)
+	opts.ChainsawOutput = &out
+	Chainsaw(context.Background(), opts)
+
+	want := strings.Join([]string{
+		"=== chainsaw output of failed test(s): plex",
+		"    | 20:07:02 | plex | curl-identity | CATCH     | RUN   |",
+		"    | 20:07:02 | plex | curl-identity | DESCRIBE  | LOG   |",
+		"        === STDOUT",
+		"        Name:         curl-plex",
+		"    | 20:07:03 | plex | curl-identity | PODLOGS   | DONE  |",
+		"",
+	}, "\n")
+	if out.String() != want {
+		t.Errorf("output:\n got %q\nwant %q", out.String(), want)
+	}
+}
+
+func TestChainsawWritesNoOutputWhenEveryTestPassed(t *testing.T) {
+	passing := strings.ReplaceAll(chainsawReportJSON, `"failed"`, `"passed"`)
+	var out strings.Builder
+	opts := clusterOpts(&fakeClusterRunner{chainsawReport: passing, chainsawStdout: "    | 20:07:01 | plex | curl-identity | ASSERT | DONE |\n"}, t.TempDir())
+	opts.E2EDir = writeChainsawConfig(t)
+	opts.ChainsawOutput = &out
+	Chainsaw(context.Background(), opts)
+
+	if out.Len() != 0 {
+		t.Errorf("want no output for a passing run, got %q", out.String())
+	}
+}
+
 func TestChainsawAddsNoMeasuredCheckWithoutMeasuredLines(t *testing.T) {
 	opts := clusterOpts(&fakeClusterRunner{chainsawReport: chainsawReportJSON}, t.TempDir())
 	opts.E2EDir = writeChainsawConfig(t)
