@@ -96,9 +96,25 @@ Dataset parents are the `TRUENAS_ZONE_PARENT`, `TRUENAS_ZONE_SSD_PARENT`,
 
 ## PCI passthrough
 
-Every passthrough device is declared in `terragrunt/environments/homelab/env.hcl` with its
+Passthrough is optional: without `terragrunt/environments/homelab/hardware.hcl` nothing is
+passed through. Every device is declared in that gitignored file with its PCI address,
 vendor:device ID, subsystem ID and IOMMU group, and mapped by the `talos-cluster` and
-`truenas` modules (the Proxmox API token is not root, so the hardware mapping is explicit):
+`truenas` modules (the Proxmox API token is not root, so the hardware mapping is explicit).
+Start from the template:
+
+```bash
+cp terragrunt/environments/homelab/hardware.hcl.example terragrunt/environments/homelab/hardware.hcl
+```
+
+Its empty `gpu_devices` and `hba_devices` maps pass nothing through, the same as having no
+file. The `talos-cluster` plan stops if `GPU_VENDOR` names a vendor with no `gpu_devices`
+entry, so `homelab.yaml.example` starts at `GPU_VENDOR: none`; set a vendor only after adding
+its device here.
+To pass a device through, read its values on the Proxmox host: `lspci -nnk` gives the PCI
+address, vendor:device ID and subsystem ID, and `/sys/bus/pci/devices/<pci_id>/iommu_group`
+gives the IOMMU group.
+
+The maintainer's host:
 
 | Device | ID | Goes to | Purpose |
 |--------|----|---------|---------|
@@ -123,7 +139,8 @@ its audio controller).
 ## GPU
 
 `GPU_VENDOR` (`configuration/schema/gpu.schema.yaml`: `none | nvidia | intel`) selects the
-whole stack; `terragrunt/environments/homelab/env.hcl` `gpu_vendor` must say the same.
+whole stack; `terragrunt/environments/homelab/env.hcl` reads it as `gpu_vendor`, and
+`hardware.hcl` `gpu_devices.<vendor>` is the card it passes through.
 
 | | Intel (current) | NVIDIA (historical) |
 |--|-----------------|---------------------|
@@ -133,7 +150,8 @@ whole stack; `terragrunt/environments/homelab/env.hcl` `gpu_vendor` must say the
 | Kubernetes | `intel-device-plugins-operator` + `intel-gpu-device-plugin` Applications, `node-feature-discovery` | `nvidia-gpu-operator` Application |
 | Check | `task gpu:verify` (`homelab verify gpu`, vendor from config) | same |
 
-Flipping the vendor is a `homelab.yaml` + `env.hcl` change followed by
+Flipping the vendor is a `homelab.yaml` change (plus a `gpu_devices` entry for the new card)
+followed by
 `task talos:recreate:gpu-node` (recreates worker-1 with the other image and runs the check).
 
 Proxmox side, common to both cards: IOMMU on (AMD-Vi is active by default on this platform;

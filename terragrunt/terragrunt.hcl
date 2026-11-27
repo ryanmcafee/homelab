@@ -87,17 +87,17 @@ generate "provider" {
 
 # Input variables that can be overridden by environment.
 #
-# Every environment local becomes a module input, except `config` — that is the
-# environment's resolved ConfigSet, an implementation detail of env.hcl, and
-# passing the whole map would put a few KB of TF_VAR_config on every unit and
-# collide with any module that ever declares a `config` variable.
+# Every environment local becomes a module input, except `config` and
+# `hardware`/`hardware_file` — the ConfigSet and hardware.hcl env.hcl reads,
+# implementation details of env.hcl. Passing the whole maps would put KBs of
+# TF_VAR_* on every unit and collide with any module that declares one of them.
 #
 # The second map wins, so anything listed there is an override the environment
 # cannot escape. Keep it to values that are the same for every operator: this
 # used to carry base_fqdn, which is how one operator's domain reached all 13
 # units including localdev.
 inputs = merge(
-  { for k, v in try(local.environment_vars.locals, {}) : k => v if k != "config" },
+  { for k, v in try(local.environment_vars.locals, {}) : k => v if !contains(["config", "hardware", "hardware_file"], k) },
   {
     project = local.project
   }

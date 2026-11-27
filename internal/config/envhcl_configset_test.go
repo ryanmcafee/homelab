@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -16,27 +15,7 @@ func TestHomelabEnvHCLReadsConfigSetKeys(t *testing.T) {
 	}
 
 	path := filepath.Join(findProjectRootForTest(t), "terragrunt", "environments", "homelab", "env.hcl")
-	source, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("reading %s: %v", path, err)
-	}
-	file, diags := hclsyntax.ParseConfig(source, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		t.Fatalf("parsing %s: %v", path, diags)
-	}
-	body, ok := file.Body.(*hclsyntax.Body)
-	if !ok {
-		t.Fatalf("%s: unexpected body type %T", path, file.Body)
-	}
-	locals := map[string]hclsyntax.Expression{}
-	for _, block := range body.Blocks {
-		if block.Type != "locals" {
-			continue
-		}
-		for name, attr := range block.Body.Attributes {
-			locals[name] = attr.Expr
-		}
-	}
+	locals := parseHCLLocals(t, path)
 
 	for _, tc := range cases {
 		t.Run(tc.local, func(t *testing.T) {

@@ -605,6 +605,11 @@ resource "proxmox_virtual_environment_vm" "worker" {
       # talos-cluster-config module, not through this file.
       initialization,
     ]
+
+    precondition {
+      condition     = !try(each.value.gpu, false) || var.gpu_vendor == "none" || local.active_gpu_device != null
+      error_message = "worker ${each.key} has gpu = true and gpu_vendor is \"${var.gpu_vendor}\", but no ${var.gpu_vendor} device is set. Add gpu_devices.${var.gpu_vendor} to terragrunt/environments/homelab/hardware.hcl, or set GPU_VENDOR: none."
+    }
   }
 }
 

@@ -1,0 +1,19 @@
+# PCI passthrough for this one Proxmox host. Copy to hardware.hcl (gitignored).
+# Empty maps pass nothing through; docs/hardware.md#pci-passthrough shows how to
+# read pci_id and device_id/subsystem_id (`lspci -nnk`) and iommu_group
+# (/sys/bus/pci/devices/<pci_id>/iommu_group) on the host.
+locals {
+  # Keyed by GPU_VENDOR (nvidia | intel), for example:
+  #   intel = {
+  #     pci_id       = "0000:03:00.0"
+  #     device_id    = "8086:e212"
+  #     subsystem_id = "8086:1114"
+  #     iommu_group  = 14
+  #     description  = "Intel Arc Pro B50"
+  #   }
+  gpu_devices = {}
+
+  # Storage controllers passed to the TrueNAS VM, one entry per controller with
+  # the same pci_id, device_id, subsystem_id, iommu_group and description fields.
+  hba_devices = {}
+}

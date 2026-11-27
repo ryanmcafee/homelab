@@ -89,8 +89,8 @@ unit through `op run` so the Proxmox and Talos credentials come from 1Password;
 control planes and three workers. Control-plane system disks live on `cp-storage`, workers on
 `vm-storage`; the control planes share the Talos layer-2 VIP `<CP_VIP>` and etcd is tuned for
 virtualised disks (`heartbeat-interval=250`, `election-timeout=2500`, metrics on `:2381`,
-scraped by kube-prometheus-stack). `worker-1` carries the Intel Arc GPU (`gpu_vendor =
-"intel"` in `env.hcl`, `GPU_VENDOR=intel` in the configuration); the NVIDIA image and patch
+scraped by kube-prometheus-stack). `worker-1` carries the Intel Arc GPU (`GPU_VENDOR=intel`
+in the configuration, the card in the gitignored `hardware.hcl`); the NVIDIA image and patch
 remain in the repo as the previous vendor. Cilium, kubelet-csr-approver and Spegel are
 rendered as Talos inline manifests (`task render`, stored in 1Password) so the cluster has a
 CNI before ArgoCD exists.
