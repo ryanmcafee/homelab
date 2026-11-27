@@ -2310,6 +2310,8 @@ spec:
             enabled: true
             intervalMinutes: 1440
             retentionDays: 1
+        codesearch:
+          enabled: false
         dbIndexes:
           image: ghcr.io/cloudnative-pg/postgresql:18.6
         exporter:
