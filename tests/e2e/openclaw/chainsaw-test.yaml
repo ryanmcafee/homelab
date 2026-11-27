@@ -1,0 +1,60 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: openclaw
+spec:
+  description: Live OpenClaw reconciliation, credential wiring, security, smoke and negative Argo health.
+  # Fault injection must not race argocd-apps or another suite's health assertions.
+  concurrent: false
+  failFast: true
+  steps:
+    - name: applications-healthy
+      # No openclaw-dependencies in Kind: no secret store; localdev/fakes/secrets.yaml seeds both Secrets.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: openclaw-operator
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: openclaw
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+    - name: inventory-env-and-provider-proxy
+      try:
+        - script:
+            content: bun ./check.ts baseline
+    - name: operator-rbac-and-no-openclaw-route
+      try:
+        - script:
+            content: bun ./check.ts security
+    - name: postsync-result-and-direct-http
+      try:
+        - script:
+            timeout: 4m
+            content: bun ./check.ts smoke
+    - name: live-degraded-recovery-and-api-key-toggle
+      try:
+        - script:
+            timeout: 20m
+            content: bun ./check.ts mutations
+      finally:
+        - script:
+            timeout: 10m
+            content: bun ./check.ts restore
