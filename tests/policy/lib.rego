@@ -70,6 +70,13 @@ default gateway_external := "envoy-external"
 
 gateway_external := data.gateway_external if is_string(data.gateway_external)
 
+# tailnet_ingress_class is the one IngressClass in this repo that is actually
+# served: the Tailscale operator
+# (charts/addons/templates/tailscale-operator.yaml) reconciles it into a proxy
+# that joins the tailnet and listens on no LAN address. Envoy Gateway serves no
+# Ingress at all, which is what no-ingress otherwise forbids.
+tailnet_ingress_class := "tailscale"
+
 # inline_values parses an Application's inline helm values: the
 # spec.source.helm.values YAML string merged with helm.valuesObject.
 default helm_values_string(helm) := {}
