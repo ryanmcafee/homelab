@@ -640,7 +640,7 @@ cert-manager:
   chart:
     name: cert-manager
     repo: https://charts.jetstack.io
-    version: v1.20.3
+    version: v1.21.3
 
   installCRDs: true
 
