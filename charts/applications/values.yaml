@@ -1185,8 +1185,8 @@ litellm:
     chart:
       name: litellm
       repo: ghcr.io/berriai/litellm/chart
-      version: "1.102.1"
-    imageTag: "v1.102.1"
+      version: "1.111.0"
+    imageTag: "v1.111.0"
     serviceMonitor:
       enabled: true
     models: []

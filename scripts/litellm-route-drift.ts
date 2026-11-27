@@ -185,6 +185,98 @@ interface IngressPath {
   port: number;
 }
 
+const ALB_ACTION = "alb.ingress.kubernetes.io/actions.";
+const ALB_CONDITIONS = "alb.ingress.kubernetes.io/conditions.";
+
+interface AlbGroupedPath {
+  path: string;
+  pathType: string;
+  action: string;
+}
+
+function parseAnnotationJson(
+  annotations: Record<string, unknown>,
+  key: string,
+): unknown {
+  const raw = annotations[key];
+  if (typeof raw !== "string") return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `rendered Ingress: annotation ${key} is not JSON: ${String(err)}`,
+    );
+  }
+}
+
+function albTargetService(
+  annotations: Record<string, unknown>,
+  action: string,
+): string {
+  const parsed = parseAnnotationJson(annotations, ALB_ACTION + action);
+  const forward = (parsed ?? {}) as {
+    forwardConfig?: { targetGroups?: { serviceName?: unknown }[] };
+  };
+  const groups = forward.forwardConfig?.targetGroups;
+  const service = Array.isArray(groups) ? groups[0]?.serviceName : undefined;
+  if (
+    !Array.isArray(groups) ||
+    groups.length !== 1 ||
+    typeof service !== "string"
+  ) {
+    throw new Error(
+      `rendered Ingress: ${ALB_ACTION}${action} does not forward to exactly one Service`,
+    );
+  }
+  return service;
+}
+
+/** Extra prefixes an ALB conditions annotation folds into the same listener rule. */
+function albConditionPrefixes(
+  annotations: Record<string, unknown>,
+  action: string,
+): string[] {
+  const parsed = parseAnnotationJson(annotations, ALB_CONDITIONS + action);
+  if (parsed === undefined) return [];
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      `rendered Ingress: ${ALB_CONDITIONS}${action} is not a list`,
+    );
+  }
+  const conditions: {
+    field?: unknown;
+    pathPatternConfig?: { values?: unknown };
+  }[] = parsed;
+  return conditions
+    .filter((c) => c.field === "path-pattern")
+    .flatMap((c) => {
+      const values = c.pathPatternConfig?.values;
+      return Array.isArray(values) ? values : [];
+    })
+    .filter((v): v is string => typeof v === "string" && !v.endsWith("/*"));
+}
+
+/** Resolves ALB listener-rule groups (chart 1.111.0+, controller=alb) back to their Service. */
+function resolveAlbGroups(
+  grouped: AlbGroupedPath[],
+  direct: IngressPath[],
+  annotations: Record<string, unknown>,
+): IngressPath[] {
+  return grouped.flatMap((g) => {
+    const service = albTargetService(annotations, g.action);
+    const port = direct.find((p) => p.service === service)?.port;
+    if (port === undefined) {
+      throw new Error(
+        `rendered Ingress: ${ALB_ACTION}${g.action} forwards to ${service}, ` +
+          "which no numbered path entry names, so its port is unknown",
+      );
+    }
+    return [g.path, ...albConditionPrefixes(annotations, g.action)].map(
+      (path) => ({ path, pathType: g.pathType, service, port }),
+    );
+  });
+}
+
 function ingressPaths(ingressYaml: string): IngressPath[] {
   const doc = parseYaml(ingressYaml);
   if (typeof doc !== "object" || doc === null) {
@@ -198,12 +290,15 @@ function ingressPaths(ingressYaml: string): IngressPath[] {
         "if that template moved, this gate needs updating.",
     );
   }
+  const metadata = (d.metadata ?? {}) as Record<string, unknown>;
+  const annotations = (metadata.annotations ?? {}) as Record<string, unknown>;
   const spec = (d.spec ?? {}) as Record<string, unknown>;
   const rules = spec.rules;
   if (!Array.isArray(rules) || rules.length === 0) {
     throw new Error("rendered Ingress: spec.rules is empty");
   }
   const out: IngressPath[] = [];
+  const grouped: AlbGroupedPath[] = [];
   for (const rule of rules) {
     const http = ((rule as Record<string, unknown>).http ?? {}) as Record<
       string,
@@ -219,9 +314,17 @@ function ingressPaths(ingressYaml: string): IngressPath[] {
       if (
         typeof e.path !== "string" ||
         typeof e.pathType !== "string" ||
-        typeof svc.name !== "string" ||
-        typeof portObj.number !== "number"
+        typeof svc.name !== "string"
       ) {
+        throw new Error(
+          `rendered Ingress: unreadable path entry ${JSON.stringify(p)}`,
+        );
+      }
+      if (portObj.name === "use-annotation") {
+        grouped.push({ path: e.path, pathType: e.pathType, action: svc.name });
+        continue;
+      }
+      if (typeof portObj.number !== "number") {
         throw new Error(
           `rendered Ingress: unreadable path entry ${JSON.stringify(p)}`,
         );
@@ -234,6 +337,7 @@ function ingressPaths(ingressYaml: string): IngressPath[] {
       });
     }
   }
+  out.push(...resolveAlbGroups(grouped, out, annotations));
   if (out.length === 0) throw new Error("rendered Ingress: no paths");
   return out;
 }
