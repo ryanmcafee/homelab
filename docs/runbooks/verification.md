@@ -364,20 +364,12 @@ access for `helm pull`, which is why it lives here and not in level 0.
 
 **Automerge gate.** On `renovate/*` branches the job sets the commit status
 `upgrade/automerge-gate` on the head SHA: `success` when no `upgrade/*` check failed
-(every upstream chart renders at head), revalidation passed and no Application sets a
-helm value its chart does not declare, otherwise `failure` with the reason. A manifest
+(every upstream chart renders at head), revalidation passed, no Application sets a
+helm value its chart does not declare and the LiteLLM route allowlist still matches, otherwise `failure` with the reason. A manifest
 diff never blocks: it is posted as the `upgrade-diff` comment for review.
 `renovate.json5` automerges non-major chart and image bumps in `versions.yaml`, 0.x minors included
 (`kindest/node`, majors, infrastructure tools and ksops stay manual; TrueCharts and Plex
 majors also automerge, since TrueCharts ships app releases as chart majors) and patch bumps
-`upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
-only when every `upgrade/*` check is `unchanged` (an Application listed in
-`tests/gitops/upgrade-automerge.yaml` may differ), revalidation passed, no Application
-sets a helm value its chart does not declare and the LiteLLM route allowlist still
-matches, otherwise
-`failure` ("rendered manifests changed — human review required, automerge blocked").
-`renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
-(`kindest/node`, majors, infrastructure tools and ksops stay manual) and patch bumps
 elsewhere, always with `platformAutomerge: false`: Renovate merges itself, and only when
 every status on the head commit is green. GitHub native auto-merge is never used because
 the `main` ruleset requires no status checks, so it would merge before CI ran. In practice

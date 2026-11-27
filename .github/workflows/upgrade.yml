@@ -356,7 +356,6 @@ jobs:
             upgrade.json
             revalidate.json
             values.json
-            litellm-routes.log
           if-no-files-found: ignore
           retention-days: 14
 
