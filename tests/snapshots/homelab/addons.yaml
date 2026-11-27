@@ -944,7 +944,7 @@ spec:
           enabled: true
           retentionDays: 30
           bucket: argo-workflows-logs
-          image: versity/versitygw:v1.8.0
+          image: versity/versitygw:v1.11.0
           name: argo-workflows-logs
           onePassword:
             itemPath: vaults/homelab/items/argo-workflows-artifacts
