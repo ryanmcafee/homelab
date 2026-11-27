@@ -62,11 +62,11 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `gateway-api-crds` | `config/crd/standard` | git | — | — | — |
 | `github-pr-exporter` | `prometheus-json-exporter` | 0.20.2 | — | — | — |
 | `grafana-config` | `charts/grafana-config` | git | — | — | — |
-| `istio-base` | `base` | 1.31.1 | — | — | — |
-| `istio-cni` | `cni` | 1.31.1 | — | — | — |
+| `istio-base` | `base` | 1.32.0 | — | — | — |
+| `istio-cni` | `cni` | 1.32.0 | — | — | — |
 | `istio-config` | `charts/istio-config` | git | envoy-internal: servicemesh | — | — |
 | `istio-gateways` | `charts/istio-gateways` | git | — | istio-gateways | — |
-| `istiod` | `istiod` | 1.31.1 | — | — | — |
+| `istiod` | `istiod` | 1.32.0 | — | — | — |
 | `kiali` | `kiali-server` | 2.32.0 | — | — | smoke-kiali |
 | `kube-prometheus-stack` | `kube-prometheus-stack` | 87.1.0 | envoy-internal: alertmanager, grafana | grafana | smoke-grafana, smoke-prometheus |
 | `kubelet-csr-approver` | `kubelet-csr-approver` | 1.2.16 | — | — | — |
@@ -85,7 +85,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `tailscale-config` | `charts/tailscale-config` | git | — | — | — |
 | `tailscale-operator` | `tailscale-operator` | 1.98.4 | — | — | — |
 | `triage-agent` | `charts/triage-agent` | git | — | triage-agent | — |
-| `ztunnel` | `ztunnel` | 1.31.1 | — | — | — |
+| `ztunnel` | `ztunnel` | 1.32.0 | — | — | — |
 <!-- docs-check:end addons-table -->
 
 Notes:

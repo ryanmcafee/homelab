@@ -1497,7 +1497,7 @@ istio:
   chart:
     # The storage.googleapis.com repository ends at 1.30.5; 1.31 is published here.
     repo: https://blob.istio.io/istio-release/charts
-    version: "1.31.1"
+    version: "1.32.0"
   # Internal/external Gateways of classes istio-internal/istio-external next to
   # Envoy Gateway, for comparison only (charts/istio-gateways).
   gateways:

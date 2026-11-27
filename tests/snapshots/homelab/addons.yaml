@@ -3060,7 +3060,7 @@ spec:
   source:
     repoURL: https://blob.istio.io/istio-release/charts
     chart: base
-    targetRevision: "1.31.1"
+    targetRevision: "1.32.0"
     helm:
       releaseName: istio-base
       values: |
@@ -3103,7 +3103,7 @@ spec:
   source:
     repoURL: https://blob.istio.io/istio-release/charts
     chart: istiod
-    targetRevision: "1.31.1"
+    targetRevision: "1.32.0"
     helm:
       releaseName: istiod
       values: |
@@ -3175,7 +3175,7 @@ spec:
   source:
     repoURL: https://blob.istio.io/istio-release/charts
     chart: cni
-    targetRevision: "1.31.1"
+    targetRevision: "1.32.0"
     helm:
       releaseName: istio-cni
       values: |
@@ -3221,7 +3221,7 @@ spec:
   source:
     repoURL: https://blob.istio.io/istio-release/charts
     chart: ztunnel
-    targetRevision: "1.31.1"
+    targetRevision: "1.32.0"
     helm:
       releaseName: ztunnel
       values: |
