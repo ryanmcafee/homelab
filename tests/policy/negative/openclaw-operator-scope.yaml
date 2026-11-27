@@ -1,0 +1,41 @@
+# expect: openclaw-operator-scope
+# The operator Application as PR #434 first rendered it: valid in every other
+# respect, and silent about watchNamespaces. The signed chart reads that as
+# cluster-wide and binds Secret get/list/watch/create/update/patch through a
+# ClusterRole, so the controller can read credentials in any namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openclaw-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/paperclipinc/charts
+    chart: openclaw-operator
+    targetRevision: "0.40.0"
+    helm:
+      releaseName: openclaw-operator
+      values: |
+        crds:
+          install: true
+          keep: true
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openclaw-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true

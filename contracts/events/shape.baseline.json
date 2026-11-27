@@ -570,6 +570,17 @@
           "kind": "string",
           "value": "\"No principal publishes or subscribes on `pf.>` or any `pf.*.` form.\""
         },
+        "conformance.level_0.nack_inbox_prefix_render_guard": {
+          "kind": "object"
+        },
+        "conformance.level_0.nack_inbox_prefix_render_guard.id": {
+          "kind": "string",
+          "value": "\"nack_inbox_prefix_render_guard\""
+        },
+        "conformance.level_0.nack_inbox_prefix_render_guard.asserts": {
+          "kind": "string",
+          "value": "\"`charts/addons` refuses to render `nats.principalNkeys` while the pinned NACK cannot set its inbox prefix, and no shipped values surface sets the test-only opt-in (ADR-055).\""
+        },
         "conformance.level_0.grant_within_producer_ownership": {
           "kind": "object"
         },
@@ -882,6 +893,17 @@
         "conformance.level_2.cold_start_no_maintainer_account.asserts": {
           "kind": "string",
           "value": "\"Cold start on fresh synthetic credentials with no maintainer account, no identity service and no anonymous fallback. This is the fork-ability contract for the bus.\""
+        },
+        "conformance.level_2.stream_controller_private_inbox": {
+          "kind": "object"
+        },
+        "conformance.level_2.stream_controller_private_inbox.id": {
+          "kind": "string",
+          "value": "\"stream_controller_private_inbox\""
+        },
+        "conformance.level_2.stream_controller_private_inbox.asserts": {
+          "kind": "string",
+          "value": "\"NACK, under its own declared key with `_INBOX.nack` and no `_INBOX.>` grant, reconciles a Stream and a Consumer to Ready, and the server logs no subscription violation for the `nack` user. Lifting `nack_inbox_prefix_render_guard` requires this green against the rendered digests (ADR-055).\""
         }
       }
     },
