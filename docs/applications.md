@@ -136,7 +136,7 @@ from the same chart (`namespaces.yaml`, `oci-repositories.yaml`).
 | `prowlarr-config` | `charts/prowlarr-config` | git | — | — | — |
 | `radarr` | `radarr` | 26.7.2 | envoy-internal: radarr | radarr | smoke-radarr |
 | `radarr-config` | `charts/radarr-config` | git | — | — | — |
-| `renovate` | `renovate` | 46.455.4 | — | — | — |
+| `renovate` | `renovate` | 46.456.1 | — | — | — |
 | `renovate-config` | `charts/renovate-config` | git | — | — | — |
 | `sonarr` | `sonarr` | 25.6.3 | envoy-internal: sonarr | sonarr | smoke-sonarr |
 | `sonarr-config` | `charts/sonarr-config` | git | — | — | — |
