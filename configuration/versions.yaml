@@ -93,7 +93,7 @@ charts:
   paperclip-operator: "0.19.1"
   # One key for base, istiod, cni and ztunnel: the four Istio charts must run the same release.
   # renovate: datasource=helm depName=istiod registryUrl=https://blob.istio.io/istio-release/charts
-  istio: "1.31.1"
+  istio: "1.32.0"
   # Gateway API CRDs for Istio waypoints (config/crd/standard of this tag).
   # renovate: datasource=github-releases depName=kubernetes-sigs/gateway-api
   gateway-api: "v1.6.2"
