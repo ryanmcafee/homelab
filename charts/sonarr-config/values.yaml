@@ -97,3 +97,36 @@ releasePolicy:
     limits:
       cpu: 200m
       memory: 128Mi
+
+# Hourly at minute 11, caps every episode at maxEpisodeGB
+# (files/arr-size-policy.ts, docs/runbooks/arr-size-policy.md): quality
+# definitions at maxMbPerMinute, a custom format rejecting larger
+# single-episode releases, larger queued downloads blocklisted, and up to
+# replaceLimit larger episode files per run deleted and searched again once a
+# release within the cap is found. App, URL, API key source, config claim,
+# user and image come from importSweep.
+sizePolicy:
+  enabled: true
+  schedule: "11 * * * *"
+  # Report the changes and write nothing.
+  dryRun: false
+  # Sonarr's GB (1024^3 bytes).
+  maxEpisodeGB: 10
+  # Per minute of episode runtime, so season packs are capped too; 170 keeps
+  # a 60-minute episode within maxEpisodeGB.
+  maxMbPerMinute: 170
+  format:
+    name: Oversize
+    score: -10000
+  # Episode files replaced per run; 0 only enforces the cap on new releases.
+  replaceLimit: 5
+  searchTimeoutSeconds: 300
+  activeDeadlineSeconds: 3000
+  ttlSecondsAfterFinished: 3600
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 192Mi
