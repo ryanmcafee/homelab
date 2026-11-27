@@ -36,7 +36,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `argo-workflows` | `argo-workflows` | 1.1.1 | envoy-internal: workflows | — | — |
 | `argo-workflows-dependencies` | `charts/argo-workflows-dependencies` | git | — | — | — |
 | `blackbox-exporter` | `prometheus-blackbox-exporter` | 11.18.0 | — | — | — |
-| `cert-manager` | `cert-manager` | v1.20.3 | — | cert-manager | — |
+| `cert-manager` | `cert-manager` | v1.21.3 | — | cert-manager | — |
 | `cert-manager-cluster-issuer` | `charts/cert-manager-cluster-issuer` | git | — | — | — |
 | `cert-manager-config` | `charts/cert-manager-config` | git | — | — | — |
 | `cilium` | `cilium` | 1.19.5 | — | cilium-netpol | — |

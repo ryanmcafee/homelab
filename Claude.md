@@ -176,7 +176,7 @@ charts:
   # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
   cilium: "1.19.5"
   # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
-  cert-manager: "v1.20.3"
+  cert-manager: "v1.21.3"
   # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
   external-dns: "1.21.1"
   # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
