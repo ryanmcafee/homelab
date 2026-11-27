@@ -22,6 +22,8 @@ on:
 permissions:
   contents: read
   security-events: write
+  # The fail-fast step cancels this PR's other CI runs once a job fails.
+  actions: write
 
 jobs:
   trivy-scan:
@@ -44,6 +46,11 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+
   checkov-scan:
     runs-on: ubuntu-latest
     steps:
@@ -60,6 +67,11 @@ jobs:
           checkov -d terragrunt/ --framework terraform --quiet --compact
         continue-on-error: true  # Don't fail build on Checkov findings
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+
   secret-scan:
     runs-on: ubuntu-latest
     steps:
@@ -72,3 +84,8 @@ jobs:
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure

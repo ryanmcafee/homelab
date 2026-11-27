@@ -95,6 +95,8 @@ jobs:
       pull-requests: write
       # upgrade/automerge-gate on renovate/* head commits.
       statuses: write
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
     steps:
       # Full history: verify upgrade checks the base branch out into a
       # temporary git worktree.
@@ -345,6 +347,13 @@ jobs:
           fi
           [ "$ok" = true ]
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: true
+
   renovate-regime:
     name: Deployed Renovate still matches the committer regime
     # renovate/* heads only: this reads the deployed version out of Renovate's
@@ -356,6 +365,8 @@ jobs:
       contents: read
       # gh pr list over the open renovate/* PRs, to read their debug blobs.
       pull-requests: read
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -382,6 +393,13 @@ jobs:
           GITHUB_EXPECTED_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: task renovate:deployed-major
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: true
+
   regenerate:
     name: Regenerate snapshots, schemas and localdev values (Renovate)
     if: >-
@@ -389,9 +407,11 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # GITHUB_TOKEN stays read-only; the push uses the App token.
+    # GITHUB_TOKEN stays read-only on contents; the push uses the App token.
     permissions:
       contents: read
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
     steps:
       # Secrets cannot appear in a job-level `if`, so presence is checked here.
       - name: Check for the regeneration bot credentials
@@ -519,3 +539,10 @@ jobs:
             exit 1
           fi
           git log -1 --stat --format='%H %an <%ae>%n%s'
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: true

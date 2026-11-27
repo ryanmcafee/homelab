@@ -75,6 +75,8 @@ concurrency:
 
 permissions:
   contents: read
+  # The fail-fast step cancels this PR's other CI runs once a job fails.
+  actions: write
 
 # Tools come from mise.toml through jdx/mise-action (same pins as verify.yml
 # and a workstation).
@@ -138,6 +140,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
     env:
       # The revision scripts/localdev-argocd.ts install gives the root
       # Application: the PR head for same-repository PRs, the pushed commit on
@@ -351,6 +355,13 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}
+
   # The optional sticky comment needs write access, so it runs separately
   # after the cluster job. This job never checks out or executes PR code.
   kind-report-comment:
@@ -447,6 +458,13 @@ jobs:
           kubectl --context "$KIND_CONTEXT" wait --for=condition=available --timeout=120s deployment/cert-manager -n cert-manager
           kubectl --context "$KIND_CONTEXT" get pods -n cert-manager
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}
+
   # ============================================================================
   # YAML lint (non-template files; .yamllint ignores charts/*/templates)
   # ============================================================================
@@ -464,3 +482,10 @@ jobs:
 
       - name: yamllint
         run: yamllint -c .yamllint charts/ localdev/ tests/e2e tests/health
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}

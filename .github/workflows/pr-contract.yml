@@ -27,6 +27,8 @@ concurrency:
 
 permissions:
   contents: read
+  # The fail-fast step cancels this PR's other CI runs once a job fails.
+  actions: write
 
 # Tools come from mise.toml through jdx/mise-action (same pins as verify.yml's
 # level-0 job); mise.toml `helm` must match configuration/versions.yaml
@@ -96,3 +98,10 @@ jobs:
           path: verify-level0.json
           retention-days: 14
           if-no-files-found: ignore
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+        with:
+          keep-own-run: ${{ !startsWith(github.head_ref, 'renovate/') }}

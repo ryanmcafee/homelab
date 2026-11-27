@@ -37,6 +37,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -94,8 +96,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
+
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The fail-fast step cancels this PR's other CI runs once a job fails.
+      actions: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -106,3 +117,8 @@ jobs:
 
       - name: Run config tests
         run: go test ./internal/config/... -v
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure

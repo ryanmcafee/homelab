@@ -31,6 +31,8 @@ on:
 
 permissions:
   contents: read
+  # The fail-fast step cancels this PR's other CI runs once a job fails.
+  actions: write
   # NOTE: using the oauth-secret auth method (Assumption A1, simpler than
   # federated OIDC). Switching to federated audience/OIDC auth would require
   # adding `id-token: write` here.
@@ -72,6 +74,11 @@ jobs:
           tailnet: ${{ secrets.TS_TAILNET }}
           action: test
           # policy-file defaults to ./policy.hujson (decrypted above).
+
+      - name: Cancel the other CI runs for this PR head
+        if: failure() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/cancel-pr-ci-on-failure
 
   apply:
     # Apply runs only on push to main, gated behind the production environment
