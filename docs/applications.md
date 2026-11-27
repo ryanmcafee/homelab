@@ -114,15 +114,15 @@ from the same chart (`namespaces.yaml`, `oci-repositories.yaml`).
 | --- | --- | --- | --- | --- | --- |
 | `duckdns` | `charts/duckdns` | git | — | — | — |
 | `duckdns-dependencies` | `charts/duckdns-dependencies` | git | — | — | — |
-| `flaresolverr` | `flaresolverr` | 16.18.2 | — | flaresolverr | smoke-flaresolverr |
+| `flaresolverr` | `flaresolverr` | 17.1.0 | — | flaresolverr | smoke-flaresolverr |
 | `flaresolverr-config` | `charts/flaresolverr-config` | git | — | — | — |
-| `lazylibrarian` | `lazylibrarian` | 21.18.2 | envoy-internal: lazylibrarian | lazylibrarian | smoke-lazylibrarian |
+| `lazylibrarian` | `lazylibrarian` | 22.1.0 | envoy-internal: lazylibrarian | lazylibrarian | smoke-lazylibrarian |
 | `lazylibrarian-config` | `charts/lazylibrarian-config` | git | — | — | — |
 | `litellm` | `litellm` | 1.111.0 | — | litellm | smoke-litellm |
 | `litellm-config` | `charts/litellm-config` | git | envoy-internal: litellm | — | — |
 | `litellm-database` | `charts/litellm-database` | git | — | — | — |
 | `litellm-dependencies` | `charts/litellm-dependencies` | git | — | — | — |
-| `mosquitto` | `mosquitto` | 17.17.2 | — | mosquitto | — |
+| `mosquitto` | `mosquitto` | 18.1.0 | — | mosquitto | — |
 | `mosquitto-config` | `charts/mosquitto-config` | git | — | — | — |
 | `nzbget` | `nzbget` | 30.1.1 | envoy-internal: nzbget | nzbget | smoke-nzbget |
 | `nzbget-config` | `charts/nzbget-config` | git | — | — | — |
@@ -132,15 +132,15 @@ from the same chart (`namespaces.yaml`, `oci-repositories.yaml`).
 | `paperclip-operator` | `paperclip-operator` | 0.19.1 | — | — | — |
 | `plex` | `plex-media-server` | 1.9.0 | envoy-external: plex | plex | smoke-plex |
 | `plex-config` | `charts/plex-config` | git | — | — | — |
-| `prowlarr` | `prowlarr` | 21.7.3 | envoy-internal: prowlarr | prowlarr | smoke-prowlarr |
+| `prowlarr` | `prowlarr` | 22.1.0 | envoy-internal: prowlarr | prowlarr | smoke-prowlarr |
 | `prowlarr-config` | `charts/prowlarr-config` | git | — | — | — |
-| `radarr` | `radarr` | 26.7.2 | envoy-internal: radarr | radarr | smoke-radarr |
+| `radarr` | `radarr` | 27.1.0 | envoy-internal: radarr | radarr | smoke-radarr |
 | `radarr-config` | `charts/radarr-config` | git | — | — | — |
 | `renovate` | `renovate` | 47.1.2 | — | — | — |
 | `renovate-config` | `charts/renovate-config` | git | — | — | — |
-| `sonarr` | `sonarr` | 25.6.3 | envoy-internal: sonarr | sonarr | smoke-sonarr |
+| `sonarr` | `sonarr` | 26.1.0 | envoy-internal: sonarr | sonarr | smoke-sonarr |
 | `sonarr-config` | `charts/sonarr-config` | git | — | — | — |
-| `tautulli` | `tautulli` | 21.18.2 | envoy-internal: tautulli | tautulli | smoke-tautulli |
+| `tautulli` | `tautulli` | 22.2.0 | envoy-internal: tautulli | tautulli | smoke-tautulli |
 | `tautulli-config` | `charts/tautulli-config` | git | — | — | — |
 <!-- docs-check:end applications-table -->
 

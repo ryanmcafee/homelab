@@ -430,7 +430,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: flaresolverr
-    targetRevision: 16.18.2
+    targetRevision: 17.1.0
     helm:
       releaseName: flaresolverr
       values: |
@@ -512,7 +512,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: lazylibrarian
-    targetRevision: 21.18.2
+    targetRevision: 22.1.0
     helm:
       releaseName: lazylibrarian
       values: |
@@ -729,7 +729,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: prowlarr
-    targetRevision: 21.7.3
+    targetRevision: 22.1.0
     helm:
       releaseName: prowlarr
       values: |
@@ -826,7 +826,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: radarr
-    targetRevision: 26.7.2
+    targetRevision: 27.1.0
     helm:
       releaseName: radarr
       values: |
@@ -931,7 +931,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: sonarr
-    targetRevision: 25.6.3
+    targetRevision: 26.1.0
     helm:
       releaseName: sonarr
       values: |
@@ -1036,7 +1036,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: tautulli
-    targetRevision: 21.18.2
+    targetRevision: 22.2.0
     helm:
       releaseName: tautulli
       values: |
