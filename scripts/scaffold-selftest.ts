@@ -44,6 +44,7 @@ import { copyFile, lstat, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isNotFound } from "./lib/errors.ts";
+import { parse } from "./lib/yaml.ts";
 
 // ============================================================================
 // Logging
@@ -94,6 +95,26 @@ const OPERATOR: ScaffoldApp = {
   ],
 };
 
+/** The version configuration/versions.yaml pins for chart, so the schema render can pull it. */
+export function pinnedChartVersion(
+  versionsYaml: string,
+  chart: string,
+): string {
+  const doc = parse(versionsYaml);
+  const charts =
+    typeof doc === "object" && doc !== null && "charts" in doc
+      ? doc.charts
+      : undefined;
+  const version =
+    typeof charts === "object" && charts !== null && chart in charts
+      ? Reflect.get(charts, chart)
+      : undefined;
+  if (typeof version !== "string" || version === "") {
+    throw new Error(`configuration/versions.yaml pins no charts.${chart}`);
+  }
+  return version;
+}
+
 const HELM_TRUECHARTS: ScaffoldApp = {
   name: "selftest-web",
   args: [
@@ -101,8 +122,15 @@ const HELM_TRUECHARTS: ScaffoldApp = {
     "helm",
     "--chart-repo",
     "oci://oci.trueforge.org/truecharts",
+    "--chart-name",
+    "flaresolverr",
     "--chart-version",
-    "1.0.0",
+    pinnedChartVersion(
+      await Bun.file(
+        join(import.meta.dir, "..", "configuration", "versions.yaml"),
+      ).text(),
+      "flaresolverr",
+    ),
     "--port",
     "8080",
     "--health-path",

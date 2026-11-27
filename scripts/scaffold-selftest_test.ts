@@ -17,6 +17,7 @@ import {
 } from "./lib/assert.ts";
 import {
   casePassed,
+  pinnedChartVersion,
   type CaseResult,
   CASES,
   changedPaths,
@@ -275,4 +276,19 @@ test("renderSummary names verdicts, causes and pre-existing failures", () => {
   assertStringIncludes(out, "[app-ssa] x");
   assertStringIncludes(out, "pre-existing (ignored) snapshot/homelab/gitops");
   assertStringIncludes(out, "1 of 2 case(s) failed: helm");
+});
+
+test("pinnedChartVersion reads the chart pin from versions.yaml", () => {
+  assertEquals(
+    pinnedChartVersion(`charts:\n  flaresolverr: "16.18.2"\n`, "flaresolverr"),
+    "16.18.2",
+  );
+});
+
+test("pinnedChartVersion rejects a missing pin", () => {
+  assertThrows(
+    () => pinnedChartVersion('charts:\n  sonarr: "1.0.0"\n', "flaresolverr"),
+    Error,
+    "charts.flaresolverr",
+  );
 });
