@@ -2499,6 +2499,8 @@ spec:
           key: CLAUDE_CODE_OAUTH_TOKEN
           name: paperclip-api-keys
           optional: true
+    - name: NODE_OPTIONS
+      value: --max-old-space-size=12288
   podAnnotations:
     checksum/config-scrub: 4b9ca7151f14a197c74fc87f0bbc847f6b08d09110dc06a773a407dd7271071b
     checksum/disk-guard: ea8a5773d73b0b4ca41658b87d9bc54cda85f8863aea49d4a8a6791eb3c6f514

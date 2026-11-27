@@ -27,6 +27,9 @@ spec:
   {{- end }}
   {{- end }}
   {{- $env := concat $secretEnv (.Values.extraEnv | default list) }}
+  {{- with include "paperclip.nodeHeapEnv" . }}
+  {{- $env = append $env (fromJson .) }}
+  {{- end }}
   {{- if .Values.dotfiles.enabled }}
   {{- $env = append $env (dict "name" "PATH" "value" (printf "%s/.local/bin:%s" .Values.dotfiles.home .Values.dotfiles.basePath)) }}
   {{- end }}
