@@ -290,6 +290,61 @@
       allowedVersions: '<0.7.0',
     },
     {
+      // TrueCharts releases from these versions on require Kubernetes 1.33+ (Chart.yaml kubeVersion); lift once the cluster runs it.
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/flaresolverr',
+      ],
+      allowedVersions: '<17.1.1',
+    },
+    {
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/home-assistant',
+      ],
+      allowedVersions: '<30.2.2',
+    },
+    {
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/lazylibrarian',
+      ],
+      allowedVersions: '<22.1.1',
+    },
+    {
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/mosquitto',
+      ],
+      allowedVersions: '<18.1.1',
+    },
+    {
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/nzbget',
+      ],
+      allowedVersions: '<30.2.1',
+    },
+    {
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/prowlarr',
+      ],
+      allowedVersions: '<22.1.1',
+    },
+    {
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/radarr',
+      ],
+      allowedVersions: '<27.2.1',
+    },
+    {
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/sonarr',
+      ],
+      allowedVersions: '<26.1.1',
+    },
+    {
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/tautulli',
+      ],
+      allowedVersions: '<22.2.1',
+    },
+    {
       // Generated from configuration/versions.yaml; upgrade.yml regenerates and reverts any direct bump.
       matchFileNames: [
         'charts/addons/values-localdev.yaml',
