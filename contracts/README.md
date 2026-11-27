@@ -28,10 +28,10 @@ is its frozen artifact.
 
 The **structural leg** applies to **every** directory here, that one included. It reads
 any contract document — bespoke YAML, JSON Schema, OpenAPI — as a tree of fields and rejects the
-differences that break a consumer whatever the document means. It is why `cluster/`, `status/` and `observability/`
-no longer sit outside the gate and why a directory added next cannot: a contract directory with no
-`shape.baseline.json`, or a document that baseline does not pin, is itself a violation, so the scope
-extends by failing rather than by someone remembering to widen a constant.
+differences that break a consumer whatever the document means. It is why `cluster/`, `status/` and
+`observability/` no longer sit outside the gate and why a directory added next cannot: a contract
+directory with no `shape.baseline.json`, or a document that baseline does not pin, is itself a
+violation, so the scope extends by failing rather than by someone remembering to widen a constant.
 
 | Rule | Fires when |
 |---|---|
@@ -82,8 +82,8 @@ deliberate. These are the named residual of MCAA-431; the follow-up is a per-con
 holds both inverted shapes for `cluster/` in the meantime.
 
 An internal-consistency test and the compatibility gate check different properties, and every
-contract here needs both. `cluster/topology.v1.yaml` is checked by `scripts/topology-contract_test.ts` (runs in
-`task test:scripts`), which asserts the contract is internally consistent — the worked quorum
+contract here needs both. `cluster/topology.v1.yaml` is checked by
+`scripts/topology-contract_test.ts` (runs in `task test:scripts`), which asserts the contract is internally consistent — the worked quorum
 table matches the stated formula, every permitted topology has a row, every condition is reached
 by a predicate, `survivable` relaxes `whole` in exactly one way, every run shape enters at exactly
 one entry point and ends whole, that the two senses of a missing member are defined once and each

@@ -153,6 +153,21 @@
           "kind": "string",
           "value": "\"expectation-compared-against-observed\""
         },
+        "health.vocabulary": {
+          "kind": "object"
+        },
+        "health.vocabulary.absent": {
+          "kind": "string",
+          "value": "\"A member OF etcd's own membership that did not answer. It is still in the member list, so it is an expected member, it counts toward quorum arithmetic, and `absences-are-declared` can see it.\""
+        },
+        "health.vocabulary.unrepresented": {
+          "kind": "string",
+          "value": "\"A configured control-plane address with NO member in etcd's membership at all. It is NOT an expected member, so it is invisible to every condition scoped to the member list, including `absences-are-declared`. Only a condition that compares membership size against the derived count can see it: `membership-accounts-for-expected` at the resume entry, `member-count` at preflight and completion.\""
+        },
+        "health.vocabulary.whyItMatters": {
+          "kind": "string",
+          "value": "\"A removal makes its target unrepresented, which is why the resumed shape cannot require `member-count`. Under the earlier sequential reading `whole` ran first and caught a second unrepresented address by accident; exclusive entry removed that backstop from the resumed shape, so the resumed shape names its own condition rather than relying on a gate it no longer passes through (MCAA-407).\""
+        },
         "health.conditions": {
           "kind": "list"
         },
@@ -187,7 +202,18 @@
         },
         "health.conditions.absences-are-declared.rule": {
           "kind": "string",
-          "value": "\"Every expected member that did not answer is a declared target of the operation in progress. An unexplained absence is a second failure the operator did not ask for, and is never tolerated by any predicate — one target absent is a procedure in flight, one target plus one stranger is a degraded cluster.\""
+          "value": "\"Every expected member that is absent (vocabulary.absent — in the member list and did not answer) is a declared target of the operation in progress. An unexplained absence is a second failure the operator did not ask for, and is never tolerated by any predicate — one target absent is a procedure in flight, one target plus one stranger is a degraded cluster. This condition is scoped to the member list, so it says nothing about an unrepresented address; that is `membership-accounts-for-expected`.\""
+        },
+        "health.conditions.membership-accounts-for-expected": {
+          "kind": "object"
+        },
+        "health.conditions.membership-accounts-for-expected.id": {
+          "kind": "string",
+          "value": "\"membership-accounts-for-expected\""
+        },
+        "health.conditions.membership-accounts-for-expected.rule": {
+          "kind": "string",
+          "value": "\"The number of members in etcd's own membership, plus the number of control-plane addresses that are unrepresented -- every unrepresented address, not only the ones this operation declared -- equals the count derived from the control-plane address keys, and every unrepresented address is a declared target of this operation. Two clauses, because the condition refuses on two different observations and owes a different message for each. Stated as one clause over the declared targets alone it fails open: a stranger member, one etcd reports at an address the ConfigSet does not list, cancels an undeclared unrepresented address in the arithmetic and the sum comes out right on a cluster carrying both faults at once -- reproduced at counts 5 and 7 (MCAA-483). The first clause is what sees the stranger; the second is what bounds the relaxation to the target. This is the only condition that can see an unrepresented address on a run that does not evaluate `member-count`: \\\"expected member\\\" means a member of the membership, so an address already removed from it is not an absence `absences-are-declared` can detect. On the fresh shape both clauses are implied by `member-count`, which demands the membership be complete; the resumed shape cannot demand that and needs this instead.\""
         },
         "health.conditions.no-errors": {
           "kind": "object"
@@ -278,7 +304,7 @@
         },
         "health.predicates.survivable.summary": {
           "kind": "string",
-          "value": "\"Quorum holds, every member that answered is converged, and the only members absent are the ones this operation declared it would take away.\""
+          "value": "\"Quorum holds, every member that answered is converged, and the only members absent or unrepresented are the ones this operation declared it would take away.\""
         },
         "health.predicates.survivable.evaluatedOver": {
           "kind": "string",
@@ -288,6 +314,7 @@
           "kind": "list",
           "members": [
             "\"absences-are-declared\"",
+            "\"membership-accounts-for-expected\"",
             "\"no-errors\"",
             "\"no-learners\"",
             "\"quorum-present\"",
@@ -297,11 +324,11 @@
         },
         "health.predicates.survivable.rule": {
           "kind": "string",
-          "value": "\"The gate at the revalidation point and on resume, where the target is already gone or about to be. It is strictly weaker than `whole` in exactly one way — it tolerates the declared target's absence — and no weaker in any other: an absent member that is not a declared target, or more absences than maxUnavailable, is unsafe, and every member that did answer must satisfy every other condition.\""
+          "value": "\"The gate at the revalidation point and on resume, where the target is already gone or about to be. It is weaker than `whole` in exactly one way — it tolerates the declared target being absent or unrepresented — and no weaker in any other: an absent member that is not a declared target, more absences than maxUnavailable, or a control-plane address unrepresented that nobody declared, is unsafe, and every member that did answer must satisfy every other condition. `membership-accounts-for-expected` is what bounds the relaxation to the declared target rather than to any address the membership happens not to list.\""
         },
         "health.predicates.survivable.resumeSemantics": {
           "kind": "string",
-          "value": "\"This is what makes the idempotent re-run decidable. After a crash between \\\"member removed\\\" and \\\"node rejoined\\\", the target is absent and declared, so `survivable` holds and the run resumes at the next step. If some other member is also absent, `survivable` fails and the run refuses — which is correct, because that cluster has a failure the operator has not seen yet. A guard an operator must bypass to finish a legitimate recovery is not a guard.\""
+          "value": "\"This is what makes the idempotent re-run decidable. After a crash between \\\"member removed\\\" and \\\"node rejoined\\\", the target is unrepresented and declared, so `survivable` holds and the run resumes at the next step. If some other member is absent, or some other configured address is unrepresented, `survivable` fails and the run refuses — which is correct, because that cluster has a failure the operator has not seen yet. A guard an operator must bypass to finish a legitimate recovery is not a guard; a guard that consents because the second fault happens to be in the sense it cannot see is not one either.\""
         },
         "evaluation": {
           "kind": "object"
@@ -345,9 +372,13 @@
           "kind": "string",
           "value": "\"whole\""
         },
+        "evaluation.points.preflight.kind": {
+          "kind": "string",
+          "value": "\"entry\""
+        },
         "evaluation.points.preflight.rule": {
           "kind": "string",
-          "value": "\"Before anything is drained, tainted, removed or destroyed.\""
+          "value": "\"Before anything is drained, tainted, removed or destroyed, on a run whose declared target is still a member. Entered INSTEAD OF `resume`, never before it.\""
         },
         "evaluation.points.before-destructive-step": {
           "kind": "object"
@@ -359,6 +390,10 @@
         "evaluation.points.before-destructive-step.predicate": {
           "kind": "string",
           "value": "\"survivable\""
+        },
+        "evaluation.points.before-destructive-step.kind": {
+          "kind": "string",
+          "value": "\"in-run\""
         },
         "evaluation.points.before-destructive-step.rule": {
           "kind": "string",
@@ -375,9 +410,13 @@
           "kind": "string",
           "value": "\"survivable\""
         },
+        "evaluation.points.resume.kind": {
+          "kind": "string",
+          "value": "\"entry\""
+        },
         "evaluation.points.resume.rule": {
           "kind": "string",
-          "value": "\"On a re-run that finds the declared target already absent from the member list. The run skips the removal and continues; it never removes a second member.\""
+          "value": "\"On a re-run that finds the declared target already unrepresented — no member for it in etcd's membership at all (health.vocabulary.unrepresented). Entered INSTEAD OF `preflight`: the cluster is short a member at this point by construction, so `whole` is unsatisfiable and evaluating it here would refuse every legitimate recovery. The run skips the removal and continues; it never removes a second member.\""
         },
         "evaluation.points.completion": {
           "kind": "object"
@@ -390,9 +429,80 @@
           "kind": "string",
           "value": "\"whole\""
         },
+        "evaluation.points.completion.kind": {
+          "kind": "string",
+          "value": "\"in-run\""
+        },
         "evaluation.points.completion.rule": {
           "kind": "string",
-          "value": "\"After the replacement rejoins. Success means the cluster is whole again, not that a kubelet reported Ready.\""
+          "value": "\"After the replacement rejoins. Success means the cluster is whole again, not that a kubelet reported Ready. Reached by both run shapes.\""
+        },
+        "evaluation.entry": {
+          "kind": "string",
+          "value": "\"exclusive\""
+        },
+        "evaluation.entryPoints": {
+          "kind": "list",
+          "members": [
+            "\"preflight\"",
+            "\"resume\""
+          ]
+        },
+        "evaluation.entrySelector": {
+          "kind": "string",
+          "value": "\"declared-target-present-in-observed-membership\""
+        },
+        "evaluation.entrySelectorIsObserved": {
+          "kind": "boolean",
+          "value": "true"
+        },
+        "evaluation.deadDeclaredTarget": {
+          "kind": "string",
+          "value": "\"refuse\""
+        },
+        "evaluation.deadDeclaredTargetGuidance": {
+          "kind": "string",
+          "value": "\"The node to be recreated is still an etcd member but is not answering, so the cluster is not whole and this fresh run refuses. Remove the dead member first (`talosctl -n <surviving-cp> etcd remove-member <id>`), which leaves the target unrepresented, then re-run: the guard enters at `resume` and finishes the recreate without removing a second member. See docs/runbooks/talos-upgrade.md.\""
+        },
+        "evaluation.runShapes": {
+          "kind": "list"
+        },
+        "evaluation.runShapes.fresh": {
+          "kind": "object"
+        },
+        "evaluation.runShapes.fresh.id": {
+          "kind": "string",
+          "value": "\"fresh\""
+        },
+        "evaluation.runShapes.fresh.when": {
+          "kind": "string",
+          "value": "\"The declared target is still a member of etcd's own membership.\""
+        },
+        "evaluation.runShapes.fresh.sequence": {
+          "kind": "list",
+          "members": [
+            "\"before-destructive-step\"",
+            "\"completion\"",
+            "\"preflight\""
+          ]
+        },
+        "evaluation.runShapes.resumed": {
+          "kind": "object"
+        },
+        "evaluation.runShapes.resumed.id": {
+          "kind": "string",
+          "value": "\"resumed\""
+        },
+        "evaluation.runShapes.resumed.when": {
+          "kind": "string",
+          "value": "\"The declared target is already unrepresented in etcd's own membership.\""
+        },
+        "evaluation.runShapes.resumed.sequence": {
+          "kind": "list",
+          "members": [
+            "\"completion\"",
+            "\"resume\""
+          ]
         },
         "consumers": {
           "kind": "list"
@@ -410,11 +520,15 @@
         },
         "consumers.homelab-cli.path": {
           "kind": "string",
-          "value": "\"cmd/homelab/commands/talos.go\""
+          "value": "\"cmd/homelab/commands/talos_etcd.go\""
         },
         "consumers.homelab-cli.role": {
           "kind": "string",
           "value": "\"Control-plane node recreate guard (#39).\""
+        },
+        "consumers.homelab-cli.conformant": {
+          "kind": "string",
+          "value": "\"full\""
         },
         "consumers.cp-storage-migrate": {
           "kind": "object"
@@ -434,6 +548,10 @@
         "consumers.cp-storage-migrate.role": {
           "kind": "string",
           "value": "\"Control-plane storage migration pre/post-flight.\""
+        },
+        "consumers.cp-storage-migrate.conformant": {
+          "kind": "string",
+          "value": "\"count-key-pattern-only\""
         }
       }
     }
