@@ -1,5 +1,4 @@
-# Cold bootstrap gate. Run via task toolchain:check; never reuse build caches.
-# No language runtime, Docker socket, credentials or host tool cache is mounted.
+# Cold bootstrap gate for task toolchain:check; build without caches.
 FROM ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -15,11 +14,8 @@ RUN curl -fLsS https://github.com/jdx/mise/releases/download/v2026.9.13/mise-v20
     chmod +x /usr/local/bin/mise
 
 WORKDIR /repo
-# CI and the trusted local wrapper supply only committed files via git archive.
 COPY . .
-# Fail fast, fail loud: exercise the real pipx backend without its declared
-# runtimes before the good install can populate any tool cache. Only the copy
-# is damaged; an isolated HOME keeps fixture state out of the positive gate.
+# Negative fixture: a pipx install without its declared runtimes must fail loudly.
 RUN set -eu; fixture="$(mktemp -d)"; \
     mkdir -p "$fixture/home"; \
     sed -E '/^(python|pipx|node)[[:space:]]*=/d' mise.toml > "$fixture/mise.toml"; \
@@ -41,8 +37,7 @@ RUN mise exec -- task install-tools && \
 RUN mise exec -- task toolchain:policy
 RUN mise exec -- go test ./cmd/homelab/commands -run 'TestInstallTools|TestBootstrap'
 
-# With no Docker daemon, setup must reach tier detection and give its documented
-# prerequisite fix. Full Kind deployment is covered by the existing Kind CI.
+# Without Docker, setup must stop at the missing-Docker prerequisite check.
 RUN set +e; mise exec -- task setup -- --yes --environment localdev > /setup.log 2>&1; \
     result=$?; set -e; cat /setup.log; \
     test "$result" -ne 0 && \

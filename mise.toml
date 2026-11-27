@@ -3,8 +3,7 @@
 # See: https://mise.jdx.dev/
 
 [tools]
-# Backend runtimes must be declared: fresh machines have no Python/pipx or
-# Node/npm for the pipx:* and npm:* tools below. Keep exact versions in CI too.
+# Runtimes for the pipx:* and npm:* tools below.
 python = "3.13.15"
 pipx = "1.17.6"
 node = "24.21.0"

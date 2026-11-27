@@ -63,7 +63,7 @@ function checksOutWorkspaceRoot(step: Dict): boolean {
   );
 }
 
-/** Cold draws report a verdict, not a PR check; the toolchain boundary allows only contents: read. */
+/** Label-triggered cold draws report a measured verdict, not a PR check, so they never cancel PR CI. */
 export const EXEMPT_JOBS: Readonly<Record<string, readonly string[]>> = {
   "kind-cold-draw.yml": ["resolve", "draw"],
   "toolchain-bootstrap.yml": ["cold-install"],

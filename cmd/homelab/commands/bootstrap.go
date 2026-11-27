@@ -211,8 +211,6 @@ func installTools() error {
 	if err != nil || !result.Success {
 		logger.Error("mise installation failed")
 		logger.Info("Run 'mise doctor' for diagnostics")
-		// ExecCommand captures stderr; include it in the returned error so the
-		// CLI prints mise's tool name and root cause instead of losing them.
 		if err != nil {
 			return fmt.Errorf("mise install failed: %w\n%s", err, strings.TrimSpace(result.Stderr))
 		}
