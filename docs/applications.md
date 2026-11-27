@@ -67,7 +67,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `istio-config` | `charts/istio-config` | git | envoy-internal: servicemesh | — | — |
 | `istio-gateways` | `charts/istio-gateways` | git | — | istio-gateways | — |
 | `istiod` | `istiod` | 1.32.0 | — | — | — |
-| `kiali` | `kiali-server` | 2.32.0 | — | — | smoke-kiali |
+| `kiali` | `kiali-server` | 2.35.0 | — | — | smoke-kiali |
 | `kube-prometheus-stack` | `kube-prometheus-stack` | 87.1.0 | envoy-internal: alertmanager, grafana | grafana | smoke-grafana, smoke-prometheus |
 | `kubelet-csr-approver` | `kubelet-csr-approver` | 1.2.16 | — | — | — |
 | `metrics-server` | `metrics-server` | 3.14.0 | — | — | — |
