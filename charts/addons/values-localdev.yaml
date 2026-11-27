@@ -1563,7 +1563,7 @@ istio:
     chart:
       name: kiali-server
       repo: https://kiali.org/helm-charts
-      version: "2.32.0"
+      version: "2.35.0"
     hostname: servicemesh.homelab.local
     prometheusUrl: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
     grafana:
