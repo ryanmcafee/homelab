@@ -1153,7 +1153,7 @@ spec:
   source:
     repoURL: ghcr.io/berriai/litellm/chart
     chart: litellm
-    targetRevision: "1.102.1"
+    targetRevision: "1.111.0"
     helm:
       releaseName: litellm
       values: |
