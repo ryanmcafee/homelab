@@ -526,6 +526,13 @@
           "kind": "string",
           "value": "\"Control-plane node recreate guard (#39).\""
         },
+        "consumers.homelab-cli.runShapes": {
+          "kind": "list",
+          "members": [
+            "\"fresh\"",
+            "\"resumed\""
+          ]
+        },
         "consumers.homelab-cli.conformant": {
           "kind": "string",
           "value": "\"full\""
@@ -549,9 +556,15 @@
           "kind": "string",
           "value": "\"Control-plane storage migration pre/post-flight.\""
         },
+        "consumers.cp-storage-migrate.runShapes": {
+          "kind": "list",
+          "members": [
+            "\"fresh\""
+          ]
+        },
         "consumers.cp-storage-migrate.conformant": {
           "kind": "string",
-          "value": "\"count-key-pattern-only\""
+          "value": "\"full\""
         }
       }
     }
