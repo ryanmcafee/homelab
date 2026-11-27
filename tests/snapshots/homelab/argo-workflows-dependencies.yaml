@@ -67,7 +67,7 @@ spec:
       initContainers:
         # POSIX backend: every top-level directory is a bucket.
         - name: bucket
-          image: versity/versitygw:v1.8.0
+          image: versity/versitygw:v1.11.0
           command: ["/bin/sh", "-c", "mkdir -p /data/argo-workflows-logs"]
           resources:
             limits:
@@ -87,7 +87,7 @@ spec:
               mountPath: /data
       containers:
         - name: versitygw
-          image: versity/versitygw:v1.8.0
+          image: versity/versitygw:v1.11.0
           args: ["--port", ":7070", "--health", "/health", "posix", "/data"]
           env:
             - name: ROOT_ACCESS_KEY_ID
@@ -133,7 +133,7 @@ spec:
               mountPath: /tmp
         # Hourly: delete log objects older than retentionDays, then empty directories.
         - name: retention
-          image: versity/versitygw:v1.8.0
+          image: versity/versitygw:v1.11.0
           command:
             - /bin/sh
             - -c

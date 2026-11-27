@@ -1269,7 +1269,7 @@ argo-workflows:
     store:
       name: argo-workflows-logs
       bucket: argo-workflows-logs
-      image: "versity/versitygw:v1.8.0"
+      image: "versity/versitygw:v1.11.0"
       # Block storage: the POSIX backend keeps object metadata in xattrs.
       storageClass: local-path
       storageSize: 20Gi
