@@ -174,7 +174,7 @@ charts:
   # renovate: datasource=helm depName=argo-cd registryUrl=https://argoproj.github.io/argo-helm
   argocd: "9.7.1"
   # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
-  cilium: "1.19.5"
+  cilium: "1.20.5"
   # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
   cert-manager: "v1.20.3"
   # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/

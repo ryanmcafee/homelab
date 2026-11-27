@@ -39,7 +39,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `cert-manager` | `cert-manager` | v1.20.3 | — | cert-manager | — |
 | `cert-manager-cluster-issuer` | `charts/cert-manager-cluster-issuer` | git | — | — | — |
 | `cert-manager-config` | `charts/cert-manager-config` | git | — | — | — |
-| `cilium` | `cilium` | 1.19.5 | — | cilium-netpol | — |
+| `cilium` | `cilium` | 1.20.5 | — | cilium-netpol | — |
 | `cilium-config` | `charts/cilium-config` | git | envoy-internal: hubble | — | — |
 | `clickhouse` | `charts/clickhouse` | git | — | — | smoke-clickhouse |
 | `clickhouse-dependencies` | `charts/clickhouse-dependencies` | git | — | — | — |
