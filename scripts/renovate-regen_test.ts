@@ -591,7 +591,11 @@ test("configuredRenovateMajor defaults to the measured 44 regime and honours REN
   assertEquals(CONFIGURED_RENOVATE_MAJOR, 44);
   assertEquals(configuredRenovateMajor(undefined), 44);
   assertEquals(configuredRenovateMajor(""), 44);
-  assertEquals(configuredRenovateMajor("not-a-number"), 44);
+  assertThrows(
+    () => configuredRenovateMajor("not-a-number"),
+    Error,
+    "RENOVATE_MAJOR",
+  );
   assertEquals(configuredRenovateMajor("43"), 43);
   assertEquals(configuredRenovateMajor("45"), 45);
   assertEquals(committerIsRead(configuredRenovateMajor(undefined)), true);
@@ -645,7 +649,7 @@ test("an unmeasured deployment rejects a mismatched committer", () => {
 
 test("resolveCommitterRegime reports what it measured, not what it enforces", () => {
   assertEquals(resolveCommitterRegime([], {}), {
-    committerIsRead: false,
+    committerIsRead: true,
     measuredMajor: null,
   });
   assertEquals(resolveCommitterRegime([], { RENOVATE_MAJOR: "43" }), {
@@ -662,7 +666,7 @@ test("resolveCommitterRegime reports what it measured, not what it enforces", ()
     "--committer-strict enforces the regime without measuring it",
   );
   assertEquals(resolveCommitterRegime([], { RENOVATE_MAJOR: "" }), {
-    committerIsRead: false,
+    committerIsRead: true,
     measuredMajor: null,
   });
 });

@@ -419,12 +419,6 @@ export const COMMITTER_READ_FROM_MAJOR = 44;
 /** Renovate major this repository enforces; `task renovate:deployed-major` read 44.263.5 on 2026-11-27. */
 export const CONFIGURED_RENOVATE_MAJOR = 44;
 
-/** `RENOVATE_MAJOR` when it parses as a major, otherwise {@link CONFIGURED_RENOVATE_MAJOR}. */
-export function configuredRenovateMajor(raw: string | undefined): number {
-  const pinned = Number.parseInt(raw ?? "", 10);
-  return Number.isNaN(pinned) ? CONFIGURED_RENOVATE_MAJOR : pinned;
-}
-
 /** Whether a Renovate of the given major reads `%ce` as well as `%ae`. */
 export function committerIsRead(
   renovateMajor: number | null | undefined,
@@ -456,6 +450,11 @@ export function parseRenovateMajor(value: string | undefined): number | null {
   return major;
 }
 
+/** `RENOVATE_MAJOR` when set, otherwise {@link CONFIGURED_RENOVATE_MAJOR}; a malformed pin throws. */
+export function configuredRenovateMajor(raw: string | undefined): number {
+  return parseRenovateMajor(raw) ?? CONFIGURED_RENOVATE_MAJOR;
+}
+
 /**
  * Resolve the regime the run will report under. `--committer-strict` enforces
  * the 44 behaviour without claiming to have measured it, so it leaves
@@ -468,7 +467,8 @@ export function resolveCommitterRegime(
   const measuredMajor = parseRenovateMajor(env.RENOVATE_MAJOR);
   return {
     committerIsRead:
-      args.includes("--committer-strict") || committerIsRead(measuredMajor),
+      args.includes("--committer-strict") ||
+      committerIsRead(measuredMajor ?? CONFIGURED_RENOVATE_MAJOR),
     measuredMajor,
   };
 }

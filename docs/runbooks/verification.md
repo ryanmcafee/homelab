@@ -416,7 +416,7 @@ and verifies both on the commit it just made. It refuses to run when:
 | `renovate-regen/branch-scope` | HEAD is not a `renovate/*` branch. Signing a human PR's commit as the bot would invite Renovate to force-push over real work. Bypass: `-- --any-branch`, with the reason in the commit or PR body. |
 | `renovate-regen/generated-only` | Regeneration touched a file outside the generated set. No bypass: commit that file separately under your own author — which keeps the branch out of Renovate's hands, and for a real change that is the correct outcome. |
 | `renovate-regen/clean-tree` | The working tree was already dirty, so the commit would not be regeneration output alone. |
-| `renovate-regen/commit-identity` | Before staging, the script asks the active Git entrypoint which committer it would use. A mismatch fails before committing when the deployed Renovate major is unknown or at least 44; an explicitly measured 43 keeps it advisory. It also checks the completed commit. If a wrapper pins the committer, use the API form below. |
+| `renovate-regen/commit-identity` | Before staging, the script asks the active Git entrypoint which committer it would use. A mismatch fails before committing unless `RENOVATE_MAJOR` pins a measured 43, which keeps it advisory; the default is the 44 regime. It also checks the completed commit. If a wrapper pins the committer, use the API form below. |
 | `renovate-regen/deployed-major` | `task renovate:deployed-major` read a deployed Renovate of `44.x` or later out of an open `renovate/*` PR body while this repository still treats a committer mismatch as advisory. Fires on the version, not on a commit: past 44 every rebase under a foreign identity orphans its branch while changing no bytes, so the regime has to move with the deployment. Also fires when the version cannot be read at all — an unmeasurable version is not evidence of a pre-44 deployment. Bypass: pin `RENOVATE_MAJOR` to the version you actually measured, and say where you measured it. |
 
 Do **not** "fix" the orphaning by adding a personal address to `gitIgnoredAuthors`. It would
@@ -535,14 +535,11 @@ here.
 
 `task renovate:regen` runs the same check on its own commit as
 `renovate-regen/commit-identity`. A wrong **author** fails it. A wrong **committer** fails it
-too: on 2026-11-27 `task renovate:deployed-major` read **44.263.5**, so the repository now
-defaults to the 44 regime (`CONFIGURED_RENOVATE_MAJOR` in `scripts/renovate-regen.ts`). Set
-`RENOVATE_MAJOR=43` only to reproduce the old advisory behaviour against a 43.x deployment.
-`renovate-regen/commit-identity`. A wrong **author** fails it. A wrong **committer** fails
-before staging when `RENOVATE_MAJOR` is absent or at least 44; only an explicitly measured
-43.x run prints the 44-boundary warning and continues. Measure the major for each run rather
-than carrying an old value forward. Set `RENOVATE_MAJOR` to the complete positive major only
-(for example, `43`); malformed values fail before regeneration can stage or commit.
+too, before staging: on 2026-11-27 `task renovate:deployed-major` read **44.263.5**, so the
+repository now defaults to the 44 regime (`CONFIGURED_RENOVATE_MAJOR` in
+`scripts/renovate-regen.ts`). Set `RENOVATE_MAJOR=43` only to reproduce the old advisory
+behaviour against a measured 43.x deployment. Set it to the complete positive major only (for
+example, `43`); malformed values fail before regeneration can stage or commit.
 
 **Moving to the 44 regime.** Do not wait to remember: `task renovate:deployed-major` is the
 trigger, and it goes red as `renovate-regen/deployed-major` on the first Renovate run after the
