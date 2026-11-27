@@ -38,7 +38,7 @@ charts:
   # renovate: datasource=helm depName=local-path-provisioner registryUrl=https://charts.containeroo.ch
   local-path-provisioner: "0.0.38"
   # renovate: datasource=helm depName=cloudnative-pg registryUrl=https://cloudnative-pg.github.io/charts
-  cloudnative-pg: "0.28.3"
+  cloudnative-pg: "0.29.2"
   # renovate: datasource=helm depName=plugin-barman-cloud registryUrl=https://cloudnative-pg.github.io/charts
   plugin-barman-cloud: "0.8.0"
   # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
