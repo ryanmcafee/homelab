@@ -969,7 +969,7 @@ renovate:
   enabled: false
   onePasswordItemPath: vaults/homelab/items/renovate
   chart:
-    version: 46.455.4
+    version: 46.456.1
   config:
     gitAuthor: "Renovate Bot <renovate@homelab.local>"
 
