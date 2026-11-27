@@ -101,18 +101,24 @@ tests:
         alertname: PFWorkOldestUnackedAging
         exp_alerts: []
 
-  # 3. Loss already happened on a single node: head jumped 1 -> 4 while the only
-  #    consumer's ack floor reached 1, so two messages left unacked. The consumer
+  # 3. Loss already happened on a single node: three messages were removed while
+  #    the only consumer settled 1, so two messages left unacked. The consumer
   #    side carries is_consumer_leader, derived by the same upstream path.
   - interval: 30s
     name: single node unacked removal is detected from the sequence gap
     input_series:
       - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
         values: '1+0x10 4+0x20'
+      - series: 'nats_stream_last_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '3+0x30'
       - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
         values: '3+0x10 0+0x20'
       - series: 'nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="false",namespace="nats",job="nats"}'
         values: '0+0x10 1+0x20'
+      - series: 'nats_consumer_delivered_consumer_seq{stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="false",namespace="nats",job="nats"}'
+        values: '1+0x30'
+      - series: 'nats_consumer_num_ack_pending{stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="false",namespace="nats",job="nats"}'
+        values: '1+0x10 0+0x20'
     alert_rule_test:
       - eval_time: 8m
         alertname: PFWorkMessagesExpiredUnacked
@@ -124,19 +130,25 @@ tests:
               job: nats
             exp_annotations:
               summary: '2 PF_WORK messages left the stream without being acked'
-              description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+              description: 'More messages left the stream than its consumers settled, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
 
-  # 4. A normal single-node drain is not loss: head and ack floor both advance
-  #    by three. Guards against a fix that makes the loss detector fire always.
+  # 4. A normal single-node drain is not loss: three removed and three settled.
+  #    Guards against a fix that makes the loss detector fire always.
   - interval: 30s
     name: single node acked drain is not reported as loss
     input_series:
       - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
         values: '1+0x10 4+0x20'
+      - series: 'nats_stream_last_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '3+0x30'
       - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
         values: '3+0x10 0+0x20'
       - series: 'nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="false",namespace="nats",job="nats"}'
         values: '0+0x10 3+0x20'
+      - series: 'nats_consumer_delivered_consumer_seq{stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="false",namespace="nats",job="nats"}'
+        values: '3+0x30'
+      - series: 'nats_consumer_num_ack_pending{stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="false",namespace="nats",job="nats"}'
+        values: '3+0x10 0+0x20'
     alert_rule_test:
       - eval_time: 8m
         alertname: PFWorkMessagesExpiredUnacked

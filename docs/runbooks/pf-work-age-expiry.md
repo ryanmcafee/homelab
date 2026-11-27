@@ -33,6 +33,7 @@ is:
 | `nats_stream_consumer_count`, `nats_stream_subject_count` | consumers, subjects |
 | `nats_stream_limit_messages`, `nats_stream_limit_bytes` | configured limits (no age limit) |
 | `nats_consumer_ack_floor_stream_seq` | lowest stream sequence this consumer has acked past |
+| `nats_consumer_delivered_consumer_seq` | deliveries this consumer has made, redeliveries included |
 | `nats_consumer_delivered_stream_seq`, `nats_consumer_num_pending`, `nats_consumer_num_ack_pending` | consumer progress |
 
 So the SLI has to be built, not read. **`nats_stream_first_seq` is the age signal**: on a
@@ -62,14 +63,16 @@ non-clustered case is not rare: `contracts/events/subjects.v1.yaml` sets
 create a stream at all, nats-server error 10074), so it is the Kind loop and every single-node
 fork.
 
-Three recording rules resolve leadership once, and every alert reads them instead of the raw
+Five recording rules resolve leadership once, and every alert reads them instead of the raw
 metric:
 
 | Recorded series | Source |
 |---|---|
 | `homelab:nats_stream_first_seq:authoritative` | `nats_stream_first_seq` |
 | `homelab:nats_stream_total_messages:authoritative` | `nats_stream_total_messages` |
+| `homelab:nats_stream_removed_messages:authoritative` | `nats_stream_last_seq - nats_stream_total_messages` |
 | `homelab:nats_consumer_ack_floor_stream_seq:authoritative` | `nats_consumer_ack_floor_stream_seq` |
+| `homelab:nats_consumer_settled_messages:authoritative` | `nats_consumer_delivered_consumer_seq - nats_consumer_num_ack_pending` |
 
 Each prefers the series labelled leader and falls back to every server when no series carries that
 label, so one expression is correct on both topologies and stays correct if either upstream changes
@@ -87,7 +90,7 @@ All four are in the `homelab-nats-jetstream` group of
 |---|---|---|---|
 | `PFWorkOldestUnackedAging` | warning | `first_seq` unmoved for 12h while the stream was never empty | 12h |
 | `PFWorkOldestUnackedAging` | critical | the same for 18h | **6h** |
-| `PFWorkMessagesExpiredUnacked` | critical | the head advanced further than every consumer ack floor did: messages left the stream unacked | none, loss already happened |
+| `PFWorkMessagesExpiredUnacked` | critical | more messages left the stream in 15m than its consumers settled: messages left unacked | none, loss already happened |
 | `PFWorkStreamMetricsAbsent` | warning | the exporter reported `PF_WORK` in the last 6h and no longer does, or a `TENANT_*` account reports with no `PF_WORK` | unknown — the monitor is blind |
 
 Both aging rules share one `alertname`, so Alertmanager's severity inhibition drops the warning
@@ -99,7 +102,7 @@ The recording rules and the two loss rules aggregate `by (account, stream_name, 
 and never by `stream_name` alone. `PF_WORK` exists once per NATS account (ADR-043) and once per
 install, and `prometheus-nats-exporter` (0.20.1) labels every stream and consumer series with
 `account`. Dropping either label collapsed several streams into one series:
-`PFWorkMessagesExpiredUnacked` netted one stream's head advance against another's consumer acks,
+`PFWorkMessagesExpiredUnacked` netted one stream's removals against another's consumer acks,
 `PFWorkOldestUnackedAging` followed whichever head was highest, and `PFWorkStreamMetricsAbsent`
 could not fire while any other stream still reported. `tests/alerts/pf-work-age-expiry.test.yaml`
 asserts the label set on every fired alert, and cases 8 and 9 assert two namespaces are reported
@@ -203,13 +206,17 @@ Durable requests were destroyed. `$value` is how many. This is data loss, not a 
    view; the recorded series are the ones the alert did its arithmetic on:
    ```promql
    nats_stream_first_seq{stream_name="PF_WORK"}
-   nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK"}
+   nats_stream_last_seq{stream_name="PF_WORK"}
    nats_stream_total_messages{stream_name="PF_WORK"}
-   homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}
+   nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK"}
+   nats_consumer_delivered_consumer_seq{stream_name="PF_WORK"}
+   nats_consumer_num_ack_pending{stream_name="PF_WORK"}
+   homelab:nats_stream_removed_messages:authoritative{stream_name="PF_WORK"}
    homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}
+   homelab:nats_consumer_settled_messages:authoritative{stream_name="PF_WORK"}
    ```
-   The sequence gap tells you the range of lost sequences: everything between the old and the new
-   `first_seq` that the ack floors did not cover.
+   The lost sequences lie between the old and the new `first_seq`; a consumer whose settled count
+   did not move over that window is the one that lost them.
 2. Rule out the benign causes, which this alert cannot distinguish from expiry: a `nats stream
    purge`, a manual message delete, or a stream re-create. The NATS server log and
    `$JS.EVENT.ADVISORY.STREAM.>` show those.
@@ -219,22 +226,28 @@ Durable requests were destroyed. `$value` is how many. This is data loss, not a 
 4. Write the postmortem and file the fix. A `PF_WORK` consumer that can be down for 24h without
    anyone noticing is the defect; the alert firing is the symptom.
 
-**It undercounts in one case.** A message that was in flight on a consumer when it expired moves
-that consumer's ack floor (the `terminated` path), so it cancels out of the arithmetic. If every
-lost message was in flight, this rule stays silent — the aging alerts are what cover that, and
-they fire 6h earlier.
+**How it counts.** Over 15m, removals (`last_seq - messages`, which counts acks, expiry, purges
+and deletes) minus the acks the consumers can account for. The exporter has no ack counter, so
+each consumer is credited the smaller of two upper bounds on its acks:
 
-**It also assumes a single consumer on the stream, and the contract does not.**
-`consumers.workqueue_binding` requires every `PF_WORK` consumer to bind exactly one fully-specified
-subject, and `PF_WORK` spans every domain, so many consumers is the designed steady state rather
-than a misconfiguration. The rule sums each consumer's ack-floor advance against one shared
-`first_seq`, and a consumer advances its floor over sequences it does not own, so the arithmetic
-overcounts acks and can under-report loss once a second `wq` consumer exists. No `PF_WORK` consumer
-is declared yet -- the consumer set on the event-backbone branch for
-[#50](https://github.com/ryanmcafee/homelab/issues/50) binds only `PF_EVENTS` and `PF_DLQ` -- so the
-rule is correct for every deployment that exists so far. Confirm with
-`nats_stream_consumer_count{stream_name="PF_WORK"}` rather than from this paragraph, and expect
-per-subject arithmetic to be required before the second `wq` consumer ships.
+- its ack-floor advance. That is exact for a lone consumer, but `consumers.workqueue_binding` makes
+  many single-subject consumers the designed steady state, and a floor is a *stream* sequence: it
+  advances over sequences other consumers own. Measured on nats-server 2.11.3, consumer `b` acked
+  its three of seqs 1-6 and its floor went 0 -> 6, so summing floors hid the loss of `a`'s
+  messages (fixture case 12).
+- its settled count, `delivered_consumer_seq - num_ack_pending`. That never crosses another
+  consumer's sequences, but every redelivery increments `delivered_consumer_seq`: a crash-looping
+  consumer that redelivered its head six times read 6 settled while four messages expired (case
+  14).
+
+Each bound fails in a different case, so the minimum holds in both. With no consumer at all
+nothing is credited and every removal is loss.
+
+**It undercounts in two cases.** A message that was in flight on a consumer when it expired moves
+both bounds (the `terminated` path), so it cancels out of the arithmetic; if every lost message was
+in flight, this rule stays silent. And a consumer that is both redelivering and acking past another
+consumer's sequences in the same 15m over-credits under both bounds. The aging alerts cover both,
+and they fire 6h earlier.
 
 ## When `PFWorkStreamMetricsAbsent` fires
 
