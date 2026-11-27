@@ -34,6 +34,17 @@ remote_state {
   }
 }
 
+# Terragrunt's defaults cover timeouts and resets but not HTTP 5xx/429 from github.com or the registry.
+errors {
+  retry "transient_network" {
+    retryable_errors = concat(get_default_retryable_errors(), [
+      "(?s).*(Failed to install provider|Failed to query available provider packages|could not query provider registry|Failed to download module|Could not download module).*(response[\\s│]+code|returned[\\s│]+error|status[\\s│]+code):?[\\s│]+(429|5[0-9][0-9]).*",
+    ])
+    max_attempts       = 4
+    sleep_interval_sec = 15
+  }
+}
+
 # Generate provider configuration for all modules
 generate "provider" {
   path      = "provider.tf"
