@@ -216,7 +216,7 @@ spec:
                   key: secretKey
                 key: "codesearch/latest.tar.gz"
         container:
-          image: ghcr.io/ryanmcafee/codesearch:1.7.0
+          image: ghcr.io/ryanmcafee/codesearch:1.7.1
           command: ["/bin/sh", "-c"]
           # mdb_copy -c is a consistent, compacted copy under a live writer.
           args:
@@ -343,7 +343,7 @@ spec:
                 key: secretKey
               key: "{{workflow.parameters.key}}"
       container:
-        image: ghcr.io/ryanmcafee/codesearch:1.7.0
+        image: ghcr.io/ryanmcafee/codesearch:1.7.1
         command: ["/bin/sh", "-c"]
         # Only what the backup writes: repos.json and embedding_cache/<model>/data.mdb.
         args:

@@ -1731,7 +1731,7 @@ spec:
       # Derived from configuration/ (ADR-010); the child's values stay environment-free.
       valuesObject:
         namespace: "codesearch"
-        image: "ghcr.io/ryanmcafee/codesearch:1.7.0"
+        image: "ghcr.io/ryanmcafee/codesearch:1.7.1"
         git:
           itemPath: ""
         workflows:
@@ -1773,7 +1773,7 @@ spec:
   source:
     repoURL: https://ryanmcafee.github.io/codesearch
     chart: codesearch
-    targetRevision: "1.7.0"
+    targetRevision: "1.7.1"
     helm:
       releaseName: codesearch
       values: |
@@ -1804,7 +1804,7 @@ spec:
             touch "$config/force-reindex"
             rm -rf /data/restore-staging
             echo "applied the staged codesearch backup"
-          image: ghcr.io/ryanmcafee/codesearch:1.7.0
+          image: ghcr.io/ryanmcafee/codesearch:1.7.1
           name: restore-apply
           securityContext:
             allowPrivilegeEscalation: false
