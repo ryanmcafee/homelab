@@ -64,8 +64,7 @@ spec:
                 sh "$dir/render.sh"
               kubectl -n "$NAMESPACE" apply -f "$out/server.yaml"
               kubectl -n "$NAMESPACE" rollout status statefulset/nats --timeout=4m
-              echo "image digests under test:"
-              digests='{range .items[*]}{range .status.containerStatuses[*]}{.name}{"\t"}{.imageID}{"\n"}{end}{end}'
+              digests='{range .items[*]}{range .status.containerStatuses[*]}{"MEASURED image under test: "}{.name}{" "}{.imageID}{"\n"}{end}{end}'
               kubectl -n "$NAMESPACE" get pods nats-0 nats-client -o jsonpath="$digests"
       catch:
         - describe:
@@ -211,8 +210,7 @@ spec:
                 --set jetstream.nats.url=nats://nats:4222 >"$out/nack-move.yaml"
               kubectl -n "$NAMESPACE" apply -f "$out/nack-move.yaml"
               kubectl -n "$NAMESPACE" rollout status deployment/nack-move --timeout=3m
-              echo "image digests under test:"
-              digests='{range .items[*]}{range .status.containerStatuses[*]}{.name}{"\t"}{.imageID}{"\n"}{end}{end}'
+              digests='{range .items[*]}{range .status.containerStatuses[*]}{"MEASURED image under test: "}{.name}{" "}{.imageID}{"\n"}{end}{end}'
               kubectl -n "$NAMESPACE" get pods -l app=nack-move -o jsonpath="$digests"
               kubectl -n nats get pods -l app=nack -o jsonpath="$digests"
               for account in declared:TENANT_LOCAL tenant:TENANT_LOCAL move:NACK_MOVE; do
