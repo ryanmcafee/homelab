@@ -439,7 +439,9 @@ func TestRenderGitopsDomainMirrorsTerraform(t *testing.T) {
 
 	// homelab: the Terraform root Application sets ConfigSet values as helm
 	// parameters, so the two-stage env injects the example ones the same way.
-	const set = "--set global.domain=replaceme-domain.com" +
+	const domainSet = "--set global.domain=replaceme-domain.com"
+	const set = domainSet +
+		" --set global.repoUrl=https://github.com/REPLACEME-user/homelab" +
 		" --set bootstrap.argocdNotificationsGithubItemPath=vaults/homelab/items/argocd-notifications-github" +
 		" --set bootstrap.environmentConfigItemPath=vaults/homelab/items/homelab-environment-config"
 	cmd, ok := fr.find("helm", "template gitops ", set)
@@ -456,12 +458,17 @@ func TestRenderGitopsDomainMirrorsTerraform(t *testing.T) {
 	}
 
 	// localdev renders in plain-Helm mode and reads its domain from
-	// values-localdev.yaml, so nothing is injected.
-	if cmd, ok := fr.find("helm", "template gitops ", "values-localdev.yaml", "--set"); ok {
-		t.Errorf("localdev gitops must not receive --set: %s", cmd.line())
+	// values-localdev.yaml; only the repository is injected, mirroring
+	// scripts/localdev-argocd.ts install's helm.valuesObject.
+	const localdevRepoSet = "--set global.repoUrl=https://github.com/ryanmcafee/homelab"
+	if cmd, ok := fr.find("helm", "template gitops ", "values-localdev.yaml", domainSet); ok {
+		t.Errorf("localdev gitops must not receive the domain: %s", cmd.line())
 	}
-	if c := checkByName(t, res, "render/localdev/gitops"); strings.Contains(c.Detail, "--set") {
-		t.Errorf("render/localdev/gitops detail must not mention --set: %q", c.Detail)
+	if _, ok := fr.find("helm", "template gitops ", "values-localdev.yaml", localdevRepoSet); !ok {
+		t.Errorf("localdev gitops must receive %q; recorded:\n%s", localdevRepoSet, fr.dump())
+	}
+	if c := checkByName(t, res, "render/localdev/gitops"); !strings.Contains(c.Detail, localdevRepoSet) {
+		t.Errorf("render/localdev/gitops detail must mention %q: %q", localdevRepoSet, c.Detail)
 	}
 	// No --chart-filter parent is needed on gitops' behalf.
 	if cmd, ok := fr.find("helm", "template addons "); ok {

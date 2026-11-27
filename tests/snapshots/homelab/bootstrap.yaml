@@ -826,7 +826,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: HEAD
     path: charts/secrets/onepassword
   destination:
