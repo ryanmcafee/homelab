@@ -1000,7 +1000,7 @@ kube-prometheus-stack:
 gatewayApi:
   enabled: true
   repo: https://github.com/kubernetes-sigs/gateway-api.git
-  version: "v1.6.2"
+  version: "v1.7.0"
 
 # ============================================================================
 # Envoy Gateway - internal and external ingress (docs/networking.md)

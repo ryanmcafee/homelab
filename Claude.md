@@ -264,7 +264,7 @@ charts:
   istio: "1.32.0"
   # Gateway API CRDs for Istio waypoints (config/crd/standard of this tag).
   # renovate: datasource=github-releases depName=kubernetes-sigs/gateway-api
-  gateway-api: "v1.6.2"
+  gateway-api: "v1.7.0"
   # renovate: datasource=helm depName=prometheus-blackbox-exporter registryUrl=https://prometheus-community.github.io/helm-charts
   prometheus-blackbox-exporter: "11.18.0"
   # renovate: datasource=helm depName=prometheus-json-exporter registryUrl=https://prometheus-community.github.io/helm-charts
