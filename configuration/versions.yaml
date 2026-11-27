@@ -106,7 +106,7 @@ charts:
   # renovate: datasource=helm depName=kiali-server registryUrl=https://kiali.org/helm-charts
   kiali-server: "2.35.0"
   # renovate: datasource=helm depName=opentelemetry-collector registryUrl=https://open-telemetry.github.io/opentelemetry-helm-charts
-  opentelemetry-collector: "0.173.1"
+  opentelemetry-collector: "0.183.2"
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
   altinity-clickhouse-operator: "0.27.4"
   # Componentized LiteLLM chart (gateway, backend, ui, migrations Job), OCI-only (issue #424).

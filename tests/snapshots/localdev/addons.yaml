@@ -3236,7 +3236,7 @@ spec:
   source:
     repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
     chart: opentelemetry-collector
-    targetRevision: "0.173.1"
+    targetRevision: "0.183.2"
     helm:
       releaseName: otel-collector-agent
       values: |
@@ -3364,7 +3364,7 @@ spec:
   source:
     repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
     chart: opentelemetry-collector
-    targetRevision: "0.173.1"
+    targetRevision: "0.183.2"
     helm:
       releaseName: otel-collector-cluster
       values: |
@@ -3481,7 +3481,7 @@ spec:
   source:
     repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
     chart: opentelemetry-collector
-    targetRevision: "0.173.1"
+    targetRevision: "0.183.2"
     helm:
       releaseName: otel-collector-gateway
       values: |
