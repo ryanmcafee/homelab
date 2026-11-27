@@ -7,12 +7,12 @@
 <div align="center">
 
 <!-- docs-check:begin badges -->
-[![Talos](https://img.shields.io/badge/Talos-v1.13.11-FF6C2C?logo=talos&logoColor=white)](https://www.talos.dev/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.37.1-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Talos](https://img.shields.io/badge/Talos-v1.14.7-FF6C2C?logo=talos&logoColor=white)](https://www.talos.dev/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.37.3-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
 [![ArgoCD](https://img.shields.io/badge/ArgoCD-v3.6.3-EF7B4D?logo=argo&logoColor=white)](https://argoproj.github.io/cd/)
 [![Cilium](https://img.shields.io/badge/Cilium-1.20.5-F8C517?logo=cilium&logoColor=white)](https://cilium.io/)
-[![Terraform](https://img.shields.io/badge/Terraform-1.16.4-7B42BC?logo=terraform&logoColor=white)](https://developer.hashicorp.com/terraform)
-[![Helm](https://img.shields.io/badge/Helm-4.3.0-0F1689?logo=helm&logoColor=white)](https://helm.sh/)
+[![Terraform](https://img.shields.io/badge/Terraform-1.17.2-7B42BC?logo=terraform&logoColor=white)](https://developer.hashicorp.com/terraform)
+[![Helm](https://img.shields.io/badge/Helm-4.3.2-0F1689?logo=helm&logoColor=white)](https://helm.sh/)
 <!-- docs-check:end badges -->
 [![Verify](https://github.com/ryanmcafee/homelab/actions/workflows/verify.yml/badge.svg)](https://github.com/ryanmcafee/homelab/actions/workflows/verify.yml)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
