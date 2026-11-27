@@ -111,7 +111,7 @@ charts:
   altinity-clickhouse-operator: "0.27.4"
   # Componentized LiteLLM chart (gateway, backend, ui, migrations Job), OCI-only (issue #424).
   # renovate: datasource=docker depName=ghcr.io/berriai/litellm/chart/litellm
-  litellm: "1.102.1"
+  litellm: "1.111.0"
 images:
   homelab-cmp: "0.1.60"
   # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);
@@ -142,11 +142,10 @@ images:
   cloudnative-pg-postgresql: "17.11"
   # renovate: datasource=docker depName=clickhouse/clickhouse-server
   clickhouse-server: "26.11.3.10"
-  # One tag for all four LiteLLM images (litellm-gateway, litellm-backend, litellm-ui,
-  # litellm-migrations): BerriAI publishes them alongside the chart, so this has to move
-  # with charts.litellm above, whose appVersion is exactly this value.
-  # renovate: datasource=docker depName=ghcr.io/berriai/litellm-gateway
-  litellm: "1.110.4"
+  # The one image every LiteLLM container runs (gateway, backend, ui, migrations): it has to
+  # move with charts.litellm above, whose appVersion is exactly this value.
+  # renovate: datasource=docker depName=ghcr.io/berriai/litellm
+  litellm: "v1.111.0"
   # Grafana plugin, installed by the kube-prometheus-stack Grafana at startup.
   # renovate: datasource=github-releases depName=grafana/clickhouse-datasource
   grafana-clickhouse-datasource: "v4.21.3"

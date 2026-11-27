@@ -1153,7 +1153,7 @@ spec:
   source:
     repoURL: ghcr.io/berriai/litellm/chart
     chart: litellm
-    targetRevision: "1.102.1"
+    targetRevision: "1.111.0"
     helm:
       releaseName: litellm
       values: |
@@ -1161,6 +1161,8 @@ spec:
         # litellm-litellm-gateway; wave 14's HTTPRoutes and the SRE alerts
         # address litellm-gateway / litellm-backend / litellm-ui.
         fullnameOverride: litellm
+        image:
+          tag: "v1.111.0"
         masterKey:
           secretName: litellm-master-key-secret
           secretKey: master-key
@@ -1189,8 +1191,6 @@ spec:
             argocd:
               enabled: true
           activeDeadlineSeconds: 1800
-          image:
-            tag: "1.110.4"
           resources:
             limits:
               cpu: "1"
@@ -1199,8 +1199,6 @@ spec:
               cpu: 100m
               memory: 256Mi
         gateway:
-          image:
-            tag: "1.110.4"
           # LITELLM_SALT_KEY encrypts every provider credential the proxy
           # stores in the database and the chart has no value for it, so both
           # it and the provider keys arrive as whole-Secret envFrom. The
@@ -1259,8 +1257,6 @@ spec:
               cpu: 250m
               memory: 1Gi
         backend:
-          image:
-            tag: "1.110.4"
           envSecrets:
             - litellm-salt-key
           extraEnv:
@@ -1287,13 +1283,8 @@ spec:
               cpu: 100m
               memory: 512Mi
         ui:
-          image:
-            tag: "1.110.4"
-          # The dashboard is a static bundle: it calls the backend from the
-          # browser, so this is the routable host wave 14 publishes, not a
-          # cluster Service. The chart's own Ingress serves the management API
-          # at the host root, so wave 14's HTTPRoutes must match that split.
-          backendUrl: https://litellm.replaceme-domain.com
+          # Wave 14 serves the dashboard and backend on one host, so the
+          # browser reaches the backend same-origin and ui.backendUrl stays unset.
           hpa:
             enabled: false
           resources:
