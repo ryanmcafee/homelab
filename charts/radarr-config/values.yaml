@@ -134,3 +134,28 @@ importSweep:
     limits:
       cpu: 500m
       memory: 256Mi
+
+# Hourly, ban remux releases in the app (files/arr-release-policy.ts,
+# docs/runbooks/arr-release-policy.md): a custom format matching the release
+# title, scored below every quality profile's minimum, and the matching
+# qualities disallowed in every profile. Reuses importSweep's app, url, API key
+# source, config claim, user and image.
+releasePolicy:
+  enabled: true
+  schedule: "41 * * * *"
+  # Report the changes and write nothing.
+  dryRun: false
+  banned:
+    formatName: Remux
+    titleRegex: remux
+    qualityRegex: remux
+    score: -10000
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 3600
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
