@@ -45,7 +45,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `clickhouse-dependencies` | `charts/clickhouse-dependencies` | git | — | — | — |
 | `clickhouse-operator` | `altinity-clickhouse-operator` | 0.27.4 | — | — | — |
 | `cloudnative-pg` | `cloudnative-pg` | 0.29.2 | — | cloudnative-pg | — |
-| `cnpg-barman-cloud` | `plugin-barman-cloud` | 0.8.0 | — | — | — |
+| `cnpg-barman-cloud` | `plugin-barman-cloud` | 0.9.0 | — | — | — |
 | `democratic-csi` | `democratic-csi` | 0.15.1 | — | — | — |
 | `democratic-csi-config` | `charts/democratic-csi-config` | git | — | — | — |
 | `democratic-csi-iscsi` | `democratic-csi` | 0.15.1 | — | — | — |

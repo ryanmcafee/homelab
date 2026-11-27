@@ -617,7 +617,7 @@ cnpg-barman-cloud:
   chart:
     name: plugin-barman-cloud
     repo: https://cloudnative-pg.github.io/charts
-    version: 0.8.0
+    version: 0.9.0
 
   # Kind sizing
   resources:
