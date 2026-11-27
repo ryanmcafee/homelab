@@ -30,7 +30,7 @@ argo = "latest"           # Argo Workflows CLI
 "pipx:ansible-lint" = "26.9.0"
 
 # Task Runner
-task = "3.46.4"
+task = "3.54.0"
 
 # Go toolchain (docs/runbooks/verification.md agrees on this minor; the
 # level-0 CLI and its tests are built with it)
