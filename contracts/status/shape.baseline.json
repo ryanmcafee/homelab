@@ -1,0 +1,1859 @@
+{
+  "version": 1,
+  "documents": {
+    "status-page.v1.yaml": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "openapi": {
+          "kind": "string",
+          "value": "\"3.1.0\""
+        },
+        "info": {
+          "kind": "object"
+        },
+        "info.title": {
+          "kind": "string",
+          "value": "\"Status page API\""
+        },
+        "info.version": {
+          "kind": "string",
+          "value": "\"1.0.0\""
+        },
+        "info.summary": {
+          "kind": "string",
+          "value": "\"One polled document describing every user-visible component of a homelab.\""
+        },
+        "info.description": {
+          "kind": "string",
+          "value": "\"Read-only. Serves one JSON document per request: component states derived from\\nfiring alerts, uptime derived from instrumented SLIs, and the incident feed.\\n\\nUnauthenticated and LAN-scoped for v1 (ryanmcafee/homelab#41). Because it is\\nunauthenticated, the response carries no internal identifiers: see\\n`x-status-page.redaction`. Nothing in this document is operator-specific — the\\nhostname and the page title come from the ConfigSet, and the component taxonomy\\nin `x-status-page.taxonomy` is the same for every fork.\\n\""
+        },
+        "info.license": {
+          "kind": "object"
+        },
+        "info.license.name": {
+          "kind": "string",
+          "value": "\"MIT\""
+        },
+        "info.license.identifier": {
+          "kind": "string",
+          "value": "\"MIT\""
+        },
+        "servers": {
+          "kind": "list"
+        },
+        "servers.#0": {
+          "kind": "object"
+        },
+        "servers.#0.url": {
+          "kind": "string",
+          "value": "\"https://{statusHostname}/api/v1\""
+        },
+        "servers.#0.description": {
+          "kind": "string",
+          "value": "\"The status page's own ingress and its own process, deliberately not the platform API: that surface is authenticated, and serving an unauthenticated route from it makes one authorization mistake an API exposure rather than a status page, and `Cache-Control: public` a property of the API host. `/api/v1/status` is reserved on the status host only — the platform API MUST NOT serve a route at that path, which it will otherwise eventually want for its own health. Synthetic host per docs/contracts/fork-ability.md.\""
+        },
+        "servers.#0.variables": {
+          "kind": "object"
+        },
+        "servers.#0.variables.statusHostname": {
+          "kind": "object"
+        },
+        "servers.#0.variables.statusHostname.default": {
+          "kind": "string",
+          "value": "\"status.example.invalid\""
+        },
+        "servers.#0.variables.statusHostname.description": {
+          "kind": "string",
+          "value": "\"STATUS_HOSTNAME from the ConfigSet; never a literal in this repository.\""
+        },
+        "paths": {
+          "kind": "object"
+        },
+        "paths./status": {
+          "kind": "object"
+        },
+        "paths./status.get": {
+          "kind": "object"
+        },
+        "paths./status.get.operationId": {
+          "kind": "string",
+          "value": "\"getStatus\""
+        },
+        "paths./status.get.summary": {
+          "kind": "string",
+          "value": "\"The whole status document.\""
+        },
+        "paths./status.get.description": {
+          "kind": "string",
+          "value": "\"One request returns everything the page renders, so the UI has one loading\\nstate, one error state and one empty state rather than three of each.\\n\\nPolled, not streamed. The upstream signals move on Prometheus' evaluation\\ninterval, so a stream would deliver the same data no sooner while costing a\\nlong-lived connection per visitor and a reconnect state machine in the UI.\\nThe server advertises the cadence in `pollAfterSeconds`; the UI honours that\\nvalue rather than hard-coding one, so load stays the back end's to control.\\n\""
+        },
+        "paths./status.get.parameters": {
+          "kind": "list"
+        },
+        "paths./status.get.parameters.If-None-Match": {
+          "kind": "object"
+        },
+        "paths./status.get.parameters.If-None-Match.name": {
+          "kind": "string",
+          "value": "\"If-None-Match\""
+        },
+        "paths./status.get.parameters.If-None-Match.in": {
+          "kind": "string",
+          "value": "\"header\""
+        },
+        "paths./status.get.parameters.If-None-Match.required": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "paths./status.get.parameters.If-None-Match.description": {
+          "kind": "string",
+          "value": "\"The `ETag` of the last document the client rendered.\""
+        },
+        "paths./status.get.parameters.If-None-Match.schema": {
+          "kind": "object"
+        },
+        "paths./status.get.parameters.If-None-Match.schema.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "paths./status.get.responses": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.200": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.200.description": {
+          "kind": "string",
+          "value": "\"The current status document.\""
+        },
+        "paths./status.get.responses.200.headers": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.200.headers.Cache-Control": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.200.headers.Cache-Control.description": {
+          "kind": "string",
+          "value": "\"`public, max-age=<pollAfterSeconds>`. An incident is exactly when a refresh storm arrives, so the document must be cacheable at the edge.\""
+        },
+        "paths./status.get.responses.200.headers.Cache-Control.schema": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.200.headers.Cache-Control.schema.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "paths./status.get.responses.200.headers.ETag": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.200.headers.ETag.description": {
+          "kind": "string",
+          "value": "\"Strong validator over the response body.\""
+        },
+        "paths./status.get.responses.200.headers.ETag.schema": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.200.headers.ETag.schema.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "paths./status.get.responses.200.content": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.200.content.application/json": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.200.content.application/json.schema": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.200.content.application/json.schema.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/StatusDocument\""
+        },
+        "paths./status.get.responses.304": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.304.description": {
+          "kind": "string",
+          "value": "\"The document has not changed since the supplied `ETag`.\""
+        },
+        "paths./status.get.responses.500": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.500.description": {
+          "kind": "string",
+          "value": "\"The back end failed in a way it cannot describe as a degraded document. A reachability failure of Prometheus or Alertmanager is NOT this: that is a 200 whose `signals` say so, because a visitor still needs the page.\""
+        },
+        "paths./status.get.responses.500.content": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.500.content.application/problem+json": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.500.content.application/problem+json.schema": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.500.content.application/problem+json.schema.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Problem\""
+        },
+        "paths./status.get.responses.503": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.503.description": {
+          "kind": "string",
+          "value": "\"The back end is starting up and has never built a document.\""
+        },
+        "paths./status.get.responses.503.content": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.503.content.application/problem+json": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.503.content.application/problem+json.schema": {
+          "kind": "object"
+        },
+        "paths./status.get.responses.503.content.application/problem+json.schema.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Problem\""
+        },
+        "components": {
+          "kind": "object"
+        },
+        "components.schemas": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.StatusDocument.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.StatusDocument.required": {
+          "kind": "list",
+          "members": [
+            "\"components\"",
+            "\"features\"",
+            "\"generatedAt\"",
+            "\"incidents\"",
+            "\"overall\"",
+            "\"page\"",
+            "\"pollAfterSeconds\"",
+            "\"schemaVersion\"",
+            "\"signals\""
+          ]
+        },
+        "components.schemas.StatusDocument.properties": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.schemaVersion": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.schemaVersion.description": {
+          "kind": "string",
+          "value": "\"An echo of the major already in the path (`/api/v1/status`) and in this file's name — NOT a second version axis. Present because a cached or proxied body that self-identifies is worth one integer; pinned by an invariant because a `/api/v2/status` whose body still said `1` is a disagreement nothing would catch. A UI reading a value it does not know renders the \\\"this page is out of date\\\" state instead of guessing at the fields.\""
+        },
+        "components.schemas.StatusDocument.properties.schemaVersion.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "components.schemas.StatusDocument.properties.schemaVersion.const": {
+          "kind": "number",
+          "value": "1"
+        },
+        "components.schemas.StatusDocument.properties.generatedAt": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.generatedAt.description": {
+          "kind": "string",
+          "value": "\"When the back end built this document — NOT when it was served. A cached response must keep the original value so the UI can show real staleness.\""
+        },
+        "components.schemas.StatusDocument.properties.generatedAt.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.StatusDocument.properties.generatedAt.format": {
+          "kind": "string",
+          "value": "\"date-time\""
+        },
+        "components.schemas.StatusDocument.properties.pollAfterSeconds": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.pollAfterSeconds.description": {
+          "kind": "string",
+          "value": "\"How long the UI waits before requesting again.\""
+        },
+        "components.schemas.StatusDocument.properties.pollAfterSeconds.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "components.schemas.StatusDocument.properties.pollAfterSeconds.minimum": {
+          "kind": "number",
+          "value": "5",
+          "bound": "min"
+        },
+        "components.schemas.StatusDocument.properties.pollAfterSeconds.maximum": {
+          "kind": "number",
+          "value": "600",
+          "bound": "max"
+        },
+        "components.schemas.StatusDocument.properties.page": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.page.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Page\""
+        },
+        "components.schemas.StatusDocument.properties.features": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.features.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Features\""
+        },
+        "components.schemas.StatusDocument.properties.overall": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.overall.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Overall\""
+        },
+        "components.schemas.StatusDocument.properties.components": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.components.description": {
+          "kind": "string",
+          "value": "\"Every component the operator has enabled, in `order`. MAY be empty — a fork that has mapped nothing yet is a real state, and the UI renders an explicit empty state for it rather than an all-green page.\""
+        },
+        "components.schemas.StatusDocument.properties.components.type": {
+          "kind": "string",
+          "value": "\"array\""
+        },
+        "components.schemas.StatusDocument.properties.components.items": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.components.items.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Component\""
+        },
+        "components.schemas.StatusDocument.properties.incidents": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.incidents.description": {
+          "kind": "string",
+          "value": "\"Firing and recently-resolved alerts, newest `startedAt` first. Empty means \\\"no incidents in the last N days\\\" and the UI says so — but ONLY while every `stateDerivation.signalDependencies.incidents` signal is available. With that signal unavailable, empty means *not known*, and the UI renders the feed as unavailable rather than as its empty state. An empty list is otherwise an affirmative claim of calm, and this is the one document that must not make it on the strength of an upstream that did not answer.\""
+        },
+        "components.schemas.StatusDocument.properties.incidents.type": {
+          "kind": "string",
+          "value": "\"array\""
+        },
+        "components.schemas.StatusDocument.properties.incidents.items": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.incidents.items.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Incident\""
+        },
+        "components.schemas.StatusDocument.properties.signals": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.signals.description": {
+          "kind": "string",
+          "value": "\"The provenance of everything above. This is what stops the classic status page lie: when the monitoring stack is the thing that is down, a page that derives state from it must say \\\"unknown\\\", not \\\"operational\\\".\""
+        },
+        "components.schemas.StatusDocument.properties.signals.type": {
+          "kind": "string",
+          "value": "\"array\""
+        },
+        "components.schemas.StatusDocument.properties.signals.minItems": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.StatusDocument.properties.signals.items": {
+          "kind": "object"
+        },
+        "components.schemas.StatusDocument.properties.signals.items.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Signal\""
+        },
+        "components.schemas.Page": {
+          "kind": "object"
+        },
+        "components.schemas.Page.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.Page.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.Page.required": {
+          "kind": "list",
+          "members": [
+            "\"incidentWindowDays\"",
+            "\"timeZone\"",
+            "\"title\""
+          ]
+        },
+        "components.schemas.Page.properties": {
+          "kind": "object"
+        },
+        "components.schemas.Page.properties.title": {
+          "kind": "object"
+        },
+        "components.schemas.Page.properties.title.description": {
+          "kind": "string",
+          "value": "\"STATUS_PAGE_TITLE from the ConfigSet. Never a literal in this repository.\""
+        },
+        "components.schemas.Page.properties.title.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Page.properties.title.minLength": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Page.properties.title.maxLength": {
+          "kind": "number",
+          "value": "80",
+          "bound": "max"
+        },
+        "components.schemas.Page.properties.timeZone": {
+          "kind": "object"
+        },
+        "components.schemas.Page.properties.timeZone.description": {
+          "kind": "string",
+          "value": "\"IANA zone the `date` of every uptime bucket is expressed in. Sent because a visitor's browser zone would silently shift the day boundaries of a history the back end already bucketed.\""
+        },
+        "components.schemas.Page.properties.timeZone.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Page.properties.timeZone.minLength": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Page.properties.incidentWindowDays": {
+          "kind": "object"
+        },
+        "components.schemas.Page.properties.incidentWindowDays.description": {
+          "kind": "string",
+          "value": "\"How far back `incidents` reaches, so the UI can label its own empty state.\""
+        },
+        "components.schemas.Page.properties.incidentWindowDays.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "components.schemas.Page.properties.incidentWindowDays.minimum": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Features": {
+          "kind": "object"
+        },
+        "components.schemas.Features.description": {
+          "kind": "string",
+          "value": "\"What this deployment actually serves. The UI renders an affordance only when its flag is true, so a fork never shows a form that posts into nothing.\""
+        },
+        "components.schemas.Features.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.Features.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.Features.required": {
+          "kind": "list",
+          "members": [
+            "\"subscriptions\""
+          ]
+        },
+        "components.schemas.Features.properties": {
+          "kind": "object"
+        },
+        "components.schemas.Features.properties.subscriptions": {
+          "kind": "object"
+        },
+        "components.schemas.Features.properties.subscriptions.description": {
+          "kind": "string",
+          "value": "\"Whether a subscribe/unsubscribe surface exists. `false` for the whole of v1: there is no endpoint behind it yet (see `x-status-page.deferred`).\""
+        },
+        "components.schemas.Features.properties.subscriptions.type": {
+          "kind": "string",
+          "value": "\"boolean\""
+        },
+        "components.schemas.Overall": {
+          "kind": "object"
+        },
+        "components.schemas.Overall.description": {
+          "kind": "string",
+          "value": "\"The one-line verdict at the top of the page, derived from the components below by `x-status-page.stateDerivation.overall`. Derived rather than independently computed so the headline can never disagree with the tiles.\""
+        },
+        "components.schemas.Overall.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.Overall.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.Overall.required": {
+          "kind": "list",
+          "members": [
+            "\"state\"",
+            "\"summary\""
+          ]
+        },
+        "components.schemas.Overall.properties": {
+          "kind": "object"
+        },
+        "components.schemas.Overall.properties.state": {
+          "kind": "object"
+        },
+        "components.schemas.Overall.properties.state.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/ComponentState\""
+        },
+        "components.schemas.Overall.properties.summary": {
+          "kind": "object"
+        },
+        "components.schemas.Overall.properties.summary.description": {
+          "kind": "string",
+          "value": "\"One sentence for a visitor who reads nothing else.\""
+        },
+        "components.schemas.Overall.properties.summary.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Overall.properties.summary.minLength": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Overall.properties.summary.maxLength": {
+          "kind": "number",
+          "value": "160",
+          "bound": "max"
+        },
+        "components.schemas.ComponentState": {
+          "kind": "object"
+        },
+        "components.schemas.ComponentState.description": {
+          "kind": "string",
+          "value": "\"Four states, all derived. `maintenance` is deliberately absent — see\\n`Component.maintenance`; an overlay cannot replace the truth underneath it.\\n\""
+        },
+        "components.schemas.ComponentState.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.ComponentState.enum": {
+          "kind": "list",
+          "members": [
+            "\"degraded\"",
+            "\"down\"",
+            "\"operational\"",
+            "\"unknown\""
+          ]
+        },
+        "components.schemas.StateReason": {
+          "kind": "object"
+        },
+        "components.schemas.StateReason.description": {
+          "kind": "string",
+          "value": "\"Why the state above was reached. Required, so no state is unfalsifiable.\""
+        },
+        "components.schemas.StateReason.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.StateReason.enum": {
+          "kind": "list",
+          "members": [
+            "\"alert_firing\"",
+            "\"no_firing_alerts\"",
+            "\"no_signal\"",
+            "\"signal_unavailable\""
+          ]
+        },
+        "components.schemas.Coverage": {
+          "kind": "object"
+        },
+        "components.schemas.Coverage.description": {
+          "kind": "string",
+          "value": "\"How much is actually measured. The UI reads this, not the state, to decide whether to draw a \\\"not measured\\\" badge — which is why `operational` with `mappedAlertCount: 0` is a contract violation rather than a rendering choice.\""
+        },
+        "components.schemas.Coverage.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.Coverage.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.Coverage.required": {
+          "kind": "list",
+          "members": [
+            "\"hasSli\"",
+            "\"mappedAlertCount\""
+          ]
+        },
+        "components.schemas.Coverage.properties": {
+          "kind": "object"
+        },
+        "components.schemas.Coverage.properties.mappedAlertCount": {
+          "kind": "object"
+        },
+        "components.schemas.Coverage.properties.mappedAlertCount.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "components.schemas.Coverage.properties.mappedAlertCount.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "components.schemas.Coverage.properties.hasSli": {
+          "kind": "object"
+        },
+        "components.schemas.Coverage.properties.hasSli.type": {
+          "kind": "string",
+          "value": "\"boolean\""
+        },
+        "components.schemas.UptimeBucket": {
+          "kind": "object"
+        },
+        "components.schemas.UptimeBucket.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.UptimeBucket.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.UptimeBucket.required": {
+          "kind": "list",
+          "members": [
+            "\"date\"",
+            "\"ratio\""
+          ]
+        },
+        "components.schemas.UptimeBucket.properties": {
+          "kind": "object"
+        },
+        "components.schemas.UptimeBucket.properties.date": {
+          "kind": "object"
+        },
+        "components.schemas.UptimeBucket.properties.date.description": {
+          "kind": "string",
+          "value": "\"Calendar day in `page.timeZone`.\""
+        },
+        "components.schemas.UptimeBucket.properties.date.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.UptimeBucket.properties.date.format": {
+          "kind": "string",
+          "value": "\"date\""
+        },
+        "components.schemas.UptimeBucket.properties.ratio": {
+          "kind": "object"
+        },
+        "components.schemas.UptimeBucket.properties.ratio.description": {
+          "kind": "string",
+          "value": "\"Fraction of the day the SLI reported healthy, or null for a day with no data. Null is not zero and not green: a fork that stood the SLI up three days ago has 27 empty buckets, and the UI draws them empty.\""
+        },
+        "components.schemas.UptimeBucket.properties.ratio.type": {
+          "kind": "list",
+          "members": [
+            "\"null\"",
+            "\"number\""
+          ]
+        },
+        "components.schemas.UptimeBucket.properties.ratio.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "components.schemas.UptimeBucket.properties.ratio.maximum": {
+          "kind": "number",
+          "value": "1",
+          "bound": "max"
+        },
+        "components.schemas.Uptime": {
+          "kind": "object"
+        },
+        "components.schemas.Uptime.description": {
+          "kind": "string",
+          "value": "\"Absent numbers over invented ones. `ratio` and every bucket are nullable because an SLI that does not exist has no history, and the honest rendering of that is a gap in the bar.\""
+        },
+        "components.schemas.Uptime.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.Uptime.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.Uptime.required": {
+          "kind": "list",
+          "members": [
+            "\"buckets\"",
+            "\"ratio\"",
+            "\"unavailableReason\"",
+            "\"windowDays\""
+          ]
+        },
+        "components.schemas.Uptime.properties": {
+          "kind": "object"
+        },
+        "components.schemas.Uptime.properties.windowDays": {
+          "kind": "object"
+        },
+        "components.schemas.Uptime.properties.windowDays.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "components.schemas.Uptime.properties.windowDays.minimum": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Uptime.properties.ratio": {
+          "kind": "object"
+        },
+        "components.schemas.Uptime.properties.ratio.description": {
+          "kind": "string",
+          "value": "\"Mean healthy fraction over the window, or null when unavailable.\""
+        },
+        "components.schemas.Uptime.properties.ratio.type": {
+          "kind": "list",
+          "members": [
+            "\"null\"",
+            "\"number\""
+          ]
+        },
+        "components.schemas.Uptime.properties.ratio.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "components.schemas.Uptime.properties.ratio.maximum": {
+          "kind": "number",
+          "value": "1",
+          "bound": "max"
+        },
+        "components.schemas.Uptime.properties.unavailableReason": {
+          "kind": "object"
+        },
+        "components.schemas.Uptime.properties.unavailableReason.description": {
+          "kind": "string",
+          "value": "\"Required whenever `ratio` is null, and null whenever it is not.\""
+        },
+        "components.schemas.Uptime.properties.unavailableReason.type": {
+          "kind": "list",
+          "members": [
+            "\"null\"",
+            "\"string\""
+          ]
+        },
+        "components.schemas.Uptime.properties.unavailableReason.enum": {
+          "kind": "list",
+          "members": [
+            "\"insufficient_history\"",
+            "\"no_sli\"",
+            "\"signal_unavailable\"",
+            "null"
+          ]
+        },
+        "components.schemas.Uptime.properties.buckets": {
+          "kind": "object"
+        },
+        "components.schemas.Uptime.properties.buckets.description": {
+          "kind": "string",
+          "value": "\"One entry per day, oldest first, `windowDays` long — or empty when there is no SLI at all. A short array is a contract violation: a missing day is a null bucket, not an absent one.\""
+        },
+        "components.schemas.Uptime.properties.buckets.type": {
+          "kind": "string",
+          "value": "\"array\""
+        },
+        "components.schemas.Uptime.properties.buckets.items": {
+          "kind": "object"
+        },
+        "components.schemas.Uptime.properties.buckets.items.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/UptimeBucket\""
+        },
+        "components.schemas.Maintenance": {
+          "kind": "object"
+        },
+        "components.schemas.Maintenance.description": {
+          "kind": "string",
+          "value": "\"A declared window, not a derived state. Maintenance is an overlay so that a component which is genuinely broken during a window still reads `degraded` or `down`; replacing the state would hide the outage behind the calendar.\""
+        },
+        "components.schemas.Maintenance.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.Maintenance.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.Maintenance.required": {
+          "kind": "list",
+          "members": [
+            "\"endsAt\"",
+            "\"startsAt\"",
+            "\"summary\""
+          ]
+        },
+        "components.schemas.Maintenance.properties": {
+          "kind": "object"
+        },
+        "components.schemas.Maintenance.properties.summary": {
+          "kind": "object"
+        },
+        "components.schemas.Maintenance.properties.summary.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Maintenance.properties.summary.minLength": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Maintenance.properties.summary.maxLength": {
+          "kind": "number",
+          "value": "200",
+          "bound": "max"
+        },
+        "components.schemas.Maintenance.properties.startsAt": {
+          "kind": "object"
+        },
+        "components.schemas.Maintenance.properties.startsAt.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Maintenance.properties.startsAt.format": {
+          "kind": "string",
+          "value": "\"date-time\""
+        },
+        "components.schemas.Maintenance.properties.endsAt": {
+          "kind": "object"
+        },
+        "components.schemas.Maintenance.properties.endsAt.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Maintenance.properties.endsAt.format": {
+          "kind": "string",
+          "value": "\"date-time\""
+        },
+        "components.schemas.Component": {
+          "kind": "object"
+        },
+        "components.schemas.Component.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.Component.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.Component.required": {
+          "kind": "list",
+          "members": [
+            "\"coverage\"",
+            "\"description\"",
+            "\"group\"",
+            "\"id\"",
+            "\"maintenance\"",
+            "\"name\"",
+            "\"order\"",
+            "\"state\"",
+            "\"stateReason\"",
+            "\"uptime\""
+          ]
+        },
+        "components.schemas.Component.properties": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.id": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.id.description": {
+          "kind": "string",
+          "value": "\"A taxonomy id from `x-status-page.taxonomy`. Stable across forks, so the UI may key an icon or a layout decision off it.\""
+        },
+        "components.schemas.Component.properties.id.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Component.properties.id.pattern": {
+          "kind": "string",
+          "value": "\"^[a-z][a-z0-9-]{1,30}$\""
+        },
+        "components.schemas.Component.properties.name": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.name.description": {
+          "kind": "string",
+          "value": "\"What a visitor reads. Never a namespace, a chart or a release name.\""
+        },
+        "components.schemas.Component.properties.name.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Component.properties.name.minLength": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Component.properties.name.maxLength": {
+          "kind": "number",
+          "value": "40",
+          "bound": "max"
+        },
+        "components.schemas.Component.properties.description": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.description.description": {
+          "kind": "string",
+          "value": "\"One sentence a non-operator understands.\""
+        },
+        "components.schemas.Component.properties.description.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Component.properties.description.minLength": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Component.properties.description.maxLength": {
+          "kind": "number",
+          "value": "160",
+          "bound": "max"
+        },
+        "components.schemas.Component.properties.group": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.group.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Component.properties.group.enum": {
+          "kind": "list",
+          "members": [
+            "\"applications\"",
+            "\"platform\""
+          ]
+        },
+        "components.schemas.Component.properties.order": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.order.description": {
+          "kind": "string",
+          "value": "\"Render order within `group`; unique across the taxonomy.\""
+        },
+        "components.schemas.Component.properties.order.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "components.schemas.Component.properties.order.minimum": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Component.properties.state": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.state.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/ComponentState\""
+        },
+        "components.schemas.Component.properties.stateReason": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.stateReason.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/StateReason\""
+        },
+        "components.schemas.Component.properties.coverage": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.coverage.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Coverage\""
+        },
+        "components.schemas.Component.properties.uptime": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.uptime.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Uptime\""
+        },
+        "components.schemas.Component.properties.maintenance": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.maintenance.description": {
+          "kind": "string",
+          "value": "\"The active or next window, or null.\""
+        },
+        "components.schemas.Component.properties.maintenance.oneOf": {
+          "kind": "list"
+        },
+        "components.schemas.Component.properties.maintenance.oneOf.#0": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.maintenance.oneOf.#0.$ref": {
+          "kind": "string",
+          "value": "\"#/components/schemas/Maintenance\""
+        },
+        "components.schemas.Component.properties.maintenance.oneOf.#1": {
+          "kind": "object"
+        },
+        "components.schemas.Component.properties.maintenance.oneOf.#1.type": {
+          "kind": "string",
+          "value": "\"null\""
+        },
+        "components.schemas.Incident": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.Incident.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.Incident.required": {
+          "kind": "list",
+          "members": [
+            "\"componentIds\"",
+            "\"endedAt\"",
+            "\"id\"",
+            "\"runbookUrl\"",
+            "\"severity\"",
+            "\"startedAt\"",
+            "\"state\"",
+            "\"title\""
+          ]
+        },
+        "components.schemas.Incident.properties": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.properties.id": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.properties.id.description": {
+          "kind": "string",
+          "value": "\"Stable for the life of one incident so the UI can key a list and the visitor can link to it. Opaque: not the Alertmanager fingerprint. Alertmanager fingerprints are a hash of the label set, which would let a reader confirm guesses about internal labels.\""
+        },
+        "components.schemas.Incident.properties.id.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Incident.properties.id.minLength": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Incident.properties.id.maxLength": {
+          "kind": "number",
+          "value": "64",
+          "bound": "max"
+        },
+        "components.schemas.Incident.properties.state": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.properties.state.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Incident.properties.state.enum": {
+          "kind": "list",
+          "members": [
+            "\"firing\"",
+            "\"resolved\""
+          ]
+        },
+        "components.schemas.Incident.properties.severity": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.properties.severity.description": {
+          "kind": "string",
+          "value": "\"The alert's own severity. `info` alerts appear in the feed but never move a component's state — see `x-status-page.stateDerivation`.\""
+        },
+        "components.schemas.Incident.properties.severity.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Incident.properties.severity.enum": {
+          "kind": "list",
+          "members": [
+            "\"critical\"",
+            "\"info\"",
+            "\"warning\""
+          ]
+        },
+        "components.schemas.Incident.properties.title": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.properties.title.description": {
+          "kind": "string",
+          "value": "\"The alert's `summary` annotation, curated for a public reader. MUST NOT be assembled from labels: see `x-status-page.redaction`.\""
+        },
+        "components.schemas.Incident.properties.title.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Incident.properties.title.minLength": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "components.schemas.Incident.properties.title.maxLength": {
+          "kind": "number",
+          "value": "200",
+          "bound": "max"
+        },
+        "components.schemas.Incident.properties.componentIds": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.properties.componentIds.description": {
+          "kind": "string",
+          "value": "\"Which components this incident affected. MAY be empty — an alert nobody has mapped yet still belongs in the feed, and its absence from any component is exactly what `no_signal` reports.\""
+        },
+        "components.schemas.Incident.properties.componentIds.type": {
+          "kind": "string",
+          "value": "\"array\""
+        },
+        "components.schemas.Incident.properties.componentIds.items": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.properties.componentIds.items.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Incident.properties.componentIds.items.pattern": {
+          "kind": "string",
+          "value": "\"^[a-z][a-z0-9-]{1,30}$\""
+        },
+        "components.schemas.Incident.properties.startedAt": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.properties.startedAt.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Incident.properties.startedAt.format": {
+          "kind": "string",
+          "value": "\"date-time\""
+        },
+        "components.schemas.Incident.properties.endedAt": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.properties.endedAt.description": {
+          "kind": "string",
+          "value": "\"Null while `state` is `firing`.\""
+        },
+        "components.schemas.Incident.properties.endedAt.type": {
+          "kind": "list",
+          "members": [
+            "\"null\"",
+            "\"string\""
+          ]
+        },
+        "components.schemas.Incident.properties.endedAt.format": {
+          "kind": "string",
+          "value": "\"date-time\""
+        },
+        "components.schemas.Incident.properties.runbookUrl": {
+          "kind": "object"
+        },
+        "components.schemas.Incident.properties.runbookUrl.description": {
+          "kind": "string",
+          "value": "\"Public link to the runbook section for this alert, or null. Nullable because runbook coverage is only now becoming mandatory (ryanmcafee/homelab#462); a contract that required it would be a contract the back end has to lie to.\""
+        },
+        "components.schemas.Incident.properties.runbookUrl.type": {
+          "kind": "list",
+          "members": [
+            "\"null\"",
+            "\"string\""
+          ]
+        },
+        "components.schemas.Incident.properties.runbookUrl.format": {
+          "kind": "string",
+          "value": "\"uri\""
+        },
+        "components.schemas.Signal": {
+          "kind": "object"
+        },
+        "components.schemas.Signal.description": {
+          "kind": "string",
+          "value": "\"One upstream the document was built from, and whether it answered. The UI renders a banner when any signal is `unavailable`, because every green tile below it is then unproven.\""
+        },
+        "components.schemas.Signal.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.Signal.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "components.schemas.Signal.required": {
+          "kind": "list",
+          "members": [
+            "\"id\"",
+            "\"observedAt\"",
+            "\"state\""
+          ]
+        },
+        "components.schemas.Signal.properties": {
+          "kind": "object"
+        },
+        "components.schemas.Signal.properties.id": {
+          "kind": "object"
+        },
+        "components.schemas.Signal.properties.id.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Signal.properties.id.enum": {
+          "kind": "list",
+          "members": [
+            "\"alertmanager\"",
+            "\"prometheus\""
+          ]
+        },
+        "components.schemas.Signal.properties.state": {
+          "kind": "object"
+        },
+        "components.schemas.Signal.properties.state.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Signal.properties.state.enum": {
+          "kind": "list",
+          "members": [
+            "\"available\"",
+            "\"unavailable\""
+          ]
+        },
+        "components.schemas.Signal.properties.observedAt": {
+          "kind": "object"
+        },
+        "components.schemas.Signal.properties.observedAt.description": {
+          "kind": "string",
+          "value": "\"When this signal was last successfully read; null if never.\""
+        },
+        "components.schemas.Signal.properties.observedAt.type": {
+          "kind": "list",
+          "members": [
+            "\"null\"",
+            "\"string\""
+          ]
+        },
+        "components.schemas.Signal.properties.observedAt.format": {
+          "kind": "string",
+          "value": "\"date-time\""
+        },
+        "components.schemas.Problem": {
+          "kind": "object"
+        },
+        "components.schemas.Problem.description": {
+          "kind": "string",
+          "value": "\"RFC 9457 problem details. The UI renders `title` and never `detail`.\""
+        },
+        "components.schemas.Problem.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "components.schemas.Problem.required": {
+          "kind": "list",
+          "members": [
+            "\"status\"",
+            "\"title\"",
+            "\"type\""
+          ]
+        },
+        "components.schemas.Problem.properties": {
+          "kind": "object"
+        },
+        "components.schemas.Problem.properties.type": {
+          "kind": "object"
+        },
+        "components.schemas.Problem.properties.type.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Problem.properties.type.format": {
+          "kind": "string",
+          "value": "\"uri\""
+        },
+        "components.schemas.Problem.properties.title": {
+          "kind": "object"
+        },
+        "components.schemas.Problem.properties.title.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "components.schemas.Problem.properties.status": {
+          "kind": "object"
+        },
+        "components.schemas.Problem.properties.status.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "components.schemas.Problem.properties.detail": {
+          "kind": "object"
+        },
+        "components.schemas.Problem.properties.detail.description": {
+          "kind": "string",
+          "value": "\"The producer MUST NOT put an internal identifier here; this endpoint is unauthenticated, so anything in this field is public whatever the UI does with it. Operator-facing, and the UI does not render it.\""
+        },
+        "components.schemas.Problem.properties.detail.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "x-status-page": {
+          "kind": "object"
+        },
+        "x-status-page.taxonomy": {
+          "kind": "list"
+        },
+        "x-status-page.taxonomy.ingress": {
+          "kind": "object"
+        },
+        "x-status-page.taxonomy.ingress.id": {
+          "kind": "string",
+          "value": "\"ingress\""
+        },
+        "x-status-page.taxonomy.ingress.name": {
+          "kind": "string",
+          "value": "\"Ingress & DNS\""
+        },
+        "x-status-page.taxonomy.ingress.description": {
+          "kind": "string",
+          "value": "\"Whether anything on this cluster can be reached from outside it.\""
+        },
+        "x-status-page.taxonomy.ingress.group": {
+          "kind": "string",
+          "value": "\"platform\""
+        },
+        "x-status-page.taxonomy.ingress.order": {
+          "kind": "number",
+          "value": "1"
+        },
+        "x-status-page.taxonomy.ingress.applications": {
+          "kind": "list",
+          "members": [
+            "\"addons/cert-manager\"",
+            "\"addons/envoy-gateway\"",
+            "\"addons/external-dns-cloudflare\"",
+            "\"addons/external-dns-unifi\"",
+            "\"addons/gateway-api-crds\"",
+            "\"addons/oauth2-proxy\"",
+            "\"addons/tailscale-operator\"",
+            "\"addons/unifi-port-forward\"",
+            "\"applications/duckdns\""
+          ]
+        },
+        "x-status-page.taxonomy.cluster": {
+          "kind": "object"
+        },
+        "x-status-page.taxonomy.cluster.id": {
+          "kind": "string",
+          "value": "\"cluster\""
+        },
+        "x-status-page.taxonomy.cluster.name": {
+          "kind": "string",
+          "value": "\"Cluster Platform\""
+        },
+        "x-status-page.taxonomy.cluster.description": {
+          "kind": "string",
+          "value": "\"The networking, image and node-level services every workload sits on.\""
+        },
+        "x-status-page.taxonomy.cluster.group": {
+          "kind": "string",
+          "value": "\"platform\""
+        },
+        "x-status-page.taxonomy.cluster.order": {
+          "kind": "number",
+          "value": "2"
+        },
+        "x-status-page.taxonomy.cluster.applications": {
+          "kind": "list",
+          "members": [
+            "\"addons/cilium\"",
+            "\"addons/cilium-lb-ipam\"",
+            "\"addons/istio\"",
+            "\"addons/kubelet-csr-approver\"",
+            "\"addons/metrics-server\"",
+            "\"addons/node-feature-discovery\"",
+            "\"addons/spegel\""
+          ]
+        },
+        "x-status-page.taxonomy.data": {
+          "kind": "object"
+        },
+        "x-status-page.taxonomy.data.id": {
+          "kind": "string",
+          "value": "\"data\""
+        },
+        "x-status-page.taxonomy.data.name": {
+          "kind": "string",
+          "value": "\"Databases & Storage\""
+        },
+        "x-status-page.taxonomy.data.description": {
+          "kind": "string",
+          "value": "\"Persistent volumes, the Postgres clusters and their backups.\""
+        },
+        "x-status-page.taxonomy.data.group": {
+          "kind": "string",
+          "value": "\"platform\""
+        },
+        "x-status-page.taxonomy.data.order": {
+          "kind": "number",
+          "value": "3"
+        },
+        "x-status-page.taxonomy.data.applications": {
+          "kind": "list",
+          "members": [
+            "\"addons/cloudnative-pg\"",
+            "\"addons/cnpg-barman-cloud\"",
+            "\"addons/democratic-csi\"",
+            "\"addons/democratic-csi-iscsi\"",
+            "\"addons/democratic-csi-iscsi-hdd\"",
+            "\"addons/democratic-csi-ssd\"",
+            "\"addons/local-path-provisioner\""
+          ]
+        },
+        "x-status-page.taxonomy.observability": {
+          "kind": "object"
+        },
+        "x-status-page.taxonomy.observability.id": {
+          "kind": "string",
+          "value": "\"observability\""
+        },
+        "x-status-page.taxonomy.observability.name": {
+          "kind": "string",
+          "value": "\"Observability\""
+        },
+        "x-status-page.taxonomy.observability.description": {
+          "kind": "string",
+          "value": "\"Metrics, logs and the alerting that produces this page.\""
+        },
+        "x-status-page.taxonomy.observability.group": {
+          "kind": "string",
+          "value": "\"platform\""
+        },
+        "x-status-page.taxonomy.observability.order": {
+          "kind": "number",
+          "value": "4"
+        },
+        "x-status-page.taxonomy.observability.applications": {
+          "kind": "list",
+          "members": [
+            "\"addons/blackbox-exporter\"",
+            "\"addons/github-pr-exporter\"",
+            "\"addons/grafana-config\"",
+            "\"addons/kube-prometheus-stack\"",
+            "\"addons/logging\"",
+            "\"addons/prometheus-config\""
+          ]
+        },
+        "x-status-page.taxonomy.automation": {
+          "kind": "object"
+        },
+        "x-status-page.taxonomy.automation.id": {
+          "kind": "string",
+          "value": "\"automation\""
+        },
+        "x-status-page.taxonomy.automation.name": {
+          "kind": "string",
+          "value": "\"Automation & Agents\""
+        },
+        "x-status-page.taxonomy.automation.description": {
+          "kind": "string",
+          "value": "\"The agent fleet, dependency updates and workflow execution.\""
+        },
+        "x-status-page.taxonomy.automation.group": {
+          "kind": "string",
+          "value": "\"platform\""
+        },
+        "x-status-page.taxonomy.automation.order": {
+          "kind": "number",
+          "value": "5"
+        },
+        "x-status-page.taxonomy.automation.applications": {
+          "kind": "list",
+          "members": [
+            "\"addons/argo-workflows\"",
+            "\"addons/triage-agent\"",
+            "\"applications/paperclip\"",
+            "\"applications/renovate\"",
+            "\"applications/waypoints\""
+          ]
+        },
+        "x-status-page.taxonomy.media": {
+          "kind": "object"
+        },
+        "x-status-page.taxonomy.media.id": {
+          "kind": "string",
+          "value": "\"media\""
+        },
+        "x-status-page.taxonomy.media.name": {
+          "kind": "string",
+          "value": "\"Media\""
+        },
+        "x-status-page.taxonomy.media.description": {
+          "kind": "string",
+          "value": "\"Streaming, the library and everything that fills it.\""
+        },
+        "x-status-page.taxonomy.media.group": {
+          "kind": "string",
+          "value": "\"applications\""
+        },
+        "x-status-page.taxonomy.media.order": {
+          "kind": "number",
+          "value": "6"
+        },
+        "x-status-page.taxonomy.media.applications": {
+          "kind": "list",
+          "members": [
+            "\"applications/flaresolverr\"",
+            "\"applications/lazylibrarian\"",
+            "\"applications/nzbget\"",
+            "\"applications/plex\"",
+            "\"applications/prowlarr\"",
+            "\"applications/radarr\"",
+            "\"applications/sonarr\"",
+            "\"applications/tautulli\""
+          ]
+        },
+        "x-status-page.taxonomy.home-automation": {
+          "kind": "object"
+        },
+        "x-status-page.taxonomy.home-automation.id": {
+          "kind": "string",
+          "value": "\"home-automation\""
+        },
+        "x-status-page.taxonomy.home-automation.name": {
+          "kind": "string",
+          "value": "\"Home Automation\""
+        },
+        "x-status-page.taxonomy.home-automation.description": {
+          "kind": "string",
+          "value": "\"Home Assistant and the MQTT bus its devices speak over.\""
+        },
+        "x-status-page.taxonomy.home-automation.group": {
+          "kind": "string",
+          "value": "\"applications\""
+        },
+        "x-status-page.taxonomy.home-automation.order": {
+          "kind": "number",
+          "value": "7"
+        },
+        "x-status-page.taxonomy.home-automation.applications": {
+          "kind": "list",
+          "members": [
+            "\"applications/homeassistant\"",
+            "\"applications/mosquitto\""
+          ]
+        },
+        "x-status-page.stateDerivation": {
+          "kind": "object"
+        },
+        "x-status-page.stateDerivation.signalDependencies": {
+          "kind": "object"
+        },
+        "x-status-page.stateDerivation.signalDependencies.state": {
+          "kind": "list",
+          "members": [
+            "\"alertmanager\"",
+            "\"prometheus\""
+          ]
+        },
+        "x-status-page.stateDerivation.signalDependencies.uptime": {
+          "kind": "list",
+          "members": [
+            "\"prometheus\""
+          ]
+        },
+        "x-status-page.stateDerivation.signalDependencies.incidents": {
+          "kind": "list",
+          "members": [
+            "\"alertmanager\""
+          ]
+        },
+        "x-status-page.stateDerivation.order": {
+          "kind": "list",
+          "members": [
+            "\"alert_firing\"",
+            "\"no_firing_alerts\"",
+            "\"no_signal\"",
+            "\"signal_unavailable\""
+          ]
+        },
+        "x-status-page.stateDerivation.rules": {
+          "kind": "list"
+        },
+        "x-status-page.stateDerivation.rules.#0": {
+          "kind": "object"
+        },
+        "x-status-page.stateDerivation.rules.#0.reason": {
+          "kind": "string",
+          "value": "\"alert_firing\""
+        },
+        "x-status-page.stateDerivation.rules.#0.when": {
+          "kind": "string",
+          "value": "\"at least one mapped alert is firing\""
+        },
+        "x-status-page.stateDerivation.rules.#0.state": {
+          "kind": "string",
+          "value": "\"worst firing severity via severityToState; info alone does not qualify\""
+        },
+        "x-status-page.stateDerivation.rules.#1": {
+          "kind": "object"
+        },
+        "x-status-page.stateDerivation.rules.#1.reason": {
+          "kind": "string",
+          "value": "\"signal_unavailable\""
+        },
+        "x-status-page.stateDerivation.rules.#1.when": {
+          "kind": "string",
+          "value": "\"any signal in signalDependencies.state reported state=unavailable and no mapped alert is firing\""
+        },
+        "x-status-page.stateDerivation.rules.#1.state": {
+          "kind": "string",
+          "value": "\"unknown\""
+        },
+        "x-status-page.stateDerivation.rules.#2": {
+          "kind": "object"
+        },
+        "x-status-page.stateDerivation.rules.#2.reason": {
+          "kind": "string",
+          "value": "\"no_signal\""
+        },
+        "x-status-page.stateDerivation.rules.#2.when": {
+          "kind": "string",
+          "value": "\"coverage.mappedAlertCount == 0\""
+        },
+        "x-status-page.stateDerivation.rules.#2.state": {
+          "kind": "string",
+          "value": "\"unknown\""
+        },
+        "x-status-page.stateDerivation.rules.#3": {
+          "kind": "object"
+        },
+        "x-status-page.stateDerivation.rules.#3.reason": {
+          "kind": "string",
+          "value": "\"no_firing_alerts\""
+        },
+        "x-status-page.stateDerivation.rules.#3.when": {
+          "kind": "string",
+          "value": "\"coverage.mappedAlertCount > 0 and nothing is firing\""
+        },
+        "x-status-page.stateDerivation.rules.#3.state": {
+          "kind": "string",
+          "value": "\"operational\""
+        },
+        "x-status-page.stateDerivation.severityToState": {
+          "kind": "object"
+        },
+        "x-status-page.stateDerivation.severityToState.critical": {
+          "kind": "string",
+          "value": "\"down\""
+        },
+        "x-status-page.stateDerivation.severityToState.warning": {
+          "kind": "string",
+          "value": "\"degraded\""
+        },
+        "x-status-page.stateDerivation.severityToState.info": {
+          "kind": "null",
+          "value": "null"
+        },
+        "x-status-page.stateDerivation.overall": {
+          "kind": "object"
+        },
+        "x-status-page.stateDerivation.overall.worstFirst": {
+          "kind": "list",
+          "members": [
+            "\"degraded\"",
+            "\"down\"",
+            "\"operational\"",
+            "\"unknown\""
+          ]
+        },
+        "x-status-page.stateDerivation.overall.emptyComponents": {
+          "kind": "string",
+          "value": "\"unknown\""
+        },
+        "x-status-page.stateDerivation.invariants": {
+          "kind": "list",
+          "members": [
+            "\"a component named in the componentIds of a firing incident reads no better than that incident's severityToState, ranked by overall.worstFirst\"",
+            "\"a signalDependencies.state signal being unavailable requires every component with no firing mapped alert to read unknown\"",
+            "\"endedAt == null if and only if state == firing\"",
+            "\"operational requires coverage.mappedAlertCount > 0\"",
+            "\"overall.state is the first of overall.worstFirst held by any component\"",
+            "\"overall.state is unknown when components is empty\"",
+            "\"schemaVersion equals the major in servers[].url and in this file's name\"",
+            "\"stateReason == signal_unavailable requires a signalDependencies.state signal to be unavailable\"",
+            "\"uptime.buckets is empty or exactly uptime.windowDays long\"",
+            "\"uptime.ratio != null requires every bucket present and non-null\"",
+            "\"uptime.ratio != null requires uptime.unavailableReason == null\"",
+            "\"uptime.ratio == null requires a non-null uptime.unavailableReason\"",
+            "\"uptime.unavailableReason == no_sli requires coverage.hasSli == false\"",
+            "\"uptime.unavailableReason == signal_unavailable requires a signalDependencies.uptime signal to be unavailable\""
+          ]
+        },
+        "x-status-page.redaction": {
+          "kind": "object"
+        },
+        "x-status-page.redaction.rule": {
+          "kind": "string",
+          "value": "\"The back end projects alerts onto this document. It never passes an alert through. `title` is the `summary` annotation and nothing else; no field is assembled from labels.\""
+        },
+        "x-status-page.redaction.forbiddenInResponse": {
+          "kind": "list",
+          "members": [
+            "\"Alertmanager fingerprints, which are a hash of the label set\"",
+            "\"Alertmanager label values, in particular instance, pod, node, namespace and job\"",
+            "\"Internal hostnames, cluster-internal DNS names and IP addresses\"",
+            "\"PromQL, metric names and label names, including the SLI query behind uptime\""
+          ]
+        },
+        "x-status-page.redaction.why": {
+          "kind": "string",
+          "value": "\"A public reader who can see the metric name and the instance label of a firing alert has an inventory of the cluster. The uptime number is the product; the query that produced it is not.\""
+        },
+        "x-status-page.deferred": {
+          "kind": "list"
+        },
+        "x-status-page.deferred.subscriptions": {
+          "kind": "object"
+        },
+        "x-status-page.deferred.subscriptions.id": {
+          "kind": "string",
+          "value": "\"subscriptions\""
+        },
+        "x-status-page.deferred.subscriptions.what": {
+          "kind": "string",
+          "value": "\"subscribe/unsubscribe to status changes, and the delivery of them\""
+        },
+        "x-status-page.deferred.subscriptions.why": {
+          "kind": "string",
+          "value": "\"It is a PII store and an abuse surface behind an unauthenticated endpoint — double opt-in, an unsubscribe token, rate limiting and a mail or push provider as a BYO seam. None of that is a rendering decision, and shipping the form before the endpoint is how a status page loses trust. `features. subscriptions` is false for all of v1 so the UI ships no dead control.\""
+        },
+        "x-status-page.deferred.per-incident-detail": {
+          "kind": "object"
+        },
+        "x-status-page.deferred.per-incident-detail.id": {
+          "kind": "string",
+          "value": "\"per-incident-detail\""
+        },
+        "x-status-page.deferred.per-incident-detail.what": {
+          "kind": "string",
+          "value": "\"a permalink page per incident with a timeline of updates\""
+        },
+        "x-status-page.deferred.per-incident-detail.why": {
+          "kind": "string",
+          "value": "\"Needs written incident updates, which needs somewhere to write them. Additive when it lands: a new endpoint, not a change to this document.\""
+        },
+        "x-status-page.deferred.sse": {
+          "kind": "object"
+        },
+        "x-status-page.deferred.sse.id": {
+          "kind": "string",
+          "value": "\"sse\""
+        },
+        "x-status-page.deferred.sse.what": {
+          "kind": "string",
+          "value": "\"push instead of poll\""
+        },
+        "x-status-page.deferred.sse.why": {
+          "kind": "string",
+          "value": "\"Additive if the poll cadence ever proves too slow. It is not today: the data moves on Prometheus' evaluation interval.\""
+        },
+        "x-status-page.enforcement": {
+          "kind": "list"
+        },
+        "x-status-page.enforcement.#0": {
+          "kind": "object"
+        },
+        "x-status-page.enforcement.#0.check": {
+          "kind": "string",
+          "value": "\"This document is internally consistent, and every fixture satisfies both the schema and the invariants above.\""
+        },
+        "x-status-page.enforcement.#0.where": {
+          "kind": "string",
+          "value": "\"scripts/status-contract_test.ts, in task test:scripts\""
+        },
+        "x-status-page.enforcement.#0.status": {
+          "kind": "string",
+          "value": "\"implemented by this change\""
+        },
+        "x-status-page.enforcement.#1": {
+          "kind": "object"
+        },
+        "x-status-page.enforcement.#1.check": {
+          "kind": "string",
+          "value": "\"Every application named in the taxonomy exists as a chart template.\""
+        },
+        "x-status-page.enforcement.#1.where": {
+          "kind": "string",
+          "value": "\"scripts/status-contract_test.ts\""
+        },
+        "x-status-page.enforcement.#1.status": {
+          "kind": "string",
+          "value": "\"implemented by this change\""
+        },
+        "x-status-page.enforcement.#2": {
+          "kind": "object"
+        },
+        "x-status-page.enforcement.#2.check": {
+          "kind": "string",
+          "value": "\"Every user-facing application shipped by this repository is mapped to some component.\""
+        },
+        "x-status-page.enforcement.#2.where": {
+          "kind": "string",
+          "value": "\"not implemented\""
+        },
+        "x-status-page.enforcement.#2.status": {
+          "kind": "string",
+          "value": "\"Specified, not implemented. It would put this contract in the path of every application pull request, which is a cost to take deliberately and with the status page actually shipping. It belongs with the back end implementation.\""
+        },
+        "x-status-page.enforcement.#3": {
+          "kind": "object"
+        },
+        "x-status-page.enforcement.#3.check": {
+          "kind": "string",
+          "value": "\"The served response satisfies this schema, and the redaction rules hold on real alert data.\""
+        },
+        "x-status-page.enforcement.#3.where": {
+          "kind": "string",
+          "value": "\"not implemented\""
+        },
+        "x-status-page.enforcement.#3.status": {
+          "kind": "string",
+          "value": "\"Specified, not implemented — there is no implementation to test yet. This is the back end's own contract test, and it is the acceptance criterion for it.\""
+        }
+      }
+    }
+  }
+}
