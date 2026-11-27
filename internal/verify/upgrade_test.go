@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -704,5 +705,35 @@ func TestFinishJobReportsVersionOnly(t *testing.T) {
 	}
 	if !containsLine(c.Findings, "+        - image: quay.io/argoproj/argocli:v4.1.0") {
 		t.Errorf("the version-only diff must still be reported: %v", c.Findings)
+	}
+}
+
+func TestUpgradeRendersHeadForEachEnvsRunningCluster(t *testing.T) {
+	root := writeClusterVersionFixture(t, "locals {\n  kubernetes_version = \"v1.32.0\"\n}\n")
+	base := map[string]string{"applications": app("nzbget", "oci.trueforge.org/truecharts", "nzbget", "30.1.1", "a: 1")}
+	head := map[string]string{"applications": app("nzbget", "oci.trueforge.org/truecharts", "nzbget", "32.0.0", "a: 1")}
+	r := &fakeUpgradeRunner{
+		sha: "0123456789abcdef0123456789abcdef01234567",
+		manifests: map[string]string{
+			"oci://oci.trueforge.org/truecharts/nzbget@30.1.1": deployment("nzbget", "n:1", "1"),
+			"oci://oci.trueforge.org/truecharts/nzbget@32.0.0": deployment("nzbget", "n:2", "2"),
+		},
+	}
+	localdev, _ := EnvByName("localdev")
+	homelab, _ := EnvByName("homelab")
+	Upgrade(context.Background(), UpgradeOptions{
+		Runner: r, RepoRoot: root, BaseRef: "origin/main", WorkDir: t.TempDir(),
+		Envs: []Env{localdev, homelab}, Render: fakeRender(base, head, nil),
+	})
+
+	var got []string
+	for _, c := range r.helmCalls() {
+		if flagValue(c.Args, "--version") == "32.0.0" {
+			got = append(got, flagValue(c.Args, "--kube-version"))
+		}
+	}
+	sort.Strings(got)
+	if want := []string{"1.32.0", "1.36.1"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("head --kube-version per env = %v, want %v", got, want)
 	}
 }

@@ -313,6 +313,12 @@ These are documented errors with known solutions:
 - **Solution**: Set the localdev architecture selector to `""`. The TrueCharts common pod template skips empty selector values, so the rendered Deployment has no architecture pin and schedules on amd64 or arm64.
 - **Verification**: Rendered the NZBGet 32.0.0 child chart with the parent Application's exact localdev values and confirmed no Deployment node selector; `task verify:text` passed.
 
+### 2026-11-26 - NZBGet 32.0.0 does not render on the production cluster
+- **Issue**: the `nzbget` Application showed `ComparisonError`: `chart requires kubeVersion: >=1.33.0-0 which is incompatible with Kubernetes v1.32.0`. TrueCharts nzbget 30.2.1 and later require Kubernetes 1.33.
+- **Root Cause**: `verify upgrade` and the localdev nzbget schema check passed `--kube-version` from `versions.yaml` `tools.kubernetes` (the upgrade target, 1.37), not the version the cluster runs, so CI rendered the chart successfully.
+- **Solution**: pinned nzbget to 30.1.1 (NZBGet 26.1.0), the newest chart that supports 1.32. Upstream renders now use the running cluster's version: `env.hcl` `kubernetes_version` for homelab, `images.kind-node` for localdev.
+- **Prevention**: a chart bump that needs a newer Kubernetes than production runs now fails `upgrade/homelab/<app>` in `upgrade.yml`. Move nzbget to 32.x after the cluster reaches 1.33.
+
 ### 2026-09-13 - Kind's bundled local-path-provisioner collided with the chart-managed one
 - **Issue**: the `local-path-provisioner` addon Application failed to sync in Kind: `Deployment.apps "local-path-provisioner" is invalid: spec.selector ... field is immutable`
 - **Root Cause**: every Kind cluster ships rancher local-path-provisioner in `local-path-storage` with the same Deployment name as the containeroo chart, and the selector differs

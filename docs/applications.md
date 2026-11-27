@@ -124,7 +124,7 @@ from the same chart (`namespaces.yaml`, `oci-repositories.yaml`).
 | `litellm-dependencies` | `charts/litellm-dependencies` | git | — | — | — |
 | `mosquitto` | `mosquitto` | 17.17.2 | — | mosquitto | — |
 | `mosquitto-config` | `charts/mosquitto-config` | git | — | — | — |
-| `nzbget` | `nzbget` | 32.0.0 | envoy-internal: nzbget | nzbget | smoke-nzbget |
+| `nzbget` | `nzbget` | 30.1.1 | envoy-internal: nzbget | nzbget | smoke-nzbget |
 | `nzbget-config` | `charts/nzbget-config` | git | — | — | — |
 | `paperclip` | `charts/paperclip` | git | envoy-internal: paperclip | paperclip | smoke-paperclip |
 | `paperclip-database` | `charts/paperclip-database` | git | — | — | — |

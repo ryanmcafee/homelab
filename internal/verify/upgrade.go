@@ -247,27 +247,26 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) (*UpgradeOutput, *Result)
 		}
 	}
 	var (
-		wg                 sync.WaitGroup
-		baseOut, headOut   *RenderOutput
-		baseRes, headRes   *Result
-		baseKube, headKube string
+		wg               sync.WaitGroup
+		baseOut, headOut *RenderOutput
+		baseRes, headRes *Result
 	)
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		baseOut, baseRes = opts.Render(ctx, renderOpts(baseRoot, "base"))
-		// Each side renders upstream charts for its own tools.kubernetes.
-		baseKube, _ = KubernetesVersion(baseRoot)
 	}()
 	go func() {
 		defer wg.Done()
 		headOut, headRes = opts.Render(ctx, renderOpts(opts.RepoRoot, "head"))
-		headKube, _ = KubernetesVersion(opts.RepoRoot)
 	}()
 	wg.Wait()
 
 	var jobs []*upgradeJob
 	for _, env := range opts.Envs {
+		// Each side renders upstream charts for the Kubernetes version its env's cluster runs.
+		baseKube, _ := ClusterKubernetesVersion(baseRoot, env.Name)
+		headKube, _ := ClusterKubernetesVersion(opts.RepoRoot, env.Name)
 		headFailed, headFindings := failedRenders(headRes, env.Name)
 		baseFailed, baseFindings := failedRenders(baseRes, env.Name)
 		if len(headFindings) > 0 {
@@ -306,7 +305,7 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) (*UpgradeOutput, *Result)
 		for _, key := range unionKeys(baseSrc, headSrc) {
 			b, bok := baseSrc[key]
 			h, hok := headSrc[key]
-			j := &upgradeJob{item: UpgradeItem{Check: fmt.Sprintf("upgrade/%s/%s", env.Name, key), Env: env.Name, Key: key}}
+			j := &upgradeJob{baseKube: baseKube, headKube: headKube, item: UpgradeItem{Check: fmt.Sprintf("upgrade/%s/%s", env.Name, key), Env: env.Name, Key: key}}
 			if bok {
 				j.item.Base = &b
 			}
@@ -343,10 +342,10 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) (*UpgradeOutput, *Result)
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			if j.item.Base != nil {
-				j.baseOut, j.baseErr = renderUpstream(ctx, opts.Runner, opts.WorkDir, *j.item.Base, baseKube, j.baseDir)
+				j.baseOut, j.baseErr = renderUpstream(ctx, opts.Runner, opts.WorkDir, *j.item.Base, j.baseKube, j.baseDir)
 			}
 			if j.item.Head != nil {
-				j.headOut, j.headErr = renderUpstream(ctx, opts.Runner, opts.WorkDir, *j.item.Head, headKube, j.headDir)
+				j.headOut, j.headErr = renderUpstream(ctx, opts.Runner, opts.WorkDir, *j.item.Head, j.headKube, j.headDir)
 			}
 		}(j)
 	}
@@ -370,12 +369,13 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) (*UpgradeOutput, *Result)
 
 // upgradeJob is one chart source comparison in flight.
 type upgradeJob struct {
-	item             UpgradeItem
-	done             *Check
-	render           bool
-	baseDir, headDir string
-	baseOut, headOut []byte
-	baseErr, headErr *upstreamError
+	item               UpgradeItem
+	done               *Check
+	render             bool
+	baseDir, headDir   string
+	baseKube, headKube string
+	baseOut, headOut   []byte
+	baseErr, headErr   *upstreamError
 }
 
 // upstreamError is a failed upstream render with helm's stderr.

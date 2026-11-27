@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/ryanmcafee/homelab/internal/config"
@@ -115,6 +116,33 @@ func KubernetesVersion(repoRoot string) (string, error) {
 		return "", fmt.Errorf("configuration/versions.yaml: tools.kubernetes is not set")
 	}
 	return strings.TrimPrefix(strings.TrimSpace(k), "v"), nil
+}
+
+var envHCLKubernetesVersion = regexp.MustCompile(`(?m)^\s*kubernetes_version\s*=\s*"([^"]+)"`)
+
+// ClusterKubernetesVersion returns the Kubernetes version env's cluster runs, the one ArgoCD passes to helm template.
+func ClusterKubernetesVersion(repoRoot, env string) (string, error) {
+	if env == "localdev" {
+		v, err := config.LoadVersions(filepath.Join(repoRoot, "configuration", "versions.yaml"))
+		if err != nil {
+			return "", err
+		}
+		node := strings.TrimSpace(v.Images["kind-node"])
+		if node == "" {
+			return "", fmt.Errorf("configuration/versions.yaml: images.kind-node is not set")
+		}
+		return strings.TrimPrefix(node, "v"), nil
+	}
+	const envHCL = "terragrunt/environments/homelab/env.hcl"
+	body, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(envHCL)))
+	if err != nil {
+		return "", err
+	}
+	m := envHCLKubernetesVersion.FindSubmatch(body)
+	if m == nil {
+		return "", fmt.Errorf("%s: kubernetes_version is not set", envHCL)
+	}
+	return strings.TrimPrefix(string(m[1]), "v"), nil
 }
 
 // SchemaVersion returns the X.Y.0 kubeconform schema set for k8sVersion; patch releases never change the API.

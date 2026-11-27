@@ -107,3 +107,50 @@ func TestIsShimMissing(t *testing.T) {
 		})
 	}
 }
+
+func writeClusterVersionFixture(t *testing.T, envHCL string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "configuration"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "configuration", "versions.yaml"),
+		[]byte("charts: {}\nimages:\n  kind-node: \"v1.36.1\"\ntools:\n  kubernetes: \"v1.37.1\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if envHCL != "" {
+		dir := filepath.Join(root, "terragrunt", "environments", "homelab")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "env.hcl"), []byte(envHCL), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+func TestClusterKubernetesVersionReadsTheRunningClusterPerEnv(t *testing.T) {
+	root := writeClusterVersionFixture(t, "locals {\n  talos_version      = \"v1.12.2\"\n  kubernetes_version = \"v1.32.0\"\n}\n")
+	tests := []struct{ env, want string }{
+		{"localdev", "1.36.1"},
+		{"homelab", "1.32.0"},
+		{"homelab-preview", "1.32.0"},
+	}
+	for _, tt := range tests {
+		got, err := ClusterKubernetesVersion(root, tt.env)
+		if err != nil {
+			t.Fatalf("%s: %v", tt.env, err)
+		}
+		if got != tt.want {
+			t.Errorf("ClusterKubernetesVersion(%q) = %q, want %q", tt.env, got, tt.want)
+		}
+	}
+}
+
+func TestClusterKubernetesVersionMissingPinIsError(t *testing.T) {
+	root := writeClusterVersionFixture(t, "locals {\n  talos_version = \"v1.12.2\"\n}\n")
+	if _, err := ClusterKubernetesVersion(root, "homelab"); err == nil {
+		t.Fatal("expected error when env.hcl has no kubernetes_version")
+	}
+}
