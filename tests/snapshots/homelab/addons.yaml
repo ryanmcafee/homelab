@@ -2508,7 +2508,7 @@ spec:
   source:
     repoURL: https://kubernetes-sigs.github.io/external-dns/
     chart: external-dns
-    targetRevision: 1.21.1
+    targetRevision: 1.24.0
     helm:
       releaseName: external-dns-cloudflare-crd
       values: |
@@ -2573,7 +2573,7 @@ spec:
   source:
     repoURL: https://kubernetes-sigs.github.io/external-dns/
     chart: external-dns
-    targetRevision: 1.21.1
+    targetRevision: 1.24.0
     helm:
       releaseName: external-dns-cloudflare
       values: |
@@ -2687,7 +2687,7 @@ spec:
   source:
     repoURL: https://kubernetes-sigs.github.io/external-dns/
     chart: external-dns
-    targetRevision: 1.21.1
+    targetRevision: 1.24.0
     helm:
       releaseName: external-dns-unifi-crd
       values: |
@@ -2781,7 +2781,7 @@ spec:
   source:
     repoURL: https://kubernetes-sigs.github.io/external-dns/
     chart: external-dns
-    targetRevision: 1.21.1
+    targetRevision: 1.24.0
     helm:
       releaseName: external-dns-unifi-ingress
       values: |

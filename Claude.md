@@ -178,7 +178,7 @@ charts:
   # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
   cert-manager: "v1.21.3"
   # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
-  external-dns: "1.21.1"
+  external-dns: "1.24.0"
   # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
   kube-prometheus-stack: "87.1.0"
   # CRD-only companion chart installed by the bootstrap chart (wave -1) so ServiceMonitors can
