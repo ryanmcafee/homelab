@@ -655,6 +655,7 @@ These are documented errors with known solutions:
 - **Cause**: `cmdDiagnose` called `isReady(app, false)` and returned before namespace collection.
 - **Fix**: Require sync readiness in diagnosis; print `status.sync.status` and full sync detail, then collect destination namespace evidence. Preserve the existing new-empty-chart exception.
 - **Verification**: Command regression fails for OutOfSync before the fix and passes after; Synced control stays quiet. QA verified the real CI Diagnostics entrypoint names drift and collects namespace evidence while Kind level 2 permits sync-only drift (ADR-012; MCAA-470).
+
 ### 2026-09-25 - Fresh clones cannot bootstrap pipx/npm tools (issue #331)
 
 - **Cause**: `mise.toml` declared pipx/npm packages without their Python, pipx and Node runtimes. `installTools` discarded the stderr that identified the missing backend.
