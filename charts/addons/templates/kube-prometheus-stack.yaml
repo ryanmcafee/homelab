@@ -279,6 +279,7 @@ spec:
                   matchers:
                     - alertname !~ "TriageAgent.+"
                     - service != "triage-agent"
+                    - namespace != "{{ $triage.namespace }}"
                   continue: true
                 {{- end }}
                 {{- if and $notify.enabled $githubPR.enabled }}

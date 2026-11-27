@@ -14,7 +14,7 @@ exhausts it in about 50 hours, which is why the fast tier pages and the slow tie
 
 > **Status: the rules are deployed; the canary template is not.** The `platform-red-v1` group
 > ships in `charts/addons/templates/kube-prometheus-stack.yaml`, is unit-tested by
-> `tests/alerts/platform-red-slo.test.yaml` and `platform-red-slo-budget.test.yaml` (`task test:alerts`), and the Kind suite
+> `tests/alerts/platform-red-slo.test.yaml`, `platform-red-slo-budget.test.yaml` and `platform-red-slo-slow.test.yaml` (`task test:alerts`), and the Kind suite
 > `tests/e2e/triage-agent` fires `PlatformRequestErrorBudgetBurningFast` against the triage agent
 > intake, the first service to emit `platform_request_duration_seconds`. The `red-v1-canary`
 > template ships with the first Rollout that uses it.

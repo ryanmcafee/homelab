@@ -189,7 +189,7 @@ Two clauses it must carry:
 Every alert rule written against this contract gets a `promtool` unit test in `tests/alerts/` --
 an alert rule that has never fired in a test is not an alert rule. `task test:alerts` runs them in
 PR CI against the rules the addons chart renders; the RED rules are in the `platform-red-v1`
-group and tested by `tests/alerts/platform-red-slo.test.yaml`.
+group and tested by `tests/alerts/platform-red-slo.test.yaml` and `platform-red-slo-slow.test.yaml`.
 
 ## 6. A worked canary AnalysisTemplate
 
