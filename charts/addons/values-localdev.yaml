@@ -1147,7 +1147,7 @@ intel-gpu-device-plugin:
   chart:
     name: intel-device-plugins-gpu
     repo: https://intel.github.io/helm-charts
-    version: "0.37.1"
+    version: "0.37.2"
 
 # ============================================================================
 # Intel Device Plugins Operator - installs CRDs + reconciler for GpuDevicePlugin
