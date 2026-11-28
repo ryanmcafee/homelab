@@ -3254,7 +3254,7 @@ spec:
       valuesObject:
         namespace: observability
         database: otel
-        image: clickhouse/clickhouse-server:26.11.3.10
+        image: clickhouse/clickhouse-server:26.11.5.8
         networkNames: ""
         resources:
           limits:

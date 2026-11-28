@@ -1638,7 +1638,7 @@ logging:
           memory: 256Mi
     # charts/clickhouse values (the parent passes them through valuesObject).
     server:
-      image: "clickhouse/clickhouse-server:26.11.3.10"
+      image: "clickhouse/clickhouse-server:26.11.5.8"
       # Block storage like the PostgreSQL clusters: ClickHouse fsyncs and
       # renames parts constantly, which NFS serves badly.
       storageClass: local-path

@@ -3220,7 +3220,7 @@ spec:
             fsGroup: 101
           containers:
             - name: clickhouse
-              image: clickhouse/clickhouse-server:26.11.3.10
+              image: clickhouse/clickhouse-server:26.11.5.8
               resources:
                 limits:
                   cpu: "2"
