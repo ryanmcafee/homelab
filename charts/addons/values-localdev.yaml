@@ -1721,7 +1721,7 @@ blackbox-exporter:
   chart:
     name: prometheus-blackbox-exporter
     repo: https://prometheus-community.github.io/helm-charts
-    version: "11.26.2"
+    version: "12.0.0"
   # Every 15 s: through DNS and the internal Envoy Gateway (in-cluster, so the
   # LB address resolves but Cilium short-circuits it to the Envoy pods without
   # the L2/BGP hop) and straight to the pod's Service, so a failure names the hop.
