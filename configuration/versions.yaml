@@ -141,7 +141,7 @@ images:
   # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
   cloudnative-pg-postgresql: "18.6"
   # renovate: datasource=docker depName=clickhouse/clickhouse-server
-  clickhouse-server: "26.11.3.10"
+  clickhouse-server: "26.11.5.8"
   # The one image every LiteLLM container runs (gateway, backend, ui, migrations): it has to
   # move with charts.litellm above, whose appVersion is exactly this value.
   # renovate: datasource=docker depName=ghcr.io/berriai/litellm
