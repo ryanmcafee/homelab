@@ -62,7 +62,7 @@ prometheus-operator-crds:
     name: prometheus-operator-crds
     repo: https://prometheus-community.github.io/helm-charts
     # renovate: datasource=helm depName=prometheus-operator-crds registryUrl=https://prometheus-community.github.io/helm-charts
-    version: "30.0.1"
+    version: "33.0.2"
 
 # ============================================================================
 # ArgoCD - Self-Management (Bootstrap -> Addon handoff)
