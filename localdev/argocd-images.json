@@ -1,8 +1,8 @@
 {
   "chart": "argo-cd",
-  "version": "9.7.1",
+  "version": "10.20.0",
   "images": [
-    "docker.io/library/redis:8.2.3-alpine",
-    "quay.io/argoproj/argocd:v3.4.4"
+    "docker.io/library/redis:8.6.4-alpine",
+    "quay.io/argoproj/argocd:v3.6.3"
   ]
 }

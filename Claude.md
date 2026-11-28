@@ -172,7 +172,7 @@ render time through the CMP (`homelab config export`) and localdev through the c
 
 charts:
   # renovate: datasource=helm depName=argo-cd registryUrl=https://argoproj.github.io/argo-helm
-  argocd: "9.7.1"
+  argocd: "10.20.0"
   # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
   cilium: "1.20.5"
   # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
