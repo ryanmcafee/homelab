@@ -6,7 +6,7 @@
 # Runtimes for the pipx:* and npm:* tools below.
 python = "3.13.15"
 pipx = "1.17.6"
-node = "24.21.0"
+node = "26.13.1"
 
 # Infrastructure as Code
 terraform = "1.17.2"
