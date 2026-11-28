@@ -230,7 +230,7 @@ charts:
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/prowlarr
   prowlarr: "22.1.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/nzbget
-  nzbget: "30.1.1"
+  nzbget: "30.2.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/tautulli
   tautulli: "22.2.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/lazylibrarian
