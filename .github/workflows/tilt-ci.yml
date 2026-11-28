@@ -169,7 +169,7 @@ jobs:
 
       # level 2 includes level 0, so the level-0 tools come along.
       - name: Install go, helm, bun, kind, kubectl, argocd, chainsaw, tilt, task, kubeconform, conftest, pluto from mise.toml
-        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+        uses: jdx/mise-action@3277a0f272901982804abc53abd93520db809be4 # v5.4.0
         with:
           install_args: go helm bun kind kubectl argocd aqua:kyverno/chainsaw tilt task kubeconform conftest pluto
 
@@ -410,7 +410,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install go, helm, bun, kind, kubectl, tilt, task from mise.toml
-        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+        uses: jdx/mise-action@3277a0f272901982804abc53abd93520db809be4 # v5.4.0
         with:
           install_args: go helm bun kind kubectl tilt task
 
@@ -476,7 +476,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install yamllint from mise.toml
-        uses: jdx/mise-action@924e7c586e33d7d4bae9c14e26c5d22e2beb6e78 # v5.3.0
+        uses: jdx/mise-action@3277a0f272901982804abc53abd93520db809be4 # v5.4.0
         with:
           install_args: python pipx pipx:yamllint
 
