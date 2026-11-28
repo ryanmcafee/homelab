@@ -180,14 +180,14 @@ charts:
   # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
   external-dns: "1.24.0"
   # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
-  kube-prometheus-stack: "87.21.0"
+  kube-prometheus-stack: "94.2.0"
   # CRD-only companion chart installed by the bootstrap chart (wave -1) so ServiceMonitors can
   # render before kube-prometheus-stack (addons wave 9). Its appVersion must be the
   # prometheus-operator version kube-prometheus-stack bundles (87.1.0 -> v0.92.0 -> 30.0.0);
   # Renovate bumps the two in one "Monitoring stack" PR (.github/renovate.json5); never
   # move the CRDs behind the operator by hand.
   # renovate: datasource=helm depName=prometheus-operator-crds registryUrl=https://prometheus-community.github.io/helm-charts
-  prometheus-operator-crds: "30.0.1"
+  prometheus-operator-crds: "33.0.2"
   # One key for gateway-helm and gateway-crds-helm: Envoy Gateway releases both charts together.
   # renovate: datasource=docker depName=docker.io/envoyproxy/gateway-helm
   envoy-gateway: "1.10.0"

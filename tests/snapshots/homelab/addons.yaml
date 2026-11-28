@@ -3422,7 +3422,7 @@ spec:
   source:
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
-    targetRevision: 87.21.0
+    targetRevision: 94.2.0
     helm:
       releaseName: kube-prometheus-stack
       values: |
